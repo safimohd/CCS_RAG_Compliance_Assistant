@@ -1,0 +1,82 @@
+S-12015/20/2020-NHA (HN & QA)
+Government of India
+National Health Authority
+
+OFFICE MEMORANDUM
+
+Sub: Mandatory COVID-19 testing of SARI cases under AB PM-JAY
+The Packages for ‘Testing for COVID-19’ have been made live in TMS.
+
+In view of the ongoing Pandemic of COVID-1 9, it is imperative that the system starts capturing
+the COVID-19 status of the individuals who are likely to be suffering from the infection. The
+WHO global influenza surveillance standards define the surveillance case definitions! for
+influenza-like illness (ILI) and severe acute respiratory infections (SARI) as follows:
+
+ILI is an acute respiratory infection with: Measured fever of > 38 C° and cough; with onset
+within the last 10 days.
+
+SARI is an acute respiratory infection with: History of fever or measured fever of > 38 C°; and
+cough; with onset within the last 10 days; and requires hospitalization,
+
+Since ILI cases do not require hospitalisation, they are unlikely to seek treatment under
+AB PM-JAY, however PM-JAY beneficiaries having SARI may be getting admitted under
+AB PM-JAY. It is an Opportunity to test the infection status of these patients. Hence, till the
+time pandemic is going on, testing for COVID-19 is made mandatory under AB PM-JAY for
+any case getting admitted for following packages:
+
+¢ Pneumonia
+
+e Severe Pneumonia
+
+e Respiratory Failure due to any cause
+
+e Type 1/2 Respiratory Failure
+
+e Any other package which may fit into the latest guidelines of ICMR/MoHF W/State
+Government issued from time to time on the subject of 'whom to test’.
+
+SHAs are requested to identify packages in their respective state specific package list which
+may fit into the definition of SARI and make the ‘Testing for COVID-19° mandatory for them.
+Claims for such packages may not be paid by SHAs unless these COVID-19 testing is done
+wherever indicated. If any such packages are identified by SHA the list may be communicated
+to NHA so that necessary IT changes can be made. NHA shall be reviewing and keeping watch
+on utilization of the ‘Testing for COVID-19” package in all states/UTs.
+
+Copy of latest guidelines of ICMR, dated 9th April 2020 is enclosed (as annex-1). SHAs and
+EHCPs are requested to keep themselves informed about guidelines by regularly visiting
+websites of MOHFW and ICMR.
+
+acs
+
+Dated: 13.04.2020 (Dr. Arun Gupta) \5
+Encl: As above Executive Director
+HN & QA
+
+‘ http
+
+s:/www.who. int/influenza/surveillance monitoring/ili_sari_surveillance case definition/en/
+
+O
+
+
+Annex -1
+OM no. S-12015/20/2020-NHA (HN & QA), dated 13.04.2020
+
+INDIAN COUNCIL OF MEDICAL RESEARCH
+DEPARTMENT OF HEALTH RESEARCH
+
+Strategy for COVID19 testing in India (Version 4, dated 09/04/2020)
+
+1. All symptomatic individuals who have undertaken international travel in the last
+14 days
+2. All symptomatic contacts of laboratory confirmed cases
+3. All symptomatic health care workers
+4. All patients with Severe Acute Respiratory Illness (fever AND cough and/or
+shortness of breath)
+5. Asymptomatic direct and high-risk contacts of a confirmed case should be tested
+once between day 5 and day 14 of coming in his/her contact
+In hotspots/cluster (as per MoHFW) and in large migration gatherings/
+evacuees centres
+6. All symptomatic ILI (fever, cough, sore throat, runny nose)
+a. Within 7 days of illness - rRT-PCR
+b. After 7 days of illness - Antibody test (If negative, confirmed by rRT-PCR)

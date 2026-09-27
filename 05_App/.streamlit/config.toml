@@ -1,0 +1,25 @@
+# Streamlit configuration for the Compliance Assistant.
+# Read automatically when `streamlit run app.py` is launched from 05_App/.
+
+[server]
+# Streamlit's file watcher walks every loaded module looking for __path__.
+# That trips transformers' lazy-import machinery into importing ZoeDepth's
+# image processor, which needs torchvision - not installed, and not worth
+# installing (large download, risks upgrading torch).
+#
+# The resulting traceback is noise rather than a crash, but it reappears
+# constantly and would clutter the console during a demo. Nothing in this
+# app needs hot-reload while it is being demonstrated.
+fileWatcherType = "none"
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+# A restrained, institutional palette. Set here rather than forced through CSS
+# so Streamlit's own widgets inherit it instead of fighting it.
+base = "light"
+primaryColor = "#1B4F8C"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F3F6FA"
+textColor = "#16202E"

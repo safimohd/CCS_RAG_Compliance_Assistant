@@ -1,0 +1,19 @@
+# Indian Regulatory Compliance Intelligence Assistant - ingestion
+langchain-core>=0.3.0
+langchain-text-splitters>=0.3.0
+langchain-huggingface>=0.1.0
+langchain-chroma>=0.1.4
+chromadb>=0.5.0
+sentence-transformers>=3.0.0
+pypdf>=4.0.0
+
+openai>=1.40.0
+streamlit>=1.38.0
+
+# Evaluation runner: reads and writes the benchmark workbooks in place.
+openpyxl>=3.1.0
+
+# Deployment only. Chroma needs SQLite >= 3.35; Streamlit Community Cloud's
+# image ships an older system sqlite3. app.py shims this in before chromadb
+# loads. Linux-only - it has no Windows wheel, and Windows sqlite3 is fine.
+pysqlite3-binary>=0.5.0; sys_platform == "linux"

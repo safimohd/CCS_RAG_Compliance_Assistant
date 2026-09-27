@@ -1,0 +1,112 @@
+S-12019/52/2020-NHA
+Government of India
+Ministry of Health & Family Welfare
+(National Health Authority)
+9th Floor, Tower-1,
+Jeevan Bharti, Connaught Place,
+New Delhi-110 001
+
+Dated: 1st November, 2021
+OFFICE MEMORANDUM
+
+Subject: Regarding increase in the maximum age of children for whom the
+Aadhaar authentication by parents may be used for availing the services
+under PM-JAY
+
+As per current policy of Ayushman Bharat PM-JAY, any child upto the
+age of 1 year can avail treatment at empanelled hospitals under the scheme
+using their parents’ Ayushman card. Parents are also required to undergo
+Aadhaar based authentication for the purposes of e-KYC at the time of seeking
+services under AB PM-JAY for their children of age less than 5 years.
+
+2. However, on the basis of feedback received from certain State Health
+Agencies, it has been decided to revise this process as follows:
+
+Sl. |Age Category {BIS Provision on TMS
+
+No
+
+1 O-6 months a) Beneficiary a) Treatment can be availed
+verification of the using parents’ Ayushman
+child is not card .
+required b) Data to be filled up in
+
+TMS: Child’s name, DoB,
+Gender and_ attaching
+necessary document as
+proof of the parent-child
+relationship
+
+c) Document as the proof of
+parent-child relationship
+may be waived off in case
+of new born & neonate
+
+d) One of the parents have to
+
+Aadhaar authenticate
+themselves
+2 [Above 6 Months| a) Beneficiary a) Children would be
+
+L 5 Years verification is required to have their PM-
+
+
+
+b)
+
+mandatory (either
+Aadhaar or non-
+Aadhaar).
+
+Ayushman card of
+
+b)
+
+JAY ID.
+
+Child’s details will be
+retrieved on TMS using
+her / his PM-JAY ID.
+
+the child shall be |c) However, the Aadhaar
+created only at authentication will be
+EHCPs by PMAMs undertaken using parents’
+c) Relationship Aadhaar (in case the
+document will work child’s Aadhaar  hasn’t
+as identity been created yet)
+document also
+3. {Above Syears | a) Beneficiary e Child will have to undergo
+verification is Aadhaar authentication to
+mandatory. avail the service under the
+scheme on their own PM-
+JAY ID
+4. SHAs may suitably inform the empaneled hospitals/ ISAs/ Insurance
+
+companies for implementation of this guidelines. Necessary customization is
+being done in BIS & TMS and States/UTs will be informed when the
+
+functionality is live.
+
+This issues with the approval of the competent authority.
+
+To:
+
+Copy to:
+
+Ped
+
+Yee
+
+(Rohit Deo Jha)
+Dy. Director, NHA
+
+The CEO (State Health Agencies), All State/UTs implementing AB PM-JAY
+
+Addl. Chief Secretary/Principal Secretary/Secretary (H&FW), All
+
+State/UTs
+PPS to CEO, NHA
+
+PS to Addl. CEO, NHA
+PS to Dy. CEO, NHA
+

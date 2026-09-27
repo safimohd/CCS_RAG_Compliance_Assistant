@@ -1,0 +1,90 @@
+No. S- 12015/20/2020-NHA(HN&QA)
+Government of India
+
+National Health Authority
+
+OFFICE MEMORANDUM
+
+Subject: Testing of COVID-19 for PM-JAY beneficiaries through private labs
+
+NHA has issued four OMs dated 04/04/2020, 08/04/2020, 13/04/2020 and 03/05/2020 that
+provide details on how PM-JAY beneficiaries would get tested in private labs through PM-
+JAY empaneled hospitals. However, it has been noticed that in-spite of these guidelines,
+limited use of this package has been made. Therefore, it is suggested that State Health Agencies
+carry out the following activities:
+
+1. Support the empaneled hospitals in linking with private labs:
+
+a.
+
+Proactively contact empaneled hospitals in the State to identify which private
+hospitals are providing and can provide COVID-19 treatment in the State as per
+the guidelines of the State.
+
+Such hospitals which are not providing COVID-19 treatment but are providing
+treatment for Severe Acute Respiratory Infection (SARI) shall also be
+identified.
+
+Since COVID-19 testing can be done only by ICMR registered labs, SHAs shall
+identify such labs within the State or outside the State which need to be tied up
+with for COVID-19 testing.
+
+SHAs may also fix the prices which will be provided to the private labs for
+testing. This should not be more than the ceiling fixed by ICMR.
+
+SHAs shall help the empaneled hospitals in tying up with these private labs and
+collate data of such labs that will provide services to empaneled hospitals in the
+State. SHAs might also directly empanel ICMR approved labs. However, these
+labs will be entitled for payment under scheme only for testing cases referred
+by EHCPs.
+
+The empaneled hospitals will have to upload the details of the lab(s), with which
+they have entered into arrangement(s) for providing COVID testing facility to
+their patients, in HEM portal.
+
+2. Protocols for ensuring COVID-19 testing:
+
+a.
+
+SHAs shall ensure that all ICMR protocols are being followed by hospitals and
+labs for collection, logistics and testing.
+
+Instructions should be issued to all empaneled hospitals for mandatory COVID-
+19 testing for all SARI and other cases which are eligible for testing as per
+ICMR/State guidelines.
+
+Page 1 of 2
+
+
+c. Necessary instructions will also need to be issued to PMAMs so that
+preauthorization for testing is raised at the time of raising preauthorisation for
+such cases.
+
+d. TPAs or Insurance companies shall be instructed for this purpose, where claim
+processing for such eligible cases may be done only when test report is uploaded
+by EHCP or reason(s) for not testing is indicated. In absence of testing in
+eligible cases, the claim should not be automatically rejected but a clarification
+should be sought from the EHCP.
+
+e. In cases where private hospital providing treatment for SARI case needs to send
+the patient to a public facility for testing, no preauthorization for testing package
+is expected. In such cases also, the process in point 2(d) should be followed.
+
+f. Incase different institutions are involved in overall process from collection to
+testing, appropriation of the amount may be decided by the state or decision
+may be left to the respective institutions.
+
+g. A monitoring system should be developed by the State to ensure compliance
+to above guidelines.
+
+NHA is making necessary changes in the IT system to facilitate these processes. This will
+include tools like pop-ups for PPDs/CPDs, direct empanelment of suitable ICMR registered
+labs by SHA, capturing the tie ups between EHCPs and ICMR approved Labs and dashboard
+for eligible cases for testing.
+
+Dated: 04.05.2020 (Dr. Arun (ia)
+
+Executive Director
+(HN&QA)
+
+Page 2 of 2

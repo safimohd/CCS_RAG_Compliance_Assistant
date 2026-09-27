@@ -1,0 +1,91 @@
+No: S-12015/20/2020-NHA(HN&QA)
+Government of India
+National Health Authority
+
+OFFICE MEMORANDUM
+
+Subject: Testing and treatment for COVID-19 under Ayushman Bharat Pradhan
+Mantri — Jan Arogya Yojana
+
+In view of ongoing pandemic of COVID-19, National Health Authority hereby notifies
+the following packages:
+
+A. Testing for COVID-19
+B. Treatment for COVID-19
+
+A. Testing for COVID-19
+
+1. The package for “Test for COVID-19" can be availed in the empanelled
+hospitals. The type(s) and rate(s) of tests shall be as decided by ICMR from
+time to time.
+
+2. Empanelled hospitals may enter into an arrangement with any authorised
+private lab for this purpose.
+
+3. All guidelines and protocols issued by MoHFW, ICMR and State
+Governments for testing including those for collection, transport, storage and
+all other steps involved in the testing shall be followed by the hospitals and labs.
+
+B. Treatment for COVID-19
+
+14. Currently the following packages are already available under AB PM-JAY
+
+HBP 1.0) HBP 2.0 Package name
+
+Package Package
+
+code code
+
+M100011 MG001 Acute febrile illness
+M100026, MG026 Pyrexia of unknown origin
+M200014
+
+M100019, MG016 Pneumonia
+
+M200003
+
+Page 1 of 2
+
+
+HBP 1.0 HBP 2.0) Package name
+
+Package Package
+
+code code
+
+M100047, MG017 Severe pneumonia
+
+M200065
+
+M100067, MG040 Respiratory failure due to any
+
+M200088 cause (pneumonia, asthma,
+COPD, ARDS, foreign body,
+poisoning, head injury etc.)
+
+M100044 MG040C Type 1/2 respiratory failure
+
+Apart from the above list, other packages can be invoked by hospitals as per
+clinical condition of the patient.
+
+2. In case of highly infectious illnesses like COVID-19, there are additional
+requirement like isolation of cases and PPE for healthcare workers. Various
+states are likely to adopt different strategies to utilise services of private
+hospitals. Therefore, the additional cost that may be required for isolation and
+treatment may be decided by the state. Suitable changes shall be made in the
+Transaction Management System.
+
+3. All guidelines and protocols issued by MoHFW, ICMR and State
+Governments for treatment shall be followed by the hospitals.
+
+Necessary changes in the IT system are being made to operationalise these
+packages. Till the time these changes are made, if need be, the SHA may start giving
+pre-authorizations manually. SHAs are also advised to fast track the process of
+
+wer
+Dated: 4'" April, 2020 (Dr. Artin Gupta)
+Executive Director, HN&QA
+
+empanelment of additional hospitals, if required.
+
+Page 2 of 2

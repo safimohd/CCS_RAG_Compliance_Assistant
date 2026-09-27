@@ -1,0 +1,29 @@
+# Line endings.
+#
+# Development happens on Windows; deployment runs on Linux (Streamlit Community
+# Cloud). Without this, every file gets rewritten on checkout and the whole tree
+# shows as modified after a clone, which makes diffs useless. Normalise to LF in
+# the repository and let Git hand out native endings on checkout.
+* text=auto eol=lf
+
+# PowerShell and batch genuinely want CRLF on Windows.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Never touch these.
+*.xlsx binary
+*.xlsm binary
+*.pdf  binary
+*.png  binary
+*.jpg  binary
+*.gz   binary
+*.zip  binary
+*.bin  binary
+*.sqlite3 binary
+*.traineddata binary
+
+# The OCR sidecars are extracted text, not source documents. Treat them as text
+# so diffs are readable, but they should never be hand-edited - ingest_corpus.py
+# resolves each one by a hash of the full PDF stem.
+*.txt text

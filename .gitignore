@@ -1,0 +1,38 @@
+# ── secrets ───────────────────────────────────────────────
+.env
+*.key
+**/api_key*
+secrets.*
+
+# ── the vector index (rebuildable, large) ─────────────────
+05_App/chroma_db/
+chroma_db/
+
+# ── corpus PDFs ───────────────────────────────────────────
+# Decide deliberately: hundreds of MB of government PDFs.
+# If the repo is public, check each source's terms before committing.
+02_Corpus/**/*.pdf
+08_Archive/
+
+# ── python ────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+
+# ── os / editor ───────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+
+# ── working files ─────────────────────────────────────────
+~$*
+*.tmp
+_new_sources/
+
+# Cached LLM answers (derived data; keyed by question + scope + effort).
+05_App/.answer_cache.json
