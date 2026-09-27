@@ -36,3 +36,8 @@ _new_sources/
 
 # Cached LLM answers (derived data; keyed by question + scope + effort).
 05_App/.answer_cache.json
+
+# The packaged index for the GitHub Release asset. 149MB - GitHub hard-rejects
+# any single file over 100MB, so committing this would break the push.
+05_App/chroma_db.tar.gz
+*.tar.gz

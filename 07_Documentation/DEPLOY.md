@@ -60,7 +60,7 @@ gh repo create rag-compliance-assistant --public --source=. --remote=origin --pu
 Without it: create an empty repo on github.com, then
 
 ```powershell
-git remote add origin https://github.com/<you>/rag-compliance-assistant.git
+git remote add origin https://github.com/safimohd/rag-compliance-assistant.git
 git branch -M main
 git push -u origin main
 ```
@@ -87,7 +87,7 @@ Or upload it by hand at **Releases → Draft a new release → attach binary**.
 Then copy the asset's download URL. It looks like:
 
 ```
-https://github.com/<you>/rag-compliance-assistant/releases/download/index-v1/chroma_db.tar.gz
+https://github.com/safimohd/rag-compliance-assistant/releases/download/index-v1/chroma_db.tar.gz
 ```
 
 **Do not commit `chroma_db.tar.gz`** — delete it from `05_App/` afterwards, or
@@ -102,7 +102,7 @@ add it to `.gitignore`.
 
 ```toml
 OPENAI_API_KEY = "sk-..."
-INDEX_URL = "https://github.com/<you>/rag-compliance-assistant/releases/download/index-v1/chroma_db.tar.gz"
+INDEX_URL = "https://github.com/safimohd/rag-compliance-assistant/releases/download/index-v1/chroma_db.tar.gz"
 LLM_REASONING_EFFORT = "low"
 ```
 
