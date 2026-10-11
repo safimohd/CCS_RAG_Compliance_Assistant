@@ -304,7 +304,13 @@ def ensure_index() -> bool:
     try:
         with st.status("Loading the document library…", expanded=True) as status:
             st.write("This happens once, when the service starts up.")
-            urllib.request.urlretrieve(INDEX_URL, archive)   # noqa: S310
+            import requests as _req
+            with _req.get(INDEX_URL, stream=True, timeout=(15, 300),
+                          allow_redirects=True) as r:
+                r.raise_for_status()
+                with open(archive, "wb") as fh:
+                    for chunk in r.iter_content(chunk_size=1 << 20):
+                        fh.write(chunk)
             st.write("Almost ready…")
             with tarfile.open(archive, "r:gz") as tar:
                 try:
