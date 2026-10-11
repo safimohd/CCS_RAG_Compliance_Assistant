@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 import textwrap
 from pathlib import Path
@@ -58,6 +59,45 @@ TIER_NAME = {
 }
 
 DOMAINS = {"Healthcare", "RERA"}
+
+# ── what "narrowing the search" means ────────────────────────────────────────
+# Which documents speak for ONE facility type or ONE financial year. Choosing a
+# scope excludes the documents tied to a DIFFERENT one and keeps everything
+# general. Measured against the real index on 11 Oct 2026: only 17 of 161
+# retrievable Healthcare documents are tied to a facility type, and 13 of 53
+# RERA documents to a year, so the general law is the large majority and
+# excluding competitors is derivable rather than a 144-entry allowlist.
+#
+# This lives here, not in app.py, because it is a fact about the corpus rather
+# than about the interface: app.py, measure_scope.py and audit_scope.py all
+# read it from here so they cannot drift apart.
+#
+# The AYUSH entries matter and are not padding. Yoga, siddha and the rest have
+# their own facility standards but no dropdown entry, so without them a
+# Physiotherapy search would treat DRAFT YOGA STANDARDS as a general document
+# and return it - the 11 Oct defect in a new disguise.
+FACILITY_MARKERS = [
+    "hospital(level", "hospital (level",
+    "clinic_polyclinic", "clinic/polyclinic",
+    "mobile clinic", "mobile dental van", "dental lab",
+    "cosmetology", "hair transplant", "physiotherapy",
+    "blood centre", "blood transfusion", "mortuary", "sample collection",
+    "clinical establishment act standards for",
+    "yoga", "siddha", "ayurveda", "unani", "naturopathy",
+    "homeopathy", "sowa-rigpa", "sowa rigpa",
+]
+
+# A Karnataka RERA circular names its financial year. The Act, the Rules, the
+# 2020 bank-account directions and the registration circulars do not.
+_FY_RE = re.compile(r"\b\d{4}-\d{2}\b")
+
+
+def is_narrow_doc(domain: str, title: str) -> bool:
+    """True when a document speaks for one facility type or one year only."""
+    if domain == "RERA":
+        return bool(_FY_RE.search(title or ""))
+    tl = (title or "").lower()
+    return any(m in tl for m in FACILITY_MARKERS)
 
 SYSTEM_PROMPT = """You are an Indian regulatory compliance assistant. You answer only from the \
 retrieved sources supplied to you.
@@ -124,15 +164,124 @@ def to_cosine(score: float, space: str) -> float:
     return 1.0 - (1.0 - score) ** 2
 
 
+def index_titles(store, domain: str,
+                 tiers: tuple[str, ...] = ("A", "B", "C")) -> list[str]:
+    """Distinct document titles actually present in the index for a domain.
+
+    Read from the collection, NOT from 03_Metadata/ingestion_report.csv. The CSV
+    records what ingestion intended; the collection is what retrieval will
+    actually match on. A scope filter built from the CSV returns nothing at all
+    if even one title was normalised differently at write time - and it would
+    fail silently, which is the failure mode this project keeps hitting.
+
+    Returns the exact strings stored in metadata, original case preserved, so
+    they can be passed straight back as a `title` filter.
+    """
+    try:
+        got = store._collection.get(where={"domain": domain},
+                                    include=["metadatas"])
+    except Exception:                                           # noqa: BLE001
+        return []
+    seen = {}
+    for md in (got.get("metadatas") or []):
+        if not md or md.get("tier") not in tiers:
+            continue
+        title = md.get("title")
+        if title:
+            seen[title] = True
+    return sorted(seen)
+
+
+def resolve_titles(universe: list[str], needles, is_narrow=None
+                   ) -> tuple[list[str], list[str]]:
+    """Split a title universe into (matches this scope, applies to every scope).
+
+    `is_narrow(title) -> bool` says whether a document is tied to ONE particular
+    facility type or financial year. A scope then excludes only the documents
+    tied to a DIFFERENT one, and keeps everything general.
+
+    This is the third design, and the measurements that killed the first two are
+    worth keeping:
+
+    1. Post-filter the top 24 results by title, fall back to the unscoped list
+       when nothing matches. Measured: "What equipment must be available?"
+       scoped to Physiotherapy returned templates for other facilities, because
+       ~20 near-identical CEA templates fill the 24-CHUNK window before the
+       physiotherapy document is reached. Silent, and wrong.
+
+    2. Restrict strictly to documents whose title matches the scope. Measured
+       against the real index: a scope reaches 16 of 161 retrievable Healthcare
+       documents and 13 of 53 RERA ones, so selecting anything hid 90% and 75%
+       of the library respectively. Scoping FY 2023-24 and asking what share of
+       allottees' money goes into a separate account returned two audit-penalty
+       circulars; the answer is in s.4(2)(l)(D) of the Act and the 2020
+       bank-account directions, neither of which carries a year in its title.
+
+    3. This one. Only 17 of 161 Healthcare documents are tied to a facility type
+       and only 13 of 53 RERA documents to a year, so "exclude the competitors,
+       keep the general law" is derivable rather than a 144-entry allowlist -
+       and it is what a reader means by narrowing a search.
+
+    Note that an allowlist of foundational titles was tried in between and
+    rejected for being unmaintainable at 144 entries, while the complement rule
+    ("general = matches no dropdown option") is unsafe on its own: yoga and
+    siddha are not dropdown options, so their DRAFT standards would read as
+    general. is_narrow therefore covers facility types the dropdown does NOT
+    offer, which is what keeps them out.
+    """
+    nl = [n.lower() for n in needles or ()]
+    specific = [t for t in universe if any(n in (t or "").lower() for n in nl)]
+    if is_narrow is None:
+        return specific, []
+    sset = set(specific)
+    general = [t for t in universe if t not in sset and not is_narrow(t)]
+    return specific, general
+
+
 def retrieve(store, question: str, domain: str, k: int = TOP_K,
-             include_drafts: bool = False, include_review: bool = False):
-    """Domain-filtered retrieval, re-ranked so authority outranks raw similarity."""
+             include_drafts: bool = False, include_review: bool = False,
+             titles: list[str] | None = None):
+    """Domain-filtered retrieval, re-ranked so authority outranks raw similarity.
+
+    `titles` restricts the search to those exact document titles, as a metadata
+    filter inside the Chroma query. This is the scope mechanism, and it has to
+    happen HERE rather than as a post-filter on the results.
+
+    Post-filtering was the defect measured on 11 Oct: fetch the top 24 by
+    similarity, then keep the ones whose title matches the chosen scope. When
+    ~20 near-identical facility templates outrank the one document you asked
+    for, nothing in the top 24 matches, and the old code fell back to the
+    unscoped list - answering a question about physiotherapy equipment with a
+    Yoga standards DRAFT. The scope was a preference applied after the fact; it
+    is now a constraint applied before.
+
+    With `titles` set, the search cannot leave the scope. If the scope contains
+    no documents, the caller must say so - not widen. Callers therefore resolve
+    the title list first (see index_titles) and decide explicitly.
+    """
     allowed = {"A", "B", "C"}
     if include_drafts: allowed.add("D")
     if include_review: allowed.add("E")
 
+    # Every filter goes INTO the query. The tier filter used to run on the
+    # results, after CANDIDATE_K chunks had already been fetched - and 38% of
+    # Healthcare chunks and 29% of RERA chunks are in excluded tiers (D draft,
+    # E unverified), so excluded material consumed the candidate budget and was
+    # then discarded. Measured 11 Oct 2026: "What equipment must be available?"
+    # returned ZERO documents unscoped, and "What are the minimum staffing
+    # requirements?" returned one, because the top 24 chunks were nearly all
+    # tier D/E. The corpus answers both questions; retrieval never saw them.
+    #
+    # Same defect as the scope post-filter, in a different place: a constraint
+    # applied after retrieval cannot widen the candidate pool it needed.
+    conds: list[dict] = [{"domain": {"$eq": domain}},
+                         {"tier": {"$in": sorted(allowed)}}]
+    if titles:
+        conds.append({"title": {"$in": list(titles)}})
+    where = {"$and": conds}
+
     hits = store.similarity_search_with_relevance_scores(
-        question, k=CANDIDATE_K, filter={"domain": domain})
+        question, k=CANDIDATE_K, filter=where)
     space = index_space(store)
 
     ranked = []
@@ -228,15 +377,46 @@ def main() -> int:
                     help="allow tier D (draft/proposed) into retrieval")
     ap.add_argument("--include-review", action="store_true",
                     help="allow tier E (unverified) into retrieval")
+    ap.add_argument("--scope", action="append", metavar="SUBSTRING",
+                    help="restrict the search to documents whose title contains "
+                         "this (repeatable, case-insensitive). Mirrors the app's "
+                         "scope dropdown.")
+    ap.add_argument("--list-titles", action="store_true",
+                    help="print the document titles retrieval can match, and exit")
     args = ap.parse_args()
     question = " ".join(args.question)
 
     store = load_store()
+
+    if args.list_titles:
+        for t in index_titles(store, args.domain):
+            print(t)
+        return 0
+
+    scope_titles = None
+    if args.scope:
+        needles = [s.lower() for s in args.scope]
+        universe = index_titles(store, args.domain)
+        scope_titles = [t for t in universe
+                        if any(n in t.lower() for n in needles)]
+        print(f"\nscope {args.scope} -> {len(scope_titles)} document(s) "
+              f"of {len(universe)} in {args.domain}")
+        for t in scope_titles:
+            print(f"    {t[:72]}")
+        if not scope_titles:
+            # Do NOT widen. A silent fall back to the whole corpus is the bug.
+            print("\nNo document in the corpus matches that scope. "
+                  "Nothing was searched.\n"
+                  "Run with --list-titles to see what is available.")
+            return 1
+
     results = retrieve(store, question, args.domain, args.k,
-                       args.include_drafts, args.include_review)
+                       args.include_drafts, args.include_review,
+                       titles=scope_titles)
 
     if not results:
-        print(f"\nNo sources retrieved for domain {args.domain}.")
+        where = f" within the selected scope" if scope_titles else ""
+        print(f"\nNo sources retrieved for domain {args.domain}{where}.")
         print("The corpus does not contain evidence to answer this question.")
         return 0
 

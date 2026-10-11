@@ -21,43 +21,34 @@ context a fresh session needs.
 | 2 | Benchmark: 100 questions, 2 workbooks | **Done** | — |
 | 3 | OCR of image-only PDFs (104 sidecars) | **Done** | — |
 | 4 | Sidecar collision bug fixed | **Done** | — |
-| 5 | Index rebuild `--rebuild` | **Attempt 2 running** since 13:31 — attempt 1 crashed, see §0b | ~35 min |
-| 6 | Retrieval verification (`--retrieve-only`) | Not started | step 5 |
-| 7 | `05_App/.env` with the two API keys | **Done** 12:24 — but see step 7b | — |
-| 7b | Together key works | **FAILING — 401 Unauthorized** | **you** |
-| 8 | Streamlit UI smoke test | Not started | step 5 |
-| 9 | `run_evaluation.py` written and preflight-tested | **Done** — 27 Sep, in `05_App/` | — |
-| 10 | Evaluation run | Not started — **2 of 4 conditions** until 7b is fixed | step 5 |
+| 5 | Index rebuild | **Done** 18:12 — 345 docs, **25,955 chunks**, RERA tier A 41 | — |
+| 6 | Retrieval verification | **Done** — collision fix confirmed; two new findings, §0c | — |
+| 7 | `05_App/.env` with API keys | **Done** 12:24 | — |
+| 7b | Together key works | **FAILING — 401.** Key is the professor's; quotes in `.env` were a red herring | **the key itself** |
+| 8 | Streamlit UI | **Done** — rebuilt 19:30 with scope filters, dashboards, adaptive reasoning, cache | — |
+| 9 | `run_evaluation.py` | **Done**, preflight-tested | — |
+| 10 | Evaluation run | **Not started — the next big job.** 2 of 4 conditions until 7b is fixed | step 7b, **you** |
 | 11 | Manual scoring, 3 scorers × 400 | Not started | step 10, **people** |
 | 12 | Report (PDF, ≤10 pages) | Not started | step 11 |
-| 13 | Presentation, 10 min + live demo | Not started | steps 8, 11 |
-| 14 | Git repo and push | Not started | — (can be done any time) |
+| 13 | Presentation, 10 min + live demo | Demo plan written (`07_Documentation/DEMO_PLAN.md`) | step 11 |
+| 14 | Git repo and push | **Done** — github.com/safimohd/CCS_RAG_Compliance_Assistant | — |
+| 15 | Deployed live | **Done** — Streamlit Community Cloud, set to private | — |
 
-**The critical path is 5 → 10 → 11 → 12.** Step 11 is manual and cannot be
+**The critical path is now 10 → 11 → 12.** Step 11 is manual and cannot be
 compressed: three people scoring 400 responses each. Start it the moment step 10
-finishes, and in parallel with steps 12–14.
+finishes, and run 12 and 13 in parallel.
 
-### The one thing only you can do right now
-**Fix the Together API key.** `OPENAI_API_KEY` works — both `gpt-5-nano`
-conditions smoke-tested clean at 13:31. `TOGETHER_API_KEY` is present in `.env`
-but the server returns **401 Unauthorized**, so `gpt-oss-20b` and `gemma-3n-E4B`
-were dropped and the run falls back to 2 conditions.
+### The one thing only you can do
+**The Together key returns 401 and it is the professor's key**, so it cannot be
+regenerated or spend-limited from this side. Quotes wrapping the value in `.env`
+turned out to be a red herring — `load_env()` strips them. Ask him for a working
+key, or accept a documented 2-condition run (RAG vs no-RAG on `gpt-5-nano`) and
+record the deviation. `06_Evaluation/Raw_Responses/run_manifest.json` is written
+by the runner and is the evidence for that deviation in the report.
 
-401 is authentication, not routing. Likely causes, in order: quotes or a stray
-character in the value; the word `Bearer` pasted into it; not actually a Together
-key; or a Together account that was never email-verified. Test it without
-printing it:
-
-```powershell
-$k = ((Get-Content .env | Select-String '^TOGETHER_API_KEY=') -split '=',2)[1].Trim()
-"length: $($k.Length)"      # expect 64 hex chars
-curl.exe -s -o NUL -w "HTTP %{http_code}`n" -H "Authorization: Bearer $k" https://api.together.xyz/v1/models
-```
-
-**This does not block the run.** The checkpoint is keyed on
+**It does not block the run.** The checkpoint is keyed on
 `(domain, question_id, condition)`, so running now with 2 conditions and
-re-running the same command after the key is fixed generates only the missing
-two and skips what is on disk. Nothing is wasted.
+re-running later generates only the missing two. Nothing is wasted.
 
 ### Verified state as of 13:35 IST, 27 Sep
 - `05_App/.env` exists (created 12:24). `openai` 3.19.2 installed — it was

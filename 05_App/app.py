@@ -1,29 +1,37 @@
 """
-Indian Regulatory Compliance Intelligence Assistant
-Streamlit interface.
+Regulatory Compliance Assistant — Streamlit interface.
 
     streamlit run app.py
 
-Requires: a built index (python ingest_corpus.py --rebuild) and 05_App/.env with
-OPENAI_API_KEY. The plain earlier version is kept as app_working_27sep.py.
+Deployed twice from this one file, once per domain. `APP_DOMAIN` in the app's
+secrets ("Healthcare" or "RERA") locks the deployment to a single domain and
+hides the domain selector, so a reviewer only ever sees their own subject.
+Unset locally, so the selector appears for development.
 
-Three things here exist because of measured behaviour on 27 Sep, each documented
-at its implementation:
+Audience note, 9 Oct: this is shared with domain experts, not with the people
+who built it. Retrieval diagnostics — similarity scores, passage counts, tier
+letters, reasoning effort, internal folder names — were useful while debugging
+and are noise to a reader checking a regulation. They have been removed from
+the interface and kept in the code. What a reviewer needs instead is whether a
+source binds them, what the document is, and the ability to read the passage
+itself.
 
+Behaviour that exists because of measured failures (27 Sep):
   * Scope filters      - four Karnataka penalty circulars are character-identical
                          apart from the financial year and sit within 0.03 cosine;
                          ~20 CEA standards templates repeat clauses per facility
                          type. The distinguishing fact is categorical, so it
                          belongs in a filter, not a similarity score.
-  * Adaptive reasoning - dropping reasoning_effort to "low" cut latency 60s -> 30s
-                         AND improved the FY2023-24 answer, because less reasoning
-                         meant less gap-filling. Effort is now chosen per query.
-  * Answer cache       - embeddings run locally and cost nothing; generation is
-                         the only API spend, so repeats should never be paid for
-                         twice.
+  * Adaptive reasoning - lowering reasoning_effort cut latency 60s -> 30s AND
+                         improved the FY2023-24 answer; less reasoning meant less
+                         gap-filling. Chosen per query, not shown to the user.
+  * Answer cache       - retrieval is local and free, generation is the only API
+                         spend, so repeats are never billed twice.
+  * Daily cap          - the link is forwarded onward without warning and runs on
+                         a key we do not own. See daily_usage().
 
-NOTE: none of this belongs in run_evaluation.py. The professor fixed the models,
-and the RAG-vs-base comparison is only valid if both run identically.
+NOTE: none of this belongs in run_evaluation.py. The models are fixed, and the
+RAG-vs-base comparison is only valid if both sides run identically.
 """
 
 from __future__ import annotations
@@ -32,16 +40,17 @@ import hashlib
 import html
 import json
 import os
+import re
 import sys
 import tarfile
 import urllib.request
+from datetime import date
 from pathlib import Path
 
 # Chroma requires SQLite >= 3.35. Streamlit Community Cloud's image ships an
-# older system sqlite3, so Chroma fails on first boot there every time. The
-# standard remedy is to shim in pysqlite3 BEFORE anything imports chromadb.
-# pysqlite3-binary is Linux-only and simply absent locally on Windows, where the
-# system sqlite3 is new enough - hence the quiet pass.
+# older system sqlite3, so Chroma fails on first boot there every time. Shim in
+# pysqlite3 BEFORE anything imports chromadb. pysqlite3-binary is Linux-only and
+# absent locally on Windows, where system sqlite3 is new enough - hence the pass.
 try:                                                        # pragma: no cover
     __import__("pysqlite3")
     sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
@@ -53,132 +62,268 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from rag_query import (  # noqa: E402
     COLLECTION, EMBED_MODEL, INDEX_DIR, LLM_BASE_URL, LLM_MODEL,
-    SYSTEM_PROMPT, format_sources, load_env, retrieve,
+    SYSTEM_PROMPT, format_sources, index_titles, is_narrow_doc, load_env,
+    retrieve,
 )
-
-st.set_page_config(page_title="Regulatory Compliance Intelligence",
-                   page_icon="📋", layout="wide",
-                   initial_sidebar_state="expanded")
+from rag_query import resolve_titles as rag_query_resolve  # noqa: E402
 
 load_env()
 
 
-def _secrets_into_env() -> None:
-    """Streamlit Cloud has no .env - keys come from its Secrets manager.
+def _secret(key: str, default: str = "") -> str:
+    """.env locally, Streamlit Secrets when deployed. .env wins where both exist.
 
     Reading st.secrets raises when no secrets file exists, which is the normal
-    local case, so this must never be allowed to fail. .env wins where both
-    exist, so local behaviour is unchanged.
+    local case, so this must never be allowed to fail.
     """
-    for k in ("OPENAI_API_KEY", "TOGETHER_API_KEY",
-              "LLM_REASONING_EFFORT", "INDEX_URL"):
-        if os.getenv(k):
-            continue
-        try:
-            if k in st.secrets:
-                os.environ[k] = str(st.secrets[k])
-        except Exception:
-            return
+    val = os.getenv(key)
+    if val:
+        return val.strip()
+    try:
+        if key in st.secrets:
+            return str(st.secrets[key]).strip()
+    except Exception:
+        pass
+    return default
 
 
-_secrets_into_env()
+# ── deployment configuration ─────────────────────────────────────────────────
+DOMAINS = ("Healthcare", "RERA")
+_locked = _secret("APP_DOMAIN")
+LOCKED_DOMAIN = _locked if _locked in DOMAINS else None
 
-BASE_EFFORT = os.getenv("LLM_REASONING_EFFORT", "low").strip()
-CACHE_FILE = Path(__file__).resolve().parent / ".answer_cache.json"
-INDEX_URL = os.getenv("INDEX_URL", "").strip()
+BASE_EFFORT = _secret("LLM_REASONING_EFFORT", "low")
+INDEX_URL = _secret("INDEX_URL")
+# The link is forwarded onward without warning, on a key we do not own, so the
+# worst case has to be a known number rather than an open tap.
+DAILY_LIMIT = int(_secret("DAILY_QUESTION_LIMIT", "100") or 100)
+CONTACT = _secret("CONTACT_EMAIL")
 
-CORPUS_DOCS, CORPUS_CHUNKS = 345, 25_955
+APP_DIR = Path(__file__).resolve().parent
+CACHE_FILE = APP_DIR / ".answer_cache.json"
+USAGE_FILE = APP_DIR / ".usage.json"
+METADATA_REPORT = APP_DIR.parent / "03_Metadata" / "ingestion_report.csv"
 
-TIER_BADGE = {
-    "A": ("Core regulatory", "#0F6B3A", "binding"),
-    "B": ("Sector regulation", "#1B4F8C", "binding within sector"),
-    "C": ("Supporting guidance", "#9A6A12", "explanatory, not binding"),
-    "D": ("Draft / proposed", "#B4521A", "NOT binding"),
-    "E": ("Review", "#8C1123", "binding status unverified"),
+DOMAIN_META = {
+    "Healthcare": {
+        "title": "Healthcare Regulation Assistant",
+        "lede": "Clinical establishment standards, medical education and NMC regulation, "
+                "PM-JAY, telemedicine, and health-data privacy.",
+        "docs": 259,
+        "facts": ["259 source documents", "Central regulation", "Official sources only"],
+        "placeholder": "Ask about Indian healthcare regulation…",
+    },
+    "RERA": {
+        "title": "Real Estate (RERA) Compliance Assistant",
+        "lede": "The Real Estate (Regulation and Development) Act, 2016 together with "
+                "Karnataka RERA rules, circulars, notifications and orders.",
+        "docs": 86,
+        "facts": ["86 source documents", "Central and Karnataka", "Official sources only"],
+        "placeholder": "Ask about Karnataka RERA or the central Act…",
+    },
 }
 
-DOMAIN_LABEL = {"Healthcare": "Healthcare", "RERA": "Real Estate / RERA"}
-DOMAIN_BLURB = {
-    "Healthcare": "Clinical establishments, NMC regulation and medical education, "
-                  "PM-JAY, telemedicine, ABDM and health-data privacy.",
-    "RERA": "The Real Estate (Regulation and Development) Act, 2016 and Karnataka "
-            "RERA rules, circulars, notifications and orders.",
+# Plain language. A reviewer needs to know whether a source binds them - not
+# which tier letter we filed it under.
+STATUS = {
+    "A": ("Binding regulation", "#0F6B3A"),
+    "B": ("Binding — sector rules", "#1B4F8C"),
+    "C": ("Guidance — not binding", "#9A6A12"),
+    "D": ("Draft — not in force", "#B4521A"),
+    "E": ("Status unverified", "#8C1123"),
 }
 
 RERA_YEARS = ["All years", "2022-23", "2023-24", "2024-25", "2025-26", "2026-27"]
 
 HEALTHCARE_FACILITIES = {
-    "All establishment types": [],
+    "Any establishment": [],
     "Hospital — Level 2": ["hospital(level 2", "hospital (level 2"],
     "Hospital — Level 3": ["hospital(level 3", "hospital (level 3"],
-    "Clinic / Polyclinic": ["clinic_polyclinic", "clinic/polyclinic"],
+    "Clinic or polyclinic": ["clinic_polyclinic", "clinic/polyclinic"],
     "Mobile clinic": ["mobile clinic", "mobile dental van"],
     "Dental": ["dental lab", "mobile dental"],
-    "Cosmetology / aesthetic": ["cosmetology", "hair transplant"],
+    "Cosmetology or aesthetic": ["cosmetology", "hair transplant"],
     "Physiotherapy centre": ["physiotherapy"],
     "Blood centre": ["blood centre", "blood transfusion"],
-    "Mortuary / sample collection": ["mortuary", "sample collection"],
+    "Mortuary or sample collection": ["mortuary", "sample collection"],
 }
 
-SUGGESTED = {
-    "RERA": [
-        "What percentage of the amounts realised from allottees must a promoter "
-        "deposit in a separate account, and what may it be used for?",
-        "What penalty applies for non-submission of the annual audit report?",
-        "When must a promoter submit quarterly progress reports?",
-        "Which projects are exempt from registration under the Act?",
-    ],
+# What "narrowing the search" means - FACILITY_MARKERS and is_narrow_doc() -
+# lives in rag_query.py, because it is a fact about the corpus rather than about
+# the interface, and measure_scope.py and audit_scope.py read the same copy.
+
+
+# ── display ──────────────────────────────────────────────────────────────────
+_KB_RE = re.compile(r"\s*\(\s*[\d.]+\s*[KMG]B\s*\)\s*$")
+_LEAD_RE = re.compile(r"^(?:\(?[ivx]+\)|\d+(?:\.[a-z])?\.?)\s*[|.)]?\s+", re.I)
+# Page furniture inside a pipe-fragmented title: a bare number, a page marker,
+# or a numbered heading such as "1. What is chikungunya".
+_FURNITURE_RE = re.compile(r"^(?:\d+\s*[.)]?\s|\d+$|page\b|contents?\b|annexure\b)", re.I)
+
+
+_GAZETTE_RE = re.compile(r"^\s*(\d{3,5})\s+GI/(\d{4})\b")
+_HASH_SUFFIX_RE = re.compile(r"_[0-9a-f]{6,}$", re.I)
+_GENERIC = {"preamble", "introduction", "contents", "content", "background",
+            "foreword", "annexure", "index", "facts"}
+
+
+def _from_filename(source_file: str) -> str:
+    """A readable name from the filename, when there is one in there.
+
+    Most source filenames are content hashes and useless. A few are the real
+    document name. Only return one that looks like words.
+    """
+    stem = re.sub(r"\.(pdf|docx?|txt)$", "", (source_file or ""), flags=re.I)
+    stem = _HASH_SUFFIX_RE.sub("", stem).replace("_", " ").strip()
+    stem = _LEAD_RE.sub("", stem).strip()
+    letters = sum(c.isalpha() for c in stem)
+    if len(stem) < 12 or " " not in stem or letters < len(stem) * 0.6:
+        return ""
+    return stem
+
+
+def clean_title(title: str, source_file: str = "") -> str:
+    """Tidy a document title for display.
+
+    Titles come from PDF metadata and OCR, so they carry artefacts a reviewer
+    should never see: a trailing file size ("Hospital(Level 2) (832.09 KB )",
+    12 documents), pipe runs where OCR broke a cover page into fragments
+    ("1 | OPERATIONAL | GUIDELINES FOR | CLINICAL | ESTABLISHMENTS ACT"), and
+    leading enumerators from a directory listing ("(i) ", "2.a. ").
+
+    The underlying title is never changed - only what is shown. Retrieval,
+    scoping and the authority tiers all still key on the real string.
+    """
+    t = (title or "").strip()
+    t = _KB_RE.sub("", t)
+
+    # Gazette notifications first, before the leading number is stripped: these
+    # titles are OCR'd Hindi mastheads and unreadable either way, but the
+    # gazette number IS the official citation, so show that instead of soup.
+    gz = _GAZETTE_RE.match(t)
+    if gz:
+        return f"Gazette of India notification {gz.group(1)} GI/{gz.group(2)}"
+
+    t = _LEAD_RE.sub("", t)
+    if "|" in t:
+        # Take the LEADING fragments, not the longest one. Tried longest first
+        # and it was worse than doing nothing: on the CEA operational
+        # guidelines it picked a table-of-contents line, and on the chikungunya
+        # factsheet a sentence from the body. A fragmented cover page puts the
+        # title at the top, so read from the start and stop at the first
+        # fragment that is page furniture (a bare number, a numbered heading)
+        # or long enough to be prose.
+        parts = [p.strip() for p in t.split("|") if p.strip()]
+        kept: list[str] = []
+        for p in parts:
+            if _FURNITURE_RE.match(p) or len(p) > 60:
+                break
+            kept.append(p)
+            if sum(len(x) + 1 for x in kept) > 90:
+                break
+        t = " ".join(kept) if kept else parts[0]
+    t = re.sub(r"\s{2,}", " ", t).strip(" .,-–—|")
+
+    # A cover page whose first fragment is boilerplate ("Preamble") leaves a
+    # title that says nothing. The filename sometimes carries the real name.
+    if len(t) < 15 or t.lower() in _GENERIC:
+        alt = _from_filename(source_file)
+        if alt:
+            return alt
+    return t or (title or "").strip()
+
+EXAMPLES = {
     "Healthcare": [
         "How long must a clinical establishment retain patient medical records?",
-        "What are the requirements for empanelment of a hospital under PM-JAY?",
-        "Which medicines may be prescribed under the Telemedicine Practice Guidelines?",
-        "What qualifications are required for faculty in a medical institution?",
+        "What are the requirements for a hospital to be empanelled under PM-JAY?",
+        "Which medicines may be prescribed in a telemedicine consultation?",
+        "What are the minimum staffing requirements for a Level 2 hospital?",
+        "What must be reported to the district authorities, and how often?",
+        "What qualifications are required for faculty in a medical college?",
+    ],
+    "RERA": [
+        "What share of money collected from allottees must go into a separate account, "
+        "and what can it be spent on?",
+        "What penalty applies if the annual audit report is not submitted?",
+        "When must a promoter file quarterly progress reports?",
+        "Which projects do not need to be registered under the Act?",
+        "On what grounds can a project registration be extended?",
+        "How does a buyer file a complaint, and what does it cost?",
     ],
 }
+
+# When a scope is chosen, the examples follow it. Narrowing the search used to
+# change nothing you could see until you had already asked something, which made
+# the control feel inert. These questions also happen to be the headings the CEA
+# standards are organised under, so the answers genuinely differ by facility.
+FACILITY_NOUN = {
+    "Hospital — Level 2": "a Level 2 hospital",
+    "Hospital — Level 3": "a Level 3 hospital",
+    "Clinic or polyclinic": "a clinic or polyclinic",
+    "Mobile clinic": "a mobile clinic",
+    "Dental": "a dental lab or mobile dental van",
+    "Cosmetology or aesthetic": "a cosmetology or hair transplant centre",
+    "Physiotherapy centre": "a physiotherapy centre",
+    "Blood centre": "a blood centre",
+    "Mortuary or sample collection": "a mortuary or sample collection centre",
+}
+
+FACILITY_TEMPLATES = [
+    "What are the minimum infrastructure and space requirements for {n}?",
+    "What staff must {n} employ, and with what qualifications?",
+    "What equipment must {n} have?",
+    "How long must {n} keep patient records?",
+    "How is {n} registered under the Clinical Establishments Act?",
+    "What must {n} report to the district authorities?",
+]
+
+RERA_YEAR_TEMPLATES = [
+    "What penalty applies for not submitting the annual audit report for {y}?",
+    "What was the deadline to submit the annual audit report for {y}?",
+    "Was the submission deadline for {y} extended, and until when?",
+    "What penalty applies for late quarterly progress reports in {y}?",
+    "How is the penalty amount calculated for {y}?",
+    "Which promoters were covered by the {y} circular?",
+]
 
 
 # ── resources ────────────────────────────────────────────────────────────────
 @st.cache_resource(show_spinner=False)
 def ensure_index() -> bool:
-    """Make sure the Chroma index exists locally, fetching it if it does not.
+    """Fetch the Chroma index if it is not already on disk.
 
-    The index is ~290MB on disk. GitHub hard-rejects any single file over
-    100MB, so it cannot live in the repository; it is published as a GitHub
-    Release asset instead (2GB limit, no LFS quota) and pulled on first boot.
-    Rebuilding it on the server is not an option - that is a six-hour job.
-
-    Locally the directory already exists and this returns immediately.
+    The index is ~290MB. GitHub rejects files over 100MB, so it cannot live in
+    the repository; it is published as a Release asset and pulled on first boot.
+    Rebuilding on the server is not an option - that is a six-hour job.
     """
     if INDEX_DIR.exists() and any(INDEX_DIR.iterdir()):
         return True
     if not INDEX_URL:
         return False
-
     archive = INDEX_DIR.parent / "_index_download.tar.gz"
     try:
-        with st.status("Fetching the corpus index (first run only)…",
-                       expanded=True) as status:
-            st.write(f"Downloading from {INDEX_URL.split('/')[2]} — about 150 MB.")
+        with st.status("Loading the document library…", expanded=True) as status:
+            st.write("This happens once, when the service starts up.")
             urllib.request.urlretrieve(INDEX_URL, archive)   # noqa: S310
-            st.write("Extracting…")
+            st.write("Almost ready…")
             with tarfile.open(archive, "r:gz") as tar:
                 try:
                     tar.extractall(INDEX_DIR.parent, filter="data")
                 except TypeError:          # filter= added in Python 3.12
                     tar.extractall(INDEX_DIR.parent)
             archive.unlink(missing_ok=True)
-            status.update(label="Corpus index ready", state="complete",
+            status.update(label="Document library ready", state="complete",
                           expanded=False)
         return INDEX_DIR.exists() and any(INDEX_DIR.iterdir())
     except Exception as exc:                                 # noqa: BLE001
         archive.unlink(missing_ok=True)
-        st.error(f"Could not fetch the corpus index: {exc}")
+        st.error(f"The document library could not be loaded: {exc}")
         return False
 
 
-@st.cache_resource(show_spinner="Loading the corpus index…")
+@st.cache_resource(show_spinner="Preparing the document library…")
 def get_store():
-    # The "is there an index" check lives OUTSIDE this function on purpose:
+    # The existence check lives OUTSIDE this function on purpose:
     # @st.cache_resource would pin a None return for the life of the process.
     from langchain_chroma import Chroma
     from langchain_huggingface import HuggingFaceEmbeddings
@@ -190,7 +335,7 @@ def get_store():
 
 @st.cache_resource
 def get_client():
-    key = os.getenv("OPENAI_API_KEY")
+    key = _secret("OPENAI_API_KEY")
     if not key:
         return None
     from openai import OpenAI
@@ -198,93 +343,199 @@ def get_client():
 
 
 @st.cache_resource
-def answer_cache() -> dict:
-    """Question -> answer, persisted to disk.
+def corpus_titles() -> dict:
+    """Document titles per domain, retrievable tiers only.
 
-    Retrieval is local and free; generation is the only API spend, so a repeat
-    should never be billed twice. Persisting to a file rather than session state
-    means the cache survives a restart - which also allows warming it by running
-    the demo questions once beforehand.
+    Used to say how many documents a scope selection actually covers. A control
+    whose effect you cannot see is a control nobody trusts - and when the honest
+    answer is "one document", saying so is better than implying a wide search.
+    Degrades to no counts at all if the report is missing.
+    """
+    import csv
+    out = {"Healthcare": [], "RERA": []}
+    try:
+        with METADATA_REPORT.open(encoding="utf-8-sig", newline="") as fh:
+            for row in csv.DictReader(fh):
+                if row.get("tier") in ("A", "B", "C") and (row.get("chunks") or "0") != "0":
+                    if row.get("domain") in out:
+                        out[row["domain"]].append((row.get("title") or "").lower())
+    except Exception:
+        pass
+    return out
+
+
+@st.cache_resource(show_spinner=False)
+def scope_universe(domain: str) -> list[str]:
+    """The document titles retrieval can actually match, from the index itself.
+
+    The scope filter is now a metadata constraint inside the Chroma query, so
+    the titles it is built from have to be the exact strings the index holds.
+    Falls back to the ingestion report only if the index cannot be read, in
+    which case the count may be shown but no scope filter is applied.
     """
     try:
-        return json.loads(CACHE_FILE.read_text(encoding="utf-8"))
+        if ensure_index():
+            return index_titles(get_store(), domain)
+    except Exception:                                           # noqa: BLE001
+        pass
+    return []
+
+
+def resolve_scope(domain: str, needles: list) -> tuple[list[str], list[str]]:
+    """Scope selection -> (documents specific to it, documents that always apply).
+
+    Both halves are in scope. The second half is why scoping to a financial
+    year no longer hides the Act.
+    """
+    if not needles:
+        return [], []
+    return rag_query_resolve(scope_universe(domain), needles,
+                             lambda t: is_narrow_doc(domain, t))
+
+
+def scope_count(domain: str, needles: list) -> tuple[int | None, int]:
+    """(documents specific to the selection, documents that always apply).
+
+    Counted from the same title list the filter is built from, so the number
+    shown and the documents searched can never disagree.
+    """
+    universe = scope_universe(domain)
+    if not universe:                       # index unreadable - fall back to CSV
+        titles = corpus_titles().get(domain) or []
+        if not titles:
+            return None, 0
+        if not needles:
+            return len(titles), 0
+        return sum(1 for t in titles if any(n in t for n in needles)), 0
+    if not needles:
+        return len(universe), 0
+    specific, general = resolve_scope(domain, needles)
+    return len(specific), len(general)
+
+
+def scope_caption(n: int | None, whole: str, general: int = 0) -> str:
+    """One plain sentence. No counts a reader cannot act on.
+
+    An earlier version said "4 documents cover this. 143 more apply
+    throughout." The 143 is true and useless: it is an artefact of how the
+    corpus is organised, not something a reviewer can do anything with.
+    """
+    if n is None:
+        return ""
+    if whole == "all":
+        return f"Searching all {n} documents."
+    plus = " Plus the rules that apply to every case." if general else ""
+    if n == 0:
+        if general:
+            return "Nothing is written specifically for this. " \
+                   "Searching the rules that apply to every case."
+        return "No documents in the library cover this. Choose another option."
+    if n == 1:
+        return f"1 document is specific to this.{plus}"
+    return f"{n} documents are specific to this.{plus}"
+
+
+def _read_json(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return {}
+
+
+def _write_json(path: Path, data: dict) -> None:
+    try:
+        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass  # an unwritable file must never break an answer
+
+
+@st.cache_resource
+def answer_cache() -> dict:
+    """Question -> answer, persisted to disk so it survives a restart."""
+    return _read_json(CACHE_FILE)
 
 
 def cache_put(key: str, value: dict) -> None:
     store = answer_cache()
     store[key] = value
-    try:
-        CACHE_FILE.write_text(json.dumps(store, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        pass  # an unwritable cache must never break an answer
+    _write_json(CACHE_FILE, store)
 
 
-def cache_key(question: str, domain: str, scope: str, k: int,
-              drafts: bool, review: bool, effort: str) -> str:
-    raw = f"{LLM_MODEL}|{effort}|{domain}|{scope}|{k}|{drafts}|{review}|{question.strip().lower()}"
+def cache_key(question: str, domain: str, scope: str, drafts: bool,
+              review: bool, effort: str) -> str:
+    raw = (f"{LLM_MODEL}|{effort}|{domain}|{scope}|{drafts}|{review}"
+           f"|{question.strip().lower()}")
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
 
 
-# ── adaptive reasoning ───────────────────────────────────────────────────────
-def choose_effort(results, question: str) -> tuple[str, list[str]]:
-    """Pick reasoning effort from retrieval signals, and say why.
+def daily_usage() -> int:
+    """Generations charged to the key today.
+
+    This link gets forwarded on without us being told, and it runs on the
+    professor's OpenAI key. A public URL with no ceiling is an open tap; this
+    makes the worst case a number we chose. Cached answers cost nothing and are
+    deliberately not counted.
+    """
+    data = _read_json(USAGE_FILE)
+    return int(data.get(date.today().isoformat(), 0))
+
+
+def bump_usage() -> None:
+    today = date.today().isoformat()
+    data = _read_json(USAGE_FILE)
+    data = {today: int(data.get(today, 0)) + 1}   # keep only today
+    _write_json(USAGE_FILE, data)
+
+
+# ── adaptive reasoning (internal; never shown) ───────────────────────────────
+def choose_effort(results, question: str) -> str:
+    """Pick reasoning effort from retrieval signals.
 
     Cost on a reasoning model scales with reasoning tokens, so this is the axis
-    that actually drives spend. Routing EFFORT rather than switching MODELS
-    keeps a single model, which matters: the professor fixed the models, and the
-    RAG-vs-base comparison is only meaningful if both sides run identically.
-    Multi-model escalation is a roadmap item, not something to smuggle in here.
+    that drives spend. Routing EFFORT rather than switching MODELS keeps one
+    model, which matters: the models are fixed, and the RAG-vs-base comparison
+    is only meaningful if both sides run identically.
 
-    Authority tier is not a difficulty signal on its own - a tier-A Act can
-    answer a trivial lookup. What actually predicts difficulty is weak
-    similarity, many documents to reconcile, non-binding material needing
-    careful handling, and mixed authority that may conflict.
+    Authority is not a difficulty signal on its own - a binding Act can answer a
+    trivial lookup. What predicts difficulty is weak similarity, many documents
+    to reconcile, non-binding material needing careful handling, and mixed
+    authority that may conflict.
     """
     if not results:
-        return "low", ["no sources retrieved"]
-
+        return "low"
     top = max(r["similarity"] for r in results)
     docs = len({r["source_file"] for r in results})
     tiers = {r["tier"] for r in results}
 
-    score, why = 0, []
+    score = 0
     if top < 0.75:
-        score += 2; why.append(f"weak top match ({top:.2f})")
+        score += 2
     elif top < 0.85:
-        score += 1; why.append(f"moderate top match ({top:.2f})")
+        score += 1
     if docs >= 4:
-        score += 1; why.append(f"{docs} documents to reconcile")
+        score += 1
     if tiers & {"D", "E"}:
-        score += 2; why.append("non-binding material needs careful handling")
+        score += 2
     if "A" in tiers and "C" in tiers:
-        score += 1; why.append("binding and guidance both present")
+        score += 1
     if len(question) > 180 or question.count("?") > 1:
-        score += 1; why.append("multi-part question")
-
-    effort = "minimal" if score == 0 else "low" if score <= 1 else \
-             "medium" if score <= 3 else "high"
-    if not why:
-        why.append(f"strong single-source match ({top:.2f})")
-    return effort, why
+        score += 1
+    return ("minimal" if score == 0 else "low" if score <= 1
+            else "medium" if score <= 3 else "high")
 
 
-# ── styling ──────────────────────────────────────────────────────────────────
+# ── presentation ─────────────────────────────────────────────────────────────
 CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap');
-
 :root{
-  --ink:#0E2439; --ink-2:#3C4F66; --muted:#6B7C93;
-  --line:#E3E9F2; --paper:#F6F8FC; --card:#FFFFFF;
-  --brand:#1B4F8C; --brand-2:#2E6FB7; --gold:#B8860B;
+  --ink:#0E2439; --muted:#6B7C93; --line:#E3E9F2; --paper:#F6F8FC;
+  --card:#FFFFFF; --brand:#1B4F8C; --brand-2:#2E6FB7; --gold:#B8860B;
 }
 html, body, [class*="css"] { font-family:'Inter',-apple-system,'Segoe UI',sans-serif; }
 .stApp { background:var(--paper); }
-.block-container { padding-top:1.1rem; padding-bottom:3rem; max-width:1240px; }
+.block-container { padding-top:1.1rem; padding-bottom:3rem; max-width:1100px; }
 
-/* hero */
 .rc-hero{
   background:linear-gradient(135deg,#102D4D 0%,#1B4F8C 55%,#2E6FB7 100%);
   border-radius:14px; padding:1.5rem 1.7rem 1.3rem; color:#fff;
@@ -292,170 +543,141 @@ html, body, [class*="css"] { font-family:'Inter',-apple-system,'Segoe UI',sans-s
 }
 .rc-hero h1{
   font-family:'Source Serif 4',Georgia,serif; font-weight:700;
-  font-size:1.75rem; line-height:1.18; margin:0 0 .35rem; letter-spacing:-.015em;
+  font-size:1.7rem; line-height:1.18; margin:0 0 .35rem; letter-spacing:-.015em;
 }
-.rc-hero p{ margin:0; font-size:.85rem; line-height:1.55; color:#CFE0F2; max-width:76ch; }
+.rc-hero p{ margin:0; font-size:.86rem; line-height:1.55; color:#CFE0F2; max-width:72ch; }
 .rc-stats{ display:flex; flex-wrap:wrap; gap:.45rem; margin-top:.95rem; }
 .rc-stat{
   background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.2);
-  border-radius:999px; padding:.22rem .7rem; font-size:.71rem; font-weight:500;
-  color:#EAF2FB; backdrop-filter:blur(2px);
+  border-radius:999px; padding:.22rem .7rem; font-size:.71rem; font-weight:500; color:#EAF2FB;
 }
-.rc-stat b{ color:#fff; font-weight:700; }
-
-/* section headings */
-.rc-sec{
-  font-family:'Source Serif 4',Georgia,serif; font-size:1.05rem; font-weight:700;
-  color:var(--ink); margin:.2rem 0 .1rem;
-}
-.rc-sub{ color:var(--muted); font-size:.79rem; margin:0 0 .7rem; }
 .rc-kicker{
   text-transform:uppercase; letter-spacing:.09em; font-size:.66rem;
-  font-weight:700; color:var(--gold); margin-bottom:.15rem;
+  font-weight:700; color:var(--gold); margin:.2rem 0 .45rem;
 }
-
-/* scope bar */
 .rc-scope{
   background:var(--card); border:1px solid var(--line); border-left:3px solid var(--gold);
-  border-radius:9px; padding:.55rem .85rem; font-size:.78rem; color:var(--ink-2);
-  margin-bottom:.85rem; box-shadow:0 1px 2px rgba(16,45,77,.04);
+  border-radius:9px; padding:.55rem .85rem; font-size:.79rem; color:#3C4F66;
+  margin-bottom:.85rem;
 }
-.rc-scope b{ color:var(--ink); }
-
-/* chips */
 .rc-chip{
   display:inline-block; padding:2px 9px; border-radius:999px; font-size:.68rem;
-  font-weight:650; color:#fff; white-space:nowrap; letter-spacing:.012em;
+  font-weight:650; color:#fff; white-space:nowrap;
 }
-.rc-note{ color:var(--muted); font-size:.71rem; }
-.rc-flag{
-  display:inline-block; background:#F1F5FB; border:1px solid #D7E2F1;
-  color:var(--brand); border-radius:999px; padding:1px 9px;
-  font-size:.68rem; font-weight:600;
+.rc-note{ color:var(--muted); font-size:.74rem; }
+.rc-basis{
+  color:#3C4F66; font-size:.82rem; padding:.45rem 0 .1rem;
 }
-
-/* source cards */
 .rc-src{
   background:var(--card); border:1px solid var(--line); border-radius:9px;
   padding:.75rem .9rem; margin-bottom:.6rem; transition:box-shadow .15s ease;
 }
 .rc-src:hover{ box-shadow:0 6px 18px -10px rgba(16,45,77,.35); }
-.rc-src-t{ font-weight:640; font-size:.87rem; line-height:1.35; color:var(--ink); }
+.rc-src-t{ font-weight:640; font-size:.88rem; line-height:1.35; color:var(--ink); }
 .rc-quote{
-  font-family:ui-monospace,'Cascadia Mono',Consolas,monospace; font-size:.725rem;
-  color:#3C4F66; white-space:pre-wrap; margin-top:.5rem; padding:.45rem .6rem;
-  border-left:2px solid var(--line); background:#FAFCFF; border-radius:0 5px 5px 0;
+  font-size:.78rem; color:#3C4F66; white-space:pre-wrap; margin-top:.5rem;
+  padding:.5rem .65rem; border-left:2px solid var(--line); background:#FAFCFF;
+  border-radius:0 5px 5px 0; line-height:1.5;
 }
-
-/* buttons */
 .stButton > button{
   background:var(--card); border:1px solid var(--line); border-radius:9px;
-  color:var(--ink); font-weight:550; font-size:.82rem; text-align:left;
-  padding:.6rem .85rem; width:100%; transition:all .14s ease;
-  box-shadow:0 1px 2px rgba(16,45,77,.04);
+  color:var(--ink); font-weight:500; font-size:.82rem; text-align:left;
+  padding:.65rem .85rem; width:100%; transition:all .14s ease; line-height:1.4;
 }
 .stButton > button:hover{
   border-color:var(--brand-2); color:var(--brand);
   box-shadow:0 6px 16px -9px rgba(27,79,140,.55); transform:translateY(-1px);
 }
-.stButton > button:focus:not(:active){ border-color:var(--brand); color:var(--brand); }
-
-/* sidebar */
 [data-testid="stSidebar"]{ background:#0E2439; }
 [data-testid="stSidebar"] *{ color:#D9E4F1; }
-[data-testid="stSidebar"] .stButton > button{
-  background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.16); color:#EAF2FB;
-}
-[data-testid="stSidebar"] .stButton > button:hover{
-  background:rgba(255,255,255,.14); border-color:rgba(255,255,255,.3); color:#fff;
-}
 .rc-brand{
-  font-family:'Source Serif 4',Georgia,serif; font-size:1.06rem; font-weight:700;
-  color:#fff; line-height:1.2;
+  font-family:'Source Serif 4',Georgia,serif; font-size:1.02rem; font-weight:700;
+  color:#fff; line-height:1.25;
 }
 .rc-brand-sub{
-  font-size:.68rem; color:#8FA8C4; letter-spacing:.05em;
+  font-size:.67rem; color:#8FA8C4; letter-spacing:.05em;
   text-transform:uppercase; margin-top:.2rem;
 }
 .rc-side-h{
   text-transform:uppercase; letter-spacing:.1em; font-size:.65rem; font-weight:700;
   color:#7E99BA !important; margin:.15rem 0 .35rem;
 }
-
-/* tabs + metrics */
-.stTabs [data-baseweb="tab-list"]{ gap:.3rem; border-bottom:1px solid var(--line); }
-.stTabs [data-baseweb="tab"]{ font-size:.85rem; font-weight:560; }
-[data-testid="stMetricValue"]{ font-size:1.5rem; color:var(--ink); font-weight:700; }
-[data-testid="stMetricLabel"]{ font-size:.72rem; color:var(--muted); }
 </style>
 """
 
 
-def chip(tier: str, note: bool = True) -> str:
-    label, colour, tail = TIER_BADGE[tier]
-    out = f"<span class='rc-chip' style='background:{colour}'>{label}</span>"
-    if note:
-        out += f" <span class='rc-note'>{tail}</span>"
-    return out
+def chip(tier: str) -> str:
+    label, colour = STATUS[tier]
+    return f"<span class='rc-chip' style='background:{colour}'>{label}</span>"
 
 
-def evidence_strength(results) -> tuple[int, str]:
-    """How much BINDING material backs this answer.
+def basis_sentence(results) -> str:
+    """Say what the answer rests on, in words rather than a percentage.
 
-    Counts documents, not chunks, deliberately: six passages from one circular is
-    one source, and calling that strong evidence would mislead in exactly the
-    situation where someone is most likely to rely on it.
+    Counts documents, not passages: six extracts from one circular is one
+    source, and presenting that as six would mislead precisely where someone is
+    most likely to rely on it.
     """
     if not results:
-        return 0, "No sources"
-    binding = {r["source_file"] for r in results if r["tier"] in ("A", "B")}
-    total = {r["source_file"] for r in results}
-    pct = int(round(100 * len(binding) / max(1, len(total))))
-    if len(binding) >= 3 and pct >= 75:
-        return pct, "Strong — multiple binding instruments"
-    if len(binding) >= 1:
-        return pct, "Moderate — binding material present"
-    return pct, "Weak — explanatory sources only"
+        return ""
+    by_doc = {}
+    for r in results:
+        by_doc.setdefault(r["source_file"], r["tier"])
+    binding = sum(1 for t in by_doc.values() if t in ("A", "B"))
+    other = len(by_doc) - binding
+
+    def plural(n, word):
+        return f"{n} {word}" + ("" if n == 1 else "s")
+
+    if binding and other:
+        return (f"Based on {plural(binding, 'binding regulation')} and "
+                f"{plural(other, 'guidance document')}.")
+    if binding:
+        return f"Based on {plural(binding, 'binding regulation')}."
+    return (f"Based on {plural(other, 'guidance document')} only — no binding "
+            f"regulation was found for this question.")
 
 
 def render_sources(results) -> None:
-    with st.expander(f"Sources ({len(results)})", expanded=False):
+    with st.expander(f"View the {len(results)} sources behind this answer"):
         for i, r in enumerate(results, 1):
-            # Raw PDF/OCR text contains stray <, > and & often enough that
+            # Raw PDF and OCR text contains stray <, > and & often enough that
             # injecting it unescaped silently swallows parts of the quotation.
             url = html.escape(r.get("url") or "", quote=True)
-            link = (f" · <a href='{url}' target='_blank' rel='noopener'>open source</a>"
-                    if url else "")
+            link = (f" · <a href='{url}' target='_blank' rel='noopener'>"
+                    f"open the official source</a>" if url else "")
             body = html.escape(r["text"][:620].strip())
             if len(r["text"]) > 620:
                 body += " …"
-            edge = TIER_BADGE[r["tier"]][1]
+            edge = STATUS[r["tier"]][1]
             st.markdown(
                 f"<div class='rc-src' style='border-left:3px solid {edge}'>"
-                f"<div class='rc-src-t'>[{i}] {html.escape(str(r['title']))}</div>"
-                f"<div style='margin:.35rem 0'>{chip(r['tier'])}</div>"
-                f"<div class='rc-note'>{html.escape(str(r.get('bucket') or ''))} · cosine "
-                f"{r['similarity']:.3f}{link}</div>"
+                f"<div class='rc-src-t'>{i}. "
+                f"{html.escape(clean_title(str(r['title']), r.get('source_file', '')))}"
+                f"</div>"
+                f"<div style='margin:.4rem 0'>{chip(r['tier'])}"
+                f"<span class='rc-note'>{link}</span></div>"
                 f"<div class='rc-quote'>{body}</div></div>", unsafe_allow_html=True)
 
 
-def apply_scope(results, needles: list[str], limit: int):
-    """Keep only documents whose TITLE matches the selected scope.
+# apply_scope() was removed on 11 Oct 2026.
+#
+# It took the top CANDIDATE_K results by similarity and kept the ones whose
+# title matched the chosen scope - and when none matched, returned the unscoped
+# list instead: `return (keep or results)[:limit], not keep`.
+#
+# Measured consequence: "What equipment must be available?" scoped to
+# Physiotherapy centre returned a Yoga standards DRAFT. The physiotherapy
+# document is in the corpus, but ~20 near-identical CEA facility templates
+# outrank it on a generic question - and generic questions are exactly what the
+# dropdown exists to serve. 3 of 4 fallbacks in that run were not the control
+# case; they were this defect.
+#
+# The scope is now a metadata constraint passed into the Chroma query
+# (rag_query.retrieve(..., titles=...)), so the search cannot leave the scope,
+# and an empty scope is reported rather than widened.
 
-    A query naming "financial year 2023-24" put the 2024-25 circular first, the
-    2022-23 second and the correct one third, all within 0.03 cosine - the
-    embedding cannot see four characters of difference between otherwise
-    identical documents. The same shape appears across CEA establishment
-    templates. The distinguishing fact is categorical, not semantic, so it
-    belongs in a filter rather than in a similarity score.
-    """
-    if not needles:
-        return results[:limit], False
-    keep = [r for r in results if any(n in (r["title"] or "").lower() for n in needles)]
-    return (keep or results)[:limit], not keep
 
-
-# ── generation ───────────────────────────────────────────────────────────────
 def generate(client, question: str, domain: str, results, effort: str) -> str:
     user_msg = (f"Domain: {domain}\n\nQuestion: {question}\n\n"
                 f"Retrieved sources:\n\n{format_sources(results)}")
@@ -464,7 +686,7 @@ def generate(client, question: str, domain: str, results, effort: str) -> str:
     kwargs = {"model": LLM_MODEL, "messages": messages}
     if effort:
         kwargs["reasoning_effort"] = effort
-    note, answer = st.empty(), None
+    answer = None
     try:
         try:
             stream = client.chat.completions.create(**kwargs, stream=True)
@@ -472,318 +694,228 @@ def generate(client, question: str, domain: str, results, effort: str) -> str:
             if "reasoning_effort" not in kwargs:
                 raise
             kwargs.pop("reasoning_effort")
-            note.caption("_reasoning_effort not supported here — model default._")
             stream = client.chat.completions.create(**kwargs, stream=True)
         # A chunk can carry an empty choices list - the final usage-only chunk
         # does, and chunk.choices[0] would raise IndexError mid-answer.
         answer = st.write_stream(
             (c.choices[0].delta.content or "") for c in stream if c.choices)
-    except Exception as exc:
-        note.caption("_Streaming unavailable, generating…_")
+    except Exception:
+        # Streaming is refused for some models and some unverified
+        # organisations. Fall back to one blocking call rather than showing a
+        # reviewer a stack trace.
         try:
             kwargs.pop("reasoning_effort", None)
             resp = client.chat.completions.create(**kwargs)
             answer = (resp.choices[0].message.content or "").strip()
             st.markdown(answer)
-        except Exception as exc2:
-            answer = (f"**Generation failed.** Streaming: `{exc}`  \n"
-                      f"Non-streaming: `{exc2}`\n\nRetrieved sources are below.")
-            st.error(answer)
+        except Exception:
+            answer = ("Sorry — the answer could not be generated just now. "
+                      "The sources found for your question are shown below.")
+            st.warning(answer)
     if not answer:
-        answer = "_The model returned an empty response. Sources are below._"
+        answer = "No answer was returned. The sources found are shown below."
         st.markdown(answer)
     return answer
 
 
-# ── sidebar ──────────────────────────────────────────────────────────────────
+# ── page ─────────────────────────────────────────────────────────────────────
+_default_domain = LOCKED_DOMAIN or "Healthcare"
+st.set_page_config(page_title=DOMAIN_META[_default_domain]["title"],
+                   page_icon="📋", layout="wide",
+                   initial_sidebar_state="expanded")
 st.markdown(CSS, unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown("<div class='rc-brand'>Compliance Intelligence</div>"
-                "<div class='rc-brand-sub'>IIM Bangalore · CCS</div>",
+    st.markdown(f"<div class='rc-brand'>{DOMAIN_META[_default_domain]['title']}</div>"
+                "<div class='rc-brand-sub'>IIM Bangalore</div>",
                 unsafe_allow_html=True)
     st.divider()
 
-    st.markdown("<div class='rc-side-h'>Domain</div>", unsafe_allow_html=True)
-    domain = st.radio("Domain", ["Healthcare", "RERA"], label_visibility="collapsed",
-                      format_func=lambda d: DOMAIN_LABEL[d])
-    st.caption(DOMAIN_BLURB[domain])
-    st.divider()
+    if LOCKED_DOMAIN:
+        domain = LOCKED_DOMAIN
+    else:
+        st.markdown("<div class='rc-side-h'>Domain</div>", unsafe_allow_html=True)
+        domain = st.radio("Domain", list(DOMAINS), label_visibility="collapsed",
+                          format_func=lambda d: DOMAIN_META[d]["title"])
+        st.divider()
 
-    st.markdown("<div class='rc-side-h'>Scope</div>", unsafe_allow_html=True)
+    st.markdown("<div class='rc-side-h'>Narrow the search</div>",
+                unsafe_allow_html=True)
     if domain == "RERA":
         fy = st.selectbox("Financial year", RERA_YEARS,
-                          help="Karnataka penalty circulars differ only by year and are "
-                               "near-identical to the embedding model. Scoping resolves it.")
+                          help="Several circulars differ only by the year they "
+                               "cover. Choosing a year returns that year's rules.")
         scope_needles = [] if fy == RERA_YEARS[0] else [fy]
-        scope_label = "All years" if not scope_needles else f"FY {fy}"
+        scope_label = "All years" if not scope_needles else f"Financial year {fy}"
+        examples = ([t.format(y=fy) for t in RERA_YEAR_TEMPLATES]
+                    if scope_needles else EXAMPLES["RERA"])
     else:
-        facility = st.selectbox("Establishment type", list(HEALTHCARE_FACILITIES),
-                                help="CEA standards are published per facility type in "
-                                     "near-identical templates. Scoping returns the "
-                                     "standards that bind your establishment.")
+        facility = st.selectbox("Type of establishment", list(HEALTHCARE_FACILITIES),
+                                help="Standards are published separately for each "
+                                     "type of facility. Choosing one returns the "
+                                     "standards that apply to it.")
         scope_needles = HEALTHCARE_FACILITIES[facility]
         scope_label = facility
-    st.divider()
+        examples = ([t.format(n=FACILITY_NOUN[facility]) for t in FACILITY_TEMPLATES]
+                    if scope_needles else EXAMPLES["Healthcare"])
 
-    st.markdown("<div class='rc-side-h'>Retrieval</div>", unsafe_allow_html=True)
-    top_k = st.slider("Passages retrieved", 3, 12, 6, help="The cohort benchmark uses 6.")
-    include_drafts = st.checkbox("Include draft / proposed (tier D)", value=False)
-    include_review = st.checkbox("Include unverified (tier E)", value=False)
-    st.divider()
+    n_scoped, n_general = scope_count(domain, scope_needles)
+    caption = scope_caption(n_scoped, "all" if not scope_needles else "some",
+                            n_general)
+    if caption:
+        st.caption(caption)
 
-    st.markdown("<div class='rc-side-h'>Cost controls</div>", unsafe_allow_html=True)
-    adaptive = st.checkbox("Adaptive reasoning", value=True,
-                           help="Choose reasoning effort per query from retrieval "
-                                "signals. Reasoning tokens are what drive cost.")
-    use_cache = st.checkbox("Reuse cached answers", value=True,
-                            help="Retrieval is local and free; generation is the only "
-                                 "API spend. Repeats are never paid for twice.")
-    st.caption(f"{len(answer_cache())} answers cached")
-    if st.button("Clear cache"):
-        answer_cache().clear()
-        try:
-            CACHE_FILE.unlink(missing_ok=True)
-        except Exception:
-            pass
-        st.rerun()
+    with st.expander("More options"):
+        include_drafts = st.checkbox("Include draft and proposed rules", value=False,
+                                     help="Clearly labelled, and never presented as "
+                                          "law in force.")
+        include_review = st.checkbox("Include documents we have not verified",
+                                     value=False,
+                                     help="Material whose legal status we have not "
+                                          "confirmed.")
     st.divider()
-
-    with st.expander("Authority tiers"):
-        for t in "ABCDE":
-            st.markdown(chip(t), unsafe_allow_html=True)
-    st.caption(f"`{LLM_MODEL}` · `{EMBED_MODEL.split('/')[-1]}`")
-    if st.button("Clear conversation"):
+    if st.button("Start a new conversation"):
         st.session_state.messages = []
         st.rerun()
 
-# ── preflight ────────────────────────────────────────────────────────────────
+meta = DOMAIN_META[domain]
+
 store = get_store() if ensure_index() else None
 if store is None:
-    st.error("No corpus index available.")
-    st.caption("Locally, build it. On a deployment, set `INDEX_URL` in the app's "
-               "secrets to a downloadable .tar.gz of `chroma_db/`.")
-    st.code("cd 05_App\npython ingest_corpus.py --rebuild", language="bash")
+    st.error("The document library is unavailable. Please try again shortly.")
     st.stop()
 
 client = get_client()
 
 st.markdown(
     "<div class='rc-hero'>"
-    "<h1>Indian Regulatory Compliance Intelligence</h1>"
-    "<p>Answers are grounded only in the project corpus. Where the corpus does not "
-    "settle a question, the assistant says so rather than filling the gap. Draft and "
-    "unverified material is labelled and never presented as binding law.</p>"
-    f"<div class='rc-stats'>"
-    f"<span class='rc-stat'><b>{CORPUS_DOCS}</b> documents</span>"
-    f"<span class='rc-stat'><b>{CORPUS_CHUNKS:,}</b> passages</span>"
-    f"<span class='rc-stat'><b>2</b> domains</span>"
-    f"<span class='rc-stat'><b>5</b> authority tiers</span>"
-    f"<span class='rc-stat'>authority-tiered retrieval</span>"
+    f"<h1>{meta['title']}</h1>"
+    f"<p>{meta['lede']} Answers come only from these official documents. Where they "
+    "do not settle a question, the assistant says so rather than guessing, and "
+    "every answer shows the sources it relied on.</p>"
+    "<div class='rc-stats'>"
+    + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"]) +
     "</div></div>", unsafe_allow_html=True)
 
 if client is None:
-    st.warning("`OPENAI_API_KEY` is not set — retrieval works, generation does not.")
+    st.warning("Answer generation is not configured. Source search still works.")
 
-tab_chat, tab_tools = st.tabs(["Assistant", f"{DOMAIN_LABEL[domain]} tools"])
-
-# ── assistant ────────────────────────────────────────────────────────────────
-with tab_chat:
-    tiers_txt = "A–E" if include_review else ("A–D" if include_drafts else "A–C")
-    st.markdown(f"<div class='rc-scope'><b>Scope</b> · {DOMAIN_LABEL[domain]} · "
-                f"{scope_label} · top {top_k} passages · tiers {tiers_txt} · "
-                f"reasoning {'adaptive' if adaptive else BASE_EFFORT or 'default'}"
-                f"</div>", unsafe_allow_html=True)
-
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-
-    if not st.session_state.messages:
-        st.markdown("<div class='rc-kicker'>Start here</div>", unsafe_allow_html=True)
-        cols = st.columns(2)
-        for i, q in enumerate(SUGGESTED[domain]):
-            if cols[i % 2].button(q, key=f"sug{i}"):
-                st.session_state.pending_q = q
-                st.rerun()
-
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-            if msg.get("sources"):
-                render_sources(msg["sources"])
-
-    prompt = st.chat_input(
-        "Ask about Karnataka RERA or the central Act…" if domain == "RERA"
-        else "Ask about Indian healthcare regulation…")
-    # One channel for button-raised questions from anywhere in the app. The
-    # tools tab sets pending_q and reruns; the script re-executes top to bottom,
-    # so this tab picks it up on the next pass.
-    if not prompt:
-        prompt = st.session_state.pop("pending_q", None)
-
-    if prompt:
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        with st.chat_message("assistant"):
-            with st.spinner("Searching the corpus…"):
-                raw = retrieve(store, prompt, domain,
-                               max(top_k * 4, 24) if scope_needles else top_k,
-                               include_drafts, include_review)
-                results, scope_missed = apply_scope(raw, scope_needles, top_k)
-
-            if not results:
-                answer = (f"The {DOMAIN_LABEL[domain]} corpus does not contain sources "
-                          f"relevant to this question, so I cannot answer it on the "
-                          f"evidence available.")
-                st.markdown(answer)
-                st.session_state.messages.append(
-                    {"role": "assistant", "content": answer, "sources": []})
-            else:
-                if scope_missed:
-                    st.info(f"No sources matched **{scope_label}** — showing the best "
-                            f"available across all of {DOMAIN_LABEL[domain]}.")
-                if any(r["tier"] == "D" for r in results):
-                    st.warning("Includes **draft or proposed** material, which is not "
-                               "binding regulation.")
-                if any(r["tier"] == "E" for r in results):
-                    st.warning("Includes material whose **binding status is unverified**.")
-
-                effort, why = (choose_effort(results, prompt) if adaptive
-                               else (BASE_EFFORT, ["fixed setting"]))
-                pct, verdict = evidence_strength(results)
-                key = cache_key(prompt, domain, scope_label, top_k,
-                                include_drafts, include_review, effort)
-                hit = answer_cache().get(key) if use_cache else None
-
-                c1, c2, c3 = st.columns([1, 1, 2])
-                c1.metric("Binding evidence", f"{pct}%")
-                c2.metric("Reasoning", effort or "default")
-                c3.markdown(
-                    f"<div style='padding-top:.5rem'>"
-                    f"<span class='rc-flag'>{'cached' if hit else 'generated'}</span> "
-                    f"<span class='rc-note'>{verdict} · "
-                    f"{len({r['source_file'] for r in results})} documents · "
-                    f"{html.escape(', '.join(why))}</span></div>",
-                    unsafe_allow_html=True)
-
-                if hit:
-                    answer = hit["answer"]
-                    st.markdown(answer)
-                elif client is None:
-                    answer = "_Generation unavailable — `OPENAI_API_KEY` not set._"
-                    st.markdown(answer)
-                else:
-                    answer = generate(client, prompt, domain, results, effort)
-                    cache_put(key, {"answer": answer, "effort": effort,
-                                    "question": prompt, "domain": domain})
-
-                render_sources(results)
-                st.session_state.messages.append(
-                    {"role": "assistant", "content": answer, "sources": results})
-
-# ── domain tools ─────────────────────────────────────────────────────────────
-with tab_tools:
-    if domain == "RERA":
-        st.markdown("<div class='rc-kicker'>Obligations</div>"
-                    "<div class='rc-sec'>Promoter duties under the Act and Karnataka Rules</div>"
-                    "<p class='rc-sub'>Each button runs a grounded query against the corpus — "
-                    "the assistant answers from the circulars. Nothing is hard-coded here.</p>",
-                    unsafe_allow_html=True)
-        items = [
-            ("Separate bank account", "What are the promoter's obligations regarding the "
-             "separate bank account under Section 4(2)(l)(D)?"),
-            ("Quarterly progress reports", "When must a promoter submit quarterly progress "
-             "reports and what happens on delay?"),
-            ("Annual audit report", "What are the requirements and deadlines for the annual "
-             "audit report?"),
-            ("Project extension", "On what grounds and with what fee may a project "
-             "registration be extended under Section 7?"),
-            ("Agent registration", "What are the requirements for registration of a real "
-             "estate agent?"),
-            ("Appellate tribunal", "What are the fees and procedure for an appeal to the "
-             "Karnataka Real Estate Appellate Tribunal?"),
-        ]
-        cols = st.columns(2)
-        for i, (label, q) in enumerate(items):
-            if cols[i % 2].button(label, key=f"ob{i}"):
-                st.session_state.pending_q = q
-                st.rerun()
-
-        st.divider()
-        st.markdown("<div class='rc-kicker'>Estimator</div>"
-                    "<div class='rc-sec'>Annual audit report — penalty under Section 60</div>"
-                    "<p class='rc-sub'>Non-submission or delay, Real Estate (Regulation and "
-                    "Development) Act, 2016.</p>", unsafe_allow_html=True)
-        a, b = st.columns(2)
-        cost = a.number_input("Total estimated project cost (Rs crore)",
-                              min_value=0.0, value=30.0, step=5.0)
-        years = b.number_input("Financial years in default", min_value=1, value=1, step=1)
-        if cost < 25:
-            band, amount = "Less than Rs 25 crore", 20_000
-        elif cost <= 50:
-            band, amount = "Rs 25–50 crore", 25_000
-        elif cost <= 100:
-            band, amount = "Rs 50–100 crore", 50_000
-        else:
-            band, amount = "Above Rs 100 crore", 1_00_000
-        m1, m2 = st.columns(2)
-        m1.metric("Band", band)
-        m2.metric("Estimated penalty", f"Rs {amount * int(years):,}")
-        st.warning(
-            "**Read this before relying on the figure.** This schedule comes from the "
-            "circular *Imposing penalty … Annual Audit Report for the Financial Year "
-            "2024-25*, whose own footnote states the first financial year ends "
-            "31.03.2026. Whether it applies to earlier years is **not settled anywhere in "
-            "this corpus** — the 2023-24 circular states a liability under Section 60 "
-            "without specifying an amount. Confirm the applicable year's circular before "
-            "acting. An estimator that hid this would be the exact failure mode a "
-            "compliance tool cannot afford.")
-
+_scope_tail = ""
+if n_scoped is not None and scope_needles:
+    if n_scoped:
+        _scope_tail = (f" — {n_scoped} document" + ("" if n_scoped == 1 else "s")
+                       + " specific to this, plus the general rules")
+    elif n_general:
+        _scope_tail = " — the general rules only"
     else:
-        st.markdown("<div class='rc-kicker'>Standards</div>"
-                    "<div class='rc-sec'>Clinical establishment requirements</div>"
-                    f"<p class='rc-sub'>Scoped to <b>{html.escape(scope_label)}</b> in the "
-                    f"sidebar. Each button runs a grounded query within that scope.</p>",
-                    unsafe_allow_html=True)
-        items = [
-            ("Record retention", "How long must medical records and statistics be retained, "
-             "and under which provision?"),
-            ("Infrastructure requirements", "What are the minimum infrastructure and space "
-             "requirements for this establishment type?"),
-            ("Staffing requirements", "What are the minimum staffing and qualification "
-             "requirements for this establishment type?"),
-            ("Registration process", "What is the process and what documents are required to "
-             "register this clinical establishment?"),
-            ("Patient rights and privacy", "What obligations apply regarding patient "
-             "confidentiality and data privacy?"),
-            ("Emergency reporting", "What must be reported to the district authorities and in "
-             "what form?"),
-        ]
-        cols = st.columns(2)
-        for i, (label, q) in enumerate(items):
-            if cols[i % 2].button(label, key=f"hc{i}"):
-                st.session_state.pending_q = q
-                st.rerun()
+        _scope_tail = " — no documents cover this"
+st.markdown(f"<div class='rc-scope'>Searching <b>{html.escape(scope_label)}</b>"
+            f"{html.escape(_scope_tail)}</div>", unsafe_allow_html=True)
 
-        st.divider()
-        st.markdown("<div class='rc-kicker'>Insurance</div>"
-                    "<div class='rc-sec'>PM-JAY hospital empanelment</div>"
-                    "<p class='rc-sub'>Ayushman Bharat — empanelment, claims and beneficiary "
-                    "processes.</p>", unsafe_allow_html=True)
-        pm = [
-            ("Empanelment criteria", "What are the criteria for empanelment of a hospital "
-             "under PM-JAY?"),
-            ("Claim settlement", "What is the process and timeline for claim settlement "
-             "under PM-JAY?"),
-            ("Beneficiary identification", "What is the process for beneficiary "
-             "identification under PM-JAY?"),
-            ("Pre-authorisation", "When is pre-authorisation required and what does the "
-             "process involve?"),
-        ]
-        cols = st.columns(2)
-        for i, (label, q) in enumerate(pm):
-            if cols[i % 2].button(label, key=f"pm{i}"):
-                st.session_state.pending_q = q
-                st.rerun()
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# Examples sit directly above the chat and ask the question in place. An earlier
+# version put them behind a tab; the answer rendered in a tab the reader was not
+# looking at, so the buttons appeared to do nothing. Reviewed 9 Oct.
+if not st.session_state.messages:
+    st.markdown("<div class='rc-kicker'>Try one of these</div>", unsafe_allow_html=True)
+    cols = st.columns(2)
+    for i, q in enumerate(examples):
+        # The key carries the scope, so changing the dropdown gives Streamlit new
+        # widgets rather than stale ones wearing new labels.
+        if cols[i % 2].button(q, key=f"ex{scope_label}{i}"):
+            st.session_state.pending_q = q
+            st.rerun()
+
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+        if msg.get("sources"):
+            render_sources(msg["sources"])
+
+prompt = st.chat_input(meta["placeholder"])
+if not prompt:
+    prompt = st.session_state.pop("pending_q", None)
+
+if prompt:
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant"):
+        # Resolve the scope to exact titles BEFORE searching, so the constraint
+        # goes into the query. An empty scope is an answer ("we hold nothing on
+        # this"), never a reason to search outside it.
+        if scope_needles:
+            specific, general = resolve_scope(domain, scope_needles)
+        else:
+            specific, general = [], []
+        scope_titles = sorted(set(specific) | set(general))
+        scope_empty = bool(scope_needles) and not scope_titles
+
+        if specific == [] and general and scope_needles:
+            st.info(f"No document is specific to **{scope_label}**. Answering "
+                    f"from the rules that apply throughout.")
+
+        if scope_empty:
+            answer = (f"The library holds no documents specific to "
+                      f"**{scope_label}**, so there is nothing here to answer "
+                      f"from. Nothing outside that selection was searched. "
+                      f"Change the selection in the sidebar to search more widely.")
+            st.markdown(answer)
+            st.session_state.messages.append(
+                {"role": "assistant", "content": answer, "sources": []})
+            results = []
+        else:
+            with st.spinner("Searching the documents…"):
+                results = retrieve(store, prompt, domain, 6,
+                                   include_drafts, include_review,
+                                   titles=scope_titles or None)
+
+        if not results and not scope_empty:
+            scoped_note = (f" within {scope_label}" if scope_titles else "")
+            answer = (f"Nothing in these documents addresses that question{scoped_note}, "
+                      "so there is no basis here for an answer. It may fall outside "
+                      "what this collection covers.")
+            st.markdown(answer)
+            st.session_state.messages.append(
+                {"role": "assistant", "content": answer, "sources": []})
+        elif results:
+            if any(r["tier"] == "D" for r in results):
+                st.warning("Some of this comes from **draft or proposed** rules, "
+                           "which are not in force.")
+            if any(r["tier"] == "E" for r in results):
+                st.warning("Some of this comes from documents whose **legal status "
+                           "has not been verified**.")
+
+            effort = choose_effort(results, prompt)
+            key = cache_key(prompt, domain, scope_label, include_drafts,
+                            include_review, effort)
+            hit = answer_cache().get(key)
+
+            st.markdown(f"<div class='rc-basis'>{basis_sentence(results)}</div>",
+                        unsafe_allow_html=True)
+
+            if hit:
+                answer = hit["answer"]
+                st.markdown(answer)
+            elif client is None:
+                answer = "Answer generation is not configured; see the sources below."
+                st.markdown(answer)
+            elif daily_usage() >= DAILY_LIMIT:
+                answer = ("This demonstration has reached its limit of questions for "
+                          "today. The sources found for your question are shown "
+                          "below, and the service resets tomorrow.")
+                if CONTACT:
+                    answer += f" For access, contact {CONTACT}."
+                st.warning(answer)
+            else:
+                answer = generate(client, prompt, domain, results, effort)
+                bump_usage()
+                cache_put(key, {"answer": answer, "question": prompt,
+                                "domain": domain})
+
+            render_sources(results)
+            st.session_state.messages.append(
+                {"role": "assistant", "content": answer, "sources": results})
