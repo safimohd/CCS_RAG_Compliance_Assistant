@@ -1,0 +1,41 @@
+﻿name: keep apps warm
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping both apps
+        env:
+          HEALTHCARE_URL: https://REPLACE-ME-healthcare.streamlit.app
+          RERA_URL: https://REPLACE-ME-rera.streamlit.app
+        run: |
+          fail=0
+          for pair in "Healthcare:$HEALTHCARE_URL" "RERA:$RERA_URL"; do
+            name="${pair%%:*}"
+            url="${pair#*:}"
+            case "$url" in
+              *REPLACE-ME*)
+                echo "::warning::$name URL not set yet - skipping"
+                continue
+                ;;
+            esac
+            start=$(date +%s)
+            code=$(curl -sS -o /dev/null -w '%{http_code}' \
+                     --max-time 240 --retry 2 --retry-delay 15 "$url" || echo 000)
+            took=$(( $(date +%s) - start ))
+            if [ "$code" = "200" ]; then
+              echo "$name: HTTP $code in ${took}s"
+              if [ "$took" -gt 30 ]; then
+                echo "::warning::$name took ${took}s - container was cold"
+              fi
+            else
+              echo "::error::$name: HTTP $code after ${took}s"
+              fail=1
+            fi
+          done
+          exit $fail
