@@ -849,8 +849,8 @@ def log_feedback(domain: str, question: str, answer: str,
             "feedback_type": feedback_type,
             "feedback_reason": reason,
         }).execute()
-    except Exception:
-        pass  # Never break the UI over a logging failure
+    except Exception as _log_err:
+        st.session_state["_fb_err"] = str(_log_err)
 
 
 def generate(client, question: str, domain: str, results, effort: str) -> str:
@@ -1022,6 +1022,8 @@ with st.sidebar:
                         st.error(f"Could not load feedback: {_e}")
             else:
                 st.caption("Enter admin password above to view analytics.")
+            if st.session_state.get("_fb_err"):
+                st.error(f"Last feedback error: {st.session_state['_fb_err']}")
 
     st.divider()
     st.markdown(
