@@ -11,8 +11,8 @@ jobs:
     steps:
       - name: Ping both apps
         env:
-          HEALTHCARE_URL: https://REPLACE-ME-healthcare.streamlit.app
-          RERA_URL: https://REPLACE-ME-rera.streamlit.app
+          HEALTHCARE_URL: https://ccsragcomplianceassistant-6hug2utprjrpwtyijwjanr.streamlit.app
+          RERA_URL: https://ccsragcomplianceassistant-cisyv46xzq7kte95ywkmhg.streamlit.app
         run: |
           fail=0
           for pair in "Healthcare:$HEALTHCARE_URL" "RERA:$RERA_URL"; do
@@ -39,3 +39,5 @@ jobs:
             fi
           done
           exit $fail
+
+
