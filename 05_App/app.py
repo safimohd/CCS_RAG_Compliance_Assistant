@@ -808,6 +808,51 @@ def get_followups(domain: str) -> list[str]:
     return _DOMAIN_FOLLOWUPS.get(domain, [])
 
 
+# Suggested rephrased questions shown when an answer is low-confidence.
+_LOW_CONF_SUGGESTIONS: dict[str, list[str]] = {
+    "Healthcare": [
+        "What staffing requirements apply to a hospital under CEA standards?",
+        "What records must a clinical establishment maintain and for how long?",
+        "What are the penalties for non-compliance with CEA regulations?",
+    ],
+    "RERA": [
+        "What documents must a promoter submit to register a project?",
+        "What are a buyer's rights if the promoter delays the project?",
+        "What penalties apply if a project is not registered under RERA?",
+    ],
+}
+
+# Regulation currency dates shown as a footer on every answer.
+_REG_DATE: dict[str, str] = {
+    "Healthcare": "March 2024",
+    "RERA": "September 2024",
+}
+
+
+def log_feedback(domain: str, question: str, answer: str,
+                 confidence_label: str, confidence_score: float,
+                 feedback_type: str, reason: str = "") -> None:
+    """Write one feedback row to Supabase. Silently skips if not configured."""
+    url = _secret("SUPABASE_URL")
+    key = _secret("SUPABASE_KEY")
+    if not url or not key:
+        return
+    try:
+        import supabase as _sb  # type: ignore  # noqa: PLC0415
+        _client = _sb.create_client(url, key)
+        _client.table("feedback").insert({
+            "domain": domain,
+            "question": question,
+            "answer_snippet": answer[:300],
+            "confidence_score": round(confidence_score, 4),
+            "confidence_label": confidence_label,
+            "feedback_type": feedback_type,
+            "feedback_reason": reason,
+        }).execute()
+    except Exception:
+        pass  # Never break the UI over a logging failure
+
+
 def generate(client, question: str, domain: str, results, effort: str) -> str:
     user_msg = (f"Domain: {domain}\n\nQuestion: {question}\n\n"
                 f"Retrieved sources:\n\n{format_sources(results)}")
@@ -936,8 +981,7 @@ with st.sidebar:
             lines.append(f"**{role}:** {m['content']}")
             if m.get("sources"):
                 for r in m["sources"]:
-                    from rag_query import clean_title as _ct  # noqa: PLC0415
-                    lines.append(f"  Source: {_ct(str(r['title']), r.get('source_file',''))}")
+                    lines.append(f"  Source: {clean_title(str(r['title']), r.get('source_file',''))}")
             lines.append("")
         export_text = "\n".join(lines)
         st.download_button("Download conversation",
@@ -945,6 +989,39 @@ with st.sidebar:
                            file_name="compliance_conversation.txt",
                            mime="text/plain",
                            use_container_width=True)
+
+    # Admin feedback dashboard (hidden behind a password)
+    with st.expander("📊 Feedback analytics"):
+        _admin_pw = st.text_input("Password", type="password",
+                                  key="admin_pw", label_visibility="collapsed",
+                                  placeholder="Admin password")
+        if _admin_pw == _secret("ADMIN_PASSWORD", ""):
+            if _admin_pw:  # Don't show stats if no password is set at all
+                _sb_url = _secret("SUPABASE_URL")
+                _sb_key = _secret("SUPABASE_KEY")
+                if not _sb_url or not _sb_key:
+                    st.info("Supabase not configured — no feedback data yet.")
+                else:
+                    try:
+                        import supabase as _sb_mod  # type: ignore  # noqa: PLC0415
+                        _sb_c = _sb_mod.create_client(_sb_url, _sb_key)
+                        _rows = _sb_c.table("feedback").select("*").execute().data or []
+                        _total = len(_rows)
+                        _ups = sum(1 for r in _rows if r.get("feedback_type") == "up")
+                        _dns = _total - _ups
+                        _pct = int(_ups / _total * 100) if _total else 0
+                        st.markdown(f"**Total ratings:** {_total}")
+                        st.markdown(f"**👍 Helpful:** {_ups} ({_pct}%)  |  **👎 Not helpful:** {_dns}")
+                        _dn_rows = [r for r in _rows if r.get("feedback_type") == "down"]
+                        if _dn_rows:
+                            st.markdown("**Questions that got thumbs down:**")
+                            for _r in _dn_rows[-10:][::-1]:
+                                st.markdown(
+                                    f"- [{_r.get('domain','')}] {_r.get('question','')[:80]}")
+                    except Exception as _e:
+                        st.error(f"Could not load feedback: {_e}")
+            else:
+                st.caption("Enter admin password above to view analytics.")
 
     st.divider()
     st.markdown(
@@ -1134,6 +1211,18 @@ if prompt:
                     "The closest passages are shown below; consider rephrasing or "
                     "checking whether the topic falls within this collection.",
                     icon="ℹ️")
+                # Show clickable rephrasing suggestions
+                _suggestions = _LOW_CONF_SUGGESTIONS.get(domain, [])
+                if _suggestions:
+                    st.markdown(
+                        "<div style='font-size:.8rem;color:#6B7C93;margin-top:.5rem;"
+                        "margin-bottom:.25rem;font-weight:600'>💬 Try one of these instead:</div>",
+                        unsafe_allow_html=True)
+                    for _si, _sq in enumerate(_suggestions):
+                        if st.button(_sq, key=f"lc_suggest_{new_msg_idx}_{_si}",
+                                     use_container_width=True):
+                            st.session_state["pending_q"] = _sq
+                            st.rerun()
 
             effort = choose_effort(results, prompt)
             key = cache_key(prompt, domain, scope_label, include_drafts,
@@ -1185,6 +1274,12 @@ if prompt:
                     f"font-weight:600;background:{badge_color}18;padding:2px 8px;"
                     f"border-radius:10px;'>{badge_icon} {badge_label}</span>",
                     unsafe_allow_html=True)
+                # Regulation currency footer
+                _reg_date = _REG_DATE.get(domain, "2024")
+                st.markdown(
+                    f"<div style='font-size:.7rem;color:#9CA3AF;margin-top:.3rem;'>"
+                    f"📅 Based on regulations current as of {_reg_date}</div>",
+                    unsafe_allow_html=True)
 
             # Generate follow-ups before appending so they are stored with the message
             followups: list[str] = []
@@ -1193,9 +1288,11 @@ if prompt:
 
             render_sources(results)
             new_msg_idx = len(st.session_state.messages)
+            _conf_label = badge_label if not low_confidence else "Low confidence"
             st.session_state.messages.append(
                 {"role": "assistant", "content": answer, "sources": results,
-                 "rated": not low_confidence, "followups": followups})
+                 "rated": not low_confidence, "followups": followups,
+                 "conf_label": _conf_label, "conf_score": best_sim})
 
             # Action row: copy + feedback buttons
             if not low_confidence and client is not None and daily_usage() < DAILY_LIMIT:
@@ -1204,10 +1301,12 @@ if prompt:
                 if fb_cols[0].button("👍", key=f"fb_up_{new_msg_idx}",
                                      type="secondary", help="This answer was helpful"):
                     st.session_state.feedback[new_msg_idx] = "up"
+                    log_feedback(domain, prompt, answer, _conf_label, best_sim, "up")
                     st.rerun()
                 if fb_cols[1].button("👎", key=f"fb_dn_{new_msg_idx}",
                                      type="secondary", help="This answer needs improvement"):
                     st.session_state.feedback[new_msg_idx] = "down"
+                    log_feedback(domain, prompt, answer, _conf_label, best_sim, "down")
                     st.rerun()
 
             # Suggested follow-up questions (rendered from stored list)
