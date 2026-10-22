@@ -788,25 +788,24 @@ def render_copy_button(text: str, key: str) -> None:
     )
 
 
-def generate_followups(client, question: str, domain: str, answer: str) -> list[str]:
-    """Generate 3 short follow-up questions based on the answer just given."""
-    if client is None:
-        return []
-    prompt = (f"The user asked: {question}\n\n"
-              f"The assistant answered based on {domain} regulations.\n\n"
-              f"Suggest exactly 3 short follow-up questions the user might want to ask next. "
-              f"Return only the 3 questions, one per line, no numbering, no extra text.")
-    try:
-        resp = client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=200,
-        )
-        raw = (resp.choices[0].message.content or "").strip()
-        questions = [q.strip().lstrip("123.-) ") for q in raw.splitlines() if q.strip()]
-        return questions[:3]
-    except Exception:
-        return []
+_DOMAIN_FOLLOWUPS: dict[str, list[str]] = {
+    "Healthcare": [
+        "What are the minimum staff requirements for this type of establishment?",
+        "What records and documentation must be maintained on site?",
+        "What are the penalties for non-compliance with these standards?",
+    ],
+    "RERA": [
+        "What documents must a promoter submit for project registration?",
+        "What are the timelines and penalties for project delays?",
+        "What rights does a home buyer have if the promoter defaults?",
+    ],
+}
+
+
+def get_followups(domain: str) -> list[str]:
+    """Return 3 suggested follow-up questions for the given domain.
+    No LLM call -- always returns instantly."""
+    return _DOMAIN_FOLLOWUPS.get(domain, [])
 
 
 def generate(client, question: str, domain: str, results, effort: str) -> str:
@@ -1189,8 +1188,8 @@ if prompt:
 
             # Generate follow-ups before appending so they are stored with the message
             followups: list[str] = []
-            if not low_confidence and client is not None:
-                followups = generate_followups(client, prompt, domain, answer)
+            if not low_confidence:
+                followups = get_followups(domain)
 
             render_sources(results)
             new_msg_idx = len(st.session_state.messages)
