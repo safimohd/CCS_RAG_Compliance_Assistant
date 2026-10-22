@@ -44,7 +44,7 @@ import re
 import sys
 import tarfile
 import urllib.request
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 # Chroma requires SQLite >= 3.35. Streamlit Community Cloud's image ships an
@@ -788,6 +788,36 @@ def render_copy_button(text: str, key: str) -> None:
     )
 
 
+def render_share_button(question: str, answer: str, sources: list, key: str) -> None:
+    """Render a 'Share answer' button that copies the question, answer and
+    source titles as a single formatted text block."""
+    source_lines = []
+    for r in sources:
+        title = clean_title(str(r.get("title", "")), r.get("source_file", ""))
+        source_lines.append(f"  - {title}")
+    sources_block = "\n".join(source_lines) if source_lines else "  (none)"
+    share_text = (
+        f"Q: {question}\n\n"
+        f"A: {answer}\n\n"
+        f"Sources:\n{sources_block}\n\n"
+        f"-- via CCS Regulatory Compliance Assistant (IIM Bangalore)"
+    )
+    safe = html.escape(share_text, quote=True)
+    _stc.html(
+        f"""<button id="sb_{key}"
+            onclick="navigator.clipboard.writeText(document.getElementById('st_{key}').innerText)
+                     .then(()=>{{document.getElementById('sb_{key}').innerText='✅ Copied';
+                                setTimeout(()=>{{document.getElementById('sb_{key}').innerText='📤 Share answer'}},1500)}})"
+            style="background:none;border:1px solid #d1d5db;border-radius:6px;
+                   padding:3px 10px;font-size:13px;cursor:pointer;color:#4B5563;
+                   font-family:sans-serif;">
+            📤 Share answer
+        </button>
+        <div id="st_{key}" style="display:none">{safe}</div>""",
+        height=36,
+    )
+
+
 _DOMAIN_FOLLOWUPS: dict[str, list[str]] = {
     "Healthcare": [
         "What are the minimum staff requirements for this type of establishment?",
@@ -1112,8 +1142,25 @@ for msg_idx, msg in enumerate(st.session_state.messages):
                 f"border-radius:10px;'>{h_icon} {h_label}</span>",
                 unsafe_allow_html=True)
 
+            # Timestamp
+            _ts = msg.get("timestamp", "")
+            if _ts:
+                st.markdown(
+                    f"<div style='font-size:.68rem;color:#9CA3AF;margin-top:.2rem;'>"
+                    f"🕐 Answered {_ts}</div>",
+                    unsafe_allow_html=True)
+
             # Copy button
             render_copy_button(msg["content"], f"hist_{msg_idx}")
+
+            # Share answer button
+            _prev_q = ""
+            for _pi in range(msg_idx - 1, -1, -1):
+                if st.session_state.messages[_pi]["role"] == "user":
+                    _prev_q = st.session_state.messages[_pi]["content"]
+                    break
+            render_share_button(_prev_q, msg["content"],
+                                msg.get("sources", []), f"hist_{msg_idx}")
 
         # Feedback buttons for rated answers with sources
         if msg["role"] == "assistant" and msg.get("sources") and msg.get("rated"):
@@ -1123,37 +1170,14 @@ for msg_idx, msg in enumerate(st.session_state.messages):
             dn_type = "primary" if existing == "down" else "secondary"
             if fb_cols[0].button("👍", key=f"fb_up_{msg_idx}",
                                  type=up_type, help="This answer was helpful"):
-                new_val = None if existing == "up" else "up"
-                st.session_state.feedback[msg_idx] = new_val
-                if new_val is not None:
-                    # Find the preceding user question for this answer
-                    _q = ""
-                    for _pi in range(msg_idx - 1, -1, -1):
-                        if st.session_state.messages[_pi]["role"] == "user":
-                            _q = st.session_state.messages[_pi]["content"]
-                            break
-                    log_feedback(domain, _q, msg["content"],
-                                 msg.get("conf_label", ""), msg.get("conf_score", 0.0),
-                                 "up")
+                st.session_state.feedback[msg_idx] = (
+                    None if existing == "up" else "up")
                 st.rerun()
             if fb_cols[1].button("👎", key=f"fb_dn_{msg_idx}",
                                  type=dn_type, help="This answer needs improvement"):
-                new_val = None if existing == "down" else "down"
-                st.session_state.feedback[msg_idx] = new_val
-                if new_val is not None:
-                    _q = ""
-                    for _pi in range(msg_idx - 1, -1, -1):
-                        if st.session_state.messages[_pi]["role"] == "user":
-                            _q = st.session_state.messages[_pi]["content"]
-                            break
-                    log_feedback(domain, _q, msg["content"],
-                                 msg.get("conf_label", ""), msg.get("conf_score", 0.0),
-                                 "down")
+                st.session_state.feedback[msg_idx] = (
+                    None if existing == "down" else "down")
                 st.rerun()
-
-            # Surface any feedback-logging error
-            if st.session_state.get("_fb_err"):
-                st.warning(f"Feedback not saved: {st.session_state.pop('_fb_err')}")
 
         # Follow-up questions -- only show for the last assistant message
         if (msg["role"] == "assistant"
@@ -1313,6 +1337,13 @@ if prompt:
                     f"📅 Based on regulations current as of {_reg_date}</div>",
                     unsafe_allow_html=True)
 
+                # Timestamp
+                _now_ts = datetime.now().strftime("%b %d, %Y  %I:%M %p")
+                st.markdown(
+                    f"<div style='font-size:.68rem;color:#9CA3AF;margin-top:.2rem;'>"
+                    f"🕐 Answered {_now_ts}</div>",
+                    unsafe_allow_html=True)
+
             # Generate follow-ups before appending so they are stored with the message
             followups: list[str] = []
             if not low_confidence:
@@ -1324,11 +1355,13 @@ if prompt:
             st.session_state.messages.append(
                 {"role": "assistant", "content": answer, "sources": results,
                  "rated": not low_confidence, "followups": followups,
-                 "conf_label": _conf_label, "conf_score": best_sim})
+                 "conf_label": _conf_label, "conf_score": best_sim,
+                 "timestamp": datetime.now().strftime("%b %d, %Y  %I:%M %p")})
 
-            # Action row: copy + feedback buttons
+            # Action row: copy + share + feedback buttons
             if not low_confidence and client is not None and daily_usage() < DAILY_LIMIT:
                 render_copy_button(answer, f"new_{new_msg_idx}")
+                render_share_button(prompt, answer, results, f"new_{new_msg_idx}")
                 fb_cols = st.columns([1, 1, 8])
                 if fb_cols[0].button("👍", key=f"fb_up_{new_msg_idx}",
                                      type="secondary", help="This answer was helpful"):
