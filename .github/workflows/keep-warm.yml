@@ -1,4 +1,4 @@
-﻿name: keep apps warm
+name: keep apps warm
 
 on:
   schedule:
@@ -25,7 +25,7 @@ jobs:
                 ;;
             esac
             start=$(date +%s)
-            code=$(curl -sS -o /dev/null -w '%{http_code}' \
+            code=$(curl -sS -L -o /dev/null -w '%{http_code}' \
                      --max-time 240 --retry 2 --retry-delay 15 "$url" || echo 000)
             took=$(( $(date +%s) - start ))
             if [ "$code" = "200" ]; then
