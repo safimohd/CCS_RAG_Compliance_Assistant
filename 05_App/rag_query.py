@@ -87,43 +87,23 @@ FACILITY_MARKERS = [
     "homeopathy", "sowa-rigpa", "sowa rigpa",
 ]
 
-# A Karnataka RERA document is "narrow" when it is a circular, notification,
-# guideline or operational procedure tied to a specific topic or role — as
-# opposed to the foundational legislation (the Act, the Karnataka Rules, and
-# the 2020 bank-account directions and sale-agreement rules) that applies to
-# every stakeholder. The markers below match the title substrings that appear
-# in role-specific documents but not in any of the foundational texts.
-#
-# Note: the old design keyed on financial-year patterns (\b\d{4}-\d{2}\b).
-# That correctly flagged year-named penalty circulars as narrow but left all
-# non-year circulars (agent registration, conciliation setup, building-code
-# guide, etc.) misclassified as general. The role-based filter exposes those
-# documents to the stakeholder who actually needs them.
+# RERA documents that speak for one stakeholder role only (circulars,
+# notifications, guidelines). The Act, Karnataka Rules, and bank-account
+# directions contain NONE of these markers and are correctly classified as
+# general (always returned regardless of role selection).
 RERA_NARROW_MARKERS = [
-    # Document-type keywords — circulars, notifications, guidelines, procedures
-    # are always role-specific, never foundational legislation.
     "circular", "notification", "corrigendum", "press release",
     "public notice", "public notification", "guidelines for",
     "model form", "procedure for",
-    # Compliance reporting
     "quarterly", "annual audit", "audit report",
-    # Financial / fees
     "bank account", "fees and head", "fee for", "revised charges",
-    # Penalty and enforcement
     "penalty",
-    # Extensions (operational circulars, not the legislation itself)
     "extension of time", "extension of registration", "force majeure",
-    # Stakeholder-specific topics
     "real estate agent", "land owner", "ongoing project",
-    # Consumer / allottee
     "allotment", "conciliation", "monetary",
-    # Appellate and dispute
     "appellate", "k-reat",
-    # Project changes and transfer
     "change of project", "transferring",
-    # Building-code operational guide
     "national building code",
-    # Kannada FAQ documents
     "ಪುನರಾವೃತ",
 ]
 

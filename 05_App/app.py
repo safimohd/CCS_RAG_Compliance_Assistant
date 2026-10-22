@@ -99,6 +99,13 @@ INDEX_URL = _secret("INDEX_URL")
 DAILY_LIMIT = int(_secret("DAILY_QUESTION_LIMIT", "100") or 100)
 CONTACT = _secret("CONTACT_EMAIL")
 
+# Cosine similarity threshold below which results are treated as too weak to
+# generate a confident answer. Value is the cosine (after to_cosine conversion),
+# so 0.0 means orthogonal vectors and 1.0 means identical. Empirically, queries
+# that are genuinely on-topic score 0.40+; off-topic queries tend to score below
+# 0.30 even for the best chunk returned.
+LOW_CONFIDENCE_THRESHOLD = 0.35
+
 APP_DIR = Path(__file__).resolve().parent
 CACHE_FILE = APP_DIR / ".answer_cache.json"
 USAGE_FILE = APP_DIR / ".usage.json"
@@ -114,13 +121,14 @@ DOMAIN_META = {
         "placeholder": "Ask about Indian healthcare regulation…",
     },
     "RERA": {
-        "title": "Karnataka RERA Compliance Assistant",
-        "lede": "K-RERA compliance for Karnataka — the Real Estate (Regulation and "
-                "Development) Act 2016, Karnataka RERA Rules 2017, and all K-RERA "
-                "circulars, notifications and guidelines.",
-        "docs": 86,
-        "facts": ["91 source documents", "Karnataka K-RERA · Central RERA Act", "Official sources only"],
-        "placeholder": "Ask about Karnataka RERA or the central Act…",
+        "title": "Karnataka RERA Assistant",
+        "lede": "Your compliance guide for Karnataka's real estate sector. Covers the "
+                "Real Estate (Regulation and Development) Act 2016, Karnataka RERA Rules 2017, "
+                "K-RERA circulars, notifications and guidelines. Ask as a promoter, "
+                "home buyer, agent, or legal professional.",
+        "docs": 91,
+        "facts": ["91 official documents", "K-RERA · Central RERA Act", "Promoters · Buyers · Agents"],
+        "placeholder": "Ask about project registration, refunds, penalties, timelines…",
     },
 }
 
@@ -701,6 +709,31 @@ def basis_sentence(results) -> str:
 
 
 def render_sources(results) -> None:
+    # Show the top 3 source titles inline so the reader sees provenance at a
+    # glance without having to open the expander. Full passages are inside.
+    if results:
+        seen: set[str] = set()
+        preview_lines: list[str] = []
+        for r in results:
+            t = clean_title(str(r["title"]), r.get("source_file", ""))
+            if t not in seen:
+                seen.add(t)
+                colour = STATUS[r["tier"]][1]
+                preview_lines.append(
+                    f"<span style='color:{colour};font-weight:600'>•</span> "
+                    f"<span style='font-size:.8rem;color:#3C4F66'>{html.escape(t)}</span>")
+            if len(preview_lines) == 3:
+                break
+        remaining = len({r["source_file"] for r in results}) - len(preview_lines)
+        if remaining > 0:
+            preview_lines.append(
+                f"<span style='font-size:.78rem;color:#6B7C93'>"
+                f"+ {remaining} more source{'s' if remaining > 1 else ''}</span>")
+        st.markdown(
+            "<div style='margin:.35rem 0 .5rem;line-height:1.8'>"
+            + "<br>".join(preview_lines) + "</div>",
+            unsafe_allow_html=True)
+
     with st.expander(f"View the {len(results)} sources behind this answer"):
         for i, r in enumerate(results, 1):
             # Raw PDF and OCR text contains stray <, > and & often enough that
@@ -876,6 +909,9 @@ st.markdown(f"<div class='rc-scope'>Searching <b>{html.escape(scope_label)}</b>"
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
+if "feedback" not in st.session_state:
+    # Maps message index → "up" | "down"
+    st.session_state.feedback = {}
 
 # Examples sit directly above the chat and ask the question in place. An earlier
 # version put them behind a tab; the answer rendered in a tab the reader was not
@@ -890,11 +926,30 @@ if not st.session_state.messages:
             st.session_state.pending_q = q
             st.rerun()
 
-for msg in st.session_state.messages:
+for msg_idx, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
         if msg.get("sources"):
             render_sources(msg["sources"])
+        # Show feedback buttons only for assistant messages that have sources
+        # and were rated as confident answers (not low-confidence or limit notices).
+        if msg["role"] == "assistant" and msg.get("sources") and msg.get("rated"):
+            existing = st.session_state.feedback.get(msg_idx)
+            fb_cols = st.columns([1, 1, 8])
+            up_label = "👍" if existing == "up" else "👍"
+            dn_label = "👎" if existing == "down" else "👎"
+            up_type = "primary" if existing == "up" else "secondary"
+            dn_type = "primary" if existing == "down" else "secondary"
+            if fb_cols[0].button(up_label, key=f"fb_up_{msg_idx}",
+                                 type=up_type, help="This answer was helpful"):
+                st.session_state.feedback[msg_idx] = (
+                    None if existing == "up" else "up")
+                st.rerun()
+            if fb_cols[1].button(dn_label, key=f"fb_dn_{msg_idx}",
+                                 type=dn_type, help="This answer needs improvement"):
+                st.session_state.feedback[msg_idx] = (
+                    None if existing == "down" else "down")
+                st.rerun()
 
 prompt = st.chat_input(meta["placeholder"])
 if not prompt:
@@ -944,12 +999,27 @@ if prompt:
             st.session_state.messages.append(
                 {"role": "assistant", "content": answer, "sources": []})
         elif results:
+            # Low-confidence guard: if the best-scoring chunk is below the
+            # threshold the question is likely outside what the collection covers.
+            # We still show the sources (they are the closest we found) but warn
+            # the reader that the match is weak rather than silently generating
+            # a potentially misleading answer.
+            best_sim = max((r["similarity"] for r in results), default=0.0)
+            low_confidence = best_sim < LOW_CONFIDENCE_THRESHOLD
             if any(r["tier"] == "D" for r in results):
                 st.warning("Some of this comes from **draft or proposed** rules, "
                            "which are not in force.")
             if any(r["tier"] == "E" for r in results):
                 st.warning("Some of this comes from documents whose **legal status "
                            "has not been verified**.")
+
+            if low_confidence:
+                st.info(
+                    "The documents found are only loosely related to your question "
+                    "so this answer may be incomplete or off-target. "
+                    "The closest passages are shown below; consider rephrasing or "
+                    "checking whether the topic falls within this collection.",
+                    icon="ℹ️")
 
             effort = choose_effort(results, prompt)
             key = cache_key(prompt, domain, scope_label, include_drafts,
@@ -959,7 +1029,14 @@ if prompt:
             st.markdown(f"<div class='rc-basis'>{basis_sentence(results)}</div>",
                         unsafe_allow_html=True)
 
-            if hit:
+            if low_confidence:
+                # Skip LLM call for low-confidence matches; show raw passages only.
+                answer = ("The question does not closely match the documents in "
+                          "this collection. The nearest passages are shown in the "
+                          "sources panel; please review them directly or try a "
+                          "more specific query.")
+                st.markdown(answer)
+            elif hit:
                 answer = hit["answer"]
                 st.markdown(answer)
             elif client is None:
@@ -979,5 +1056,19 @@ if prompt:
                                 "domain": domain})
 
             render_sources(results)
+            new_msg_idx = len(st.session_state.messages)
             st.session_state.messages.append(
-                {"role": "assistant", "content": answer, "sources": results})
+                {"role": "assistant", "content": answer, "sources": results,
+                 "rated": not low_confidence})
+            # Feedback buttons only for real generated answers (skip for
+            # low-confidence "no match" responses and limit-exceeded notices)
+            if not low_confidence and client is not None and daily_usage() < DAILY_LIMIT:
+                fb_cols = st.columns([1, 1, 8])
+                if fb_cols[0].button("👍", key=f"fb_up_{new_msg_idx}",
+                                     type="secondary", help="This answer was helpful"):
+                    st.session_state.feedback[new_msg_idx] = "up"
+                    st.rerun()
+                if fb_cols[1].button("👎", key=f"fb_dn_{new_msg_idx}",
+                                     type="secondary", help="This answer needs improvement"):
+                    st.session_state.feedback[new_msg_idx] = "down"
+                    st.rerun()
