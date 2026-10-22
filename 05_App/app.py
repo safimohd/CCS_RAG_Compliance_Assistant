@@ -768,6 +768,27 @@ def render_sources(results) -> None:
 # and an empty scope is reported rather than widened.
 
 
+def generate_followups(client, question: str, domain: str, answer: str) -> list[str]:
+    """Generate 3 short follow-up questions based on the answer just given."""
+    if client is None:
+        return []
+    prompt = (f"The user asked: {question}\n\n"
+              f"The assistant answered based on {domain} regulations.\n\n"
+              f"Suggest exactly 3 short follow-up questions the user might want to ask next. "
+              f"Return only the 3 questions, one per line, no numbering, no extra text.")
+    try:
+        resp = client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=200,
+        )
+        raw = (resp.choices[0].message.content or "").strip()
+        questions = [q.strip().lstrip("123.-) ") for q in raw.splitlines() if q.strip()]
+        return questions[:3]
+    except Exception:
+        return []
+
+
 def generate(client, question: str, domain: str, results, effort: str) -> str:
     user_msg = (f"Domain: {domain}\n\nQuestion: {question}\n\n"
                 f"Retrieved sources:\n\n{format_sources(results)}")
@@ -855,6 +876,12 @@ with st.sidebar:
     if caption:
         st.caption(caption)
 
+    # Kannada language toggle -- RERA only (corpus has Kannada FAQ docs)
+    kannada_mode = False
+    if domain == "RERA":
+        kannada_mode = st.toggle("ಕನ್ನಡ / Kannada documents",
+                                 help="Include Kannada-language FAQ documents in the search.")
+
     with st.expander("More options"):
         include_drafts = st.checkbox("Include draft and proposed rules", value=False,
                                      help="Clearly labelled, and never presented as "
@@ -863,10 +890,49 @@ with st.sidebar:
                                      value=False,
                                      help="Material whose legal status we have not "
                                           "confirmed.")
+
+    with st.expander("How to use this assistant"):
+        st.markdown(
+            "**Ask in plain language.** You don't need legal terms.\n\n"
+            "**Use the role filter** (above) to narrow results to documents "
+            "relevant to your stakeholder type.\n\n"
+            "**Check the sources.** Every answer lists the exact documents "
+            "and passages it was drawn from. Click to expand.\n\n"
+            "**Confidence matters.** A warning banner appears when the "
+            "documents don't closely match your question.\n\n"
+            "**This is not legal advice.** Always verify with a qualified "
+            "professional before acting.")
+
     st.divider()
     if st.button("Start a new conversation"):
         st.session_state.messages = []
+        st.session_state.feedback = {}
         st.rerun()
+
+    # Export conversation button
+    if st.session_state.get("messages"):
+        lines = []
+        for m in st.session_state.messages:
+            role = "You" if m["role"] == "user" else "Assistant"
+            lines.append(f"**{role}:** {m['content']}")
+            if m.get("sources"):
+                for r in m["sources"]:
+                    from rag_query import clean_title as _ct  # noqa: PLC0415
+                    lines.append(f"  Source: {_ct(str(r['title']), r.get('source_file',''))}")
+            lines.append("")
+        export_text = "\n".join(lines)
+        st.download_button("Download conversation",
+                           data=export_text,
+                           file_name="compliance_conversation.txt",
+                           mime="text/plain",
+                           use_container_width=True)
+
+    st.divider()
+    st.markdown(
+        "<div style='font-size:.72rem;color:#8896A5;line-height:1.5'>"
+        "This assistant provides regulatory information only, not legal advice. "
+        "Always verify with a qualified professional before acting on any answer."
+        "</div>", unsafe_allow_html=True)
 
 meta = DOMAIN_META[domain]
 
@@ -981,7 +1047,12 @@ if prompt:
             results = []
         else:
             with st.spinner("Searching the documents…"):
-                results = retrieve(store, prompt, domain, 6,
+                # For Kannada mode, prepend a language hint to improve retrieval
+                # of bilingual/Kannada documents without changing the core query
+                search_prompt = prompt
+                if domain == "RERA" and kannada_mode:
+                    search_prompt = f"[Kannada/ಕನ್ನಡ preferred] {prompt}"
+                results = retrieve(store, search_prompt, domain, 6,
                                    include_drafts, include_review,
                                    titles=scope_titles or None)
 
@@ -1050,14 +1121,42 @@ if prompt:
                 cache_put(key, {"answer": answer, "question": prompt,
                                 "domain": domain})
 
+            # Confidence badge
+            if not low_confidence:
+                if best_sim >= 0.65:
+                    badge_color, badge_label = "#1a7f4b", "High confidence"
+                    badge_icon = "✅"
+                elif best_sim >= 0.45:
+                    badge_color, badge_label = "#b45309", "Medium confidence"
+                    badge_icon = "🟡"
+                else:
+                    badge_color, badge_label = "#6B7C93", "Low confidence"
+                    badge_icon = "⚠️"
+                st.markdown(
+                    f"<span style='font-size:.75rem;color:{badge_color};"
+                    f"font-weight:600;background:{badge_color}18;padding:2px 8px;"
+                    f"border-radius:10px;'>{badge_icon} {badge_label}</span>",
+                    unsafe_allow_html=True)
+
             render_sources(results)
             new_msg_idx = len(st.session_state.messages)
             st.session_state.messages.append(
                 {"role": "assistant", "content": answer, "sources": results,
                  "rated": not low_confidence})
-            # Feedback buttons only for real generated answers (skip for
-            # low-confidence "no match" responses and limit-exceeded notices)
+
+            # Action row: copy + feedback buttons
             if not low_confidence and client is not None and daily_usage() < DAILY_LIMIT:
+                # Copy-to-clipboard button via JS
+                escaped = answer.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
+                copy_js = (
+                    f"<button onclick=\"navigator.clipboard.writeText(`{escaped}`)"
+                    f".then(()=>{{this.textContent='✅ Copied';setTimeout(()=>"
+                    f"{{this.textContent='📋 Copy answer'}},1500)}})\" "
+                    f"style='background:none;border:1px solid #d1d5db;border-radius:6px;"
+                    f"padding:3px 10px;font-size:.78rem;cursor:pointer;color:#4B5563;"
+                    f"margin-bottom:.4rem;'>📋 Copy answer</button>")
+                st.markdown(copy_js, unsafe_allow_html=True)
+
                 fb_cols = st.columns([1, 1, 8])
                 if fb_cols[0].button("👍", key=f"fb_up_{new_msg_idx}",
                                      type="secondary", help="This answer was helpful"):
@@ -1067,3 +1166,17 @@ if prompt:
                                      type="secondary", help="This answer needs improvement"):
                     st.session_state.feedback[new_msg_idx] = "down"
                     st.rerun()
+
+            # Suggested follow-up questions
+            if not low_confidence and client is not None:
+                followups = generate_followups(client, prompt, domain, answer)
+                if followups:
+                    st.markdown(
+                        "<div style='font-size:.8rem;color:#6B7C93;margin-top:.6rem;"
+                        "margin-bottom:.25rem;font-weight:600'>💡 You might also ask:</div>",
+                        unsafe_allow_html=True)
+                    for i, fq in enumerate(followups):
+                        if st.button(fq, key=f"followup_{new_msg_idx}_{i}",
+                                     use_container_width=True):
+                            st.session_state["pending_q"] = fq
+                            st.rerun()
