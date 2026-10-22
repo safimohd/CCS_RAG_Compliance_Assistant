@@ -114,11 +114,12 @@ DOMAIN_META = {
         "placeholder": "Ask about Indian healthcare regulation…",
     },
     "RERA": {
-        "title": "Real Estate (RERA) Compliance Assistant",
-        "lede": "The Real Estate (Regulation and Development) Act, 2016 together with "
-                "Karnataka RERA rules, circulars, notifications and orders.",
+        "title": "Karnataka RERA Compliance Assistant",
+        "lede": "K-RERA compliance for Karnataka — the Real Estate (Regulation and "
+                "Development) Act 2016, Karnataka RERA Rules 2017, and all K-RERA "
+                "circulars, notifications and guidelines.",
         "docs": 86,
-        "facts": ["86 source documents", "Central and Karnataka", "Official sources only"],
+        "facts": ["91 source documents", "Karnataka K-RERA · Central RERA Act", "Official sources only"],
         "placeholder": "Ask about Karnataka RERA or the central Act…",
     },
 }
@@ -133,7 +134,41 @@ STATUS = {
     "E": ("Status unverified", "#8C1123"),
 }
 
-RERA_YEARS = ["All years", "2022-23", "2023-24", "2024-25", "2025-26", "2026-27"]
+# Role-based scope filter for RERA. Each entry maps a stakeholder role to the
+# title substrings that identify documents specific to that role. The empty
+# list means "no filter — search the whole corpus." The same needles drive
+# both the scope count shown in the sidebar and the Chroma title filter.
+RERA_ROLES = {
+    "All stakeholders": [],
+    "Home Buyer / Allottee": [
+        "allotment",
+        "conciliation",
+        "monetary",
+        "national building code",
+        "ಪುನರಾವೃತ",          # Kannada FAQ documents
+    ],
+    "Promoter / Developer": [
+        "quarterly",
+        "annual audit",
+        "audit report",
+        "bank account",
+        "extension",
+        "penalty",
+        "promoter",
+        "advertisement",
+        "change of project",
+        "transferring",
+        "real estate agent",
+        "ongoing project",
+        "fee",
+    ],
+    "Legal & Dispute Resolution": [
+        "appellate",
+        "conciliation",
+        "monetary",
+        "k-reat",
+    ],
+}
 
 HEALTHCARE_FACILITIES = {
     "Any establishment": [],
@@ -277,14 +312,35 @@ FACILITY_TEMPLATES = [
     "What must {n} report to the district authorities?",
 ]
 
-RERA_YEAR_TEMPLATES = [
-    "What penalty applies for not submitting the annual audit report for {y}?",
-    "What was the deadline to submit the annual audit report for {y}?",
-    "Was the submission deadline for {y} extended, and until when?",
-    "What penalty applies for late quarterly progress reports in {y}?",
-    "How is the penalty amount calculated for {y}?",
-    "Which promoters were covered by the {y} circular?",
-]
+# Per-role example questions for RERA. Shown when a role is selected so the
+# question buttons feel relevant rather than generic. The "All stakeholders"
+# bucket reuses the EXAMPLES["RERA"] list defined above.
+RERA_ROLE_EXAMPLES = {
+    "Home Buyer / Allottee": [
+        "What refund am I entitled to if the promoter delays giving possession?",
+        "How do I file a complaint against a promoter with K-RERA?",
+        "What must the allotment letter include under K-RERA rules?",
+        "How does the K-RERA conciliation process work for buyer-promoter disputes?",
+        "What project information must a promoter display on the K-RERA portal?",
+        "What building-code standards must a residential project meet?",
+    ],
+    "Promoter / Developer": [
+        "When must quarterly progress reports be submitted, and what must they contain?",
+        "What penalty applies if the annual audit report is not submitted on time?",
+        "What share of money collected from allottees must go into the separate bank account?",
+        "On what grounds can a project registration be extended under K-RERA?",
+        "What advertising guidelines apply before a project is registered?",
+        "What is required to register as a real estate agent under K-RERA?",
+    ],
+    "Legal & Dispute Resolution": [
+        "How is a complaint filed before K-RERA, and what are the filing fees?",
+        "What is the procedure for recovering monetary relief from a defaulting promoter?",
+        "How does the K-RERA Conciliation and Dispute Resolution Cell operate?",
+        "On what grounds can an appeal be filed before K-REAT?",
+        "What penalties can K-RERA impose on a promoter for non-compliance?",
+        "What is the process for transferring a promoter's rights and liabilities?",
+    ],
+}
 
 
 # ── resources ────────────────────────────────────────────────────────────────
@@ -380,7 +436,7 @@ def scope_universe(domain: str) -> list[str]:
     which case the count may be shown but no scope filter is applied.
     """
     try:
-        if INDEX_DIR.exists() and any(INDEX_DIR.iterdir()):
+        if ensure_index():
             return index_titles(get_store(), domain)
     except Exception:                                           # noqa: BLE001
         pass
@@ -748,13 +804,13 @@ with st.sidebar:
     st.markdown("<div class='rc-side-h'>Narrow the search</div>",
                 unsafe_allow_html=True)
     if domain == "RERA":
-        fy = st.selectbox("Financial year", RERA_YEARS,
-                          help="Several circulars differ only by the year they "
-                               "cover. Choosing a year returns that year's rules.")
-        scope_needles = [] if fy == RERA_YEARS[0] else [fy]
-        scope_label = "All years" if not scope_needles else f"Financial year {fy}"
-        examples = ([t.format(y=fy) for t in RERA_YEAR_TEMPLATES]
-                    if scope_needles else EXAMPLES["RERA"])
+        role = st.selectbox("I am a…", list(RERA_ROLES),
+                            help="Narrows the search to documents most relevant "
+                                 "to your role. The foundational Act and Karnataka "
+                                 "Rules always appear alongside role-specific circulars.")
+        scope_needles = RERA_ROLES[role]
+        scope_label = role
+        examples = (RERA_ROLE_EXAMPLES.get(role) or EXAMPLES["RERA"])
     else:
         facility = st.selectbox("Type of establishment", list(HEALTHCARE_FACILITIES),
                                 help="Standards are published separately for each "
