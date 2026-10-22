@@ -1047,6 +1047,20 @@ for msg_idx, msg in enumerate(st.session_state.messages):
                     None if existing == "down" else "down")
                 st.rerun()
 
+        # Follow-up questions -- only show for the last assistant message
+        if (msg["role"] == "assistant"
+                and msg_idx == len(st.session_state.messages) - 1
+                and msg.get("followups")):
+            st.markdown(
+                "<div style='font-size:.8rem;color:#6B7C93;margin-top:.6rem;"
+                "margin-bottom:.25rem;font-weight:600'>💡 You might also ask:</div>",
+                unsafe_allow_html=True)
+            for i, fq in enumerate(msg["followups"]):
+                if st.button(fq, key=f"hist_followup_{msg_idx}_{i}",
+                             use_container_width=True):
+                    st.session_state["pending_q"] = fq
+                    st.rerun()
+
 prompt = st.chat_input(meta["placeholder"])
 if not prompt:
     prompt = st.session_state.pop("pending_q", None)
@@ -1173,17 +1187,20 @@ if prompt:
                     f"border-radius:10px;'>{badge_icon} {badge_label}</span>",
                     unsafe_allow_html=True)
 
+            # Generate follow-ups before appending so they are stored with the message
+            followups: list[str] = []
+            if not low_confidence and client is not None:
+                followups = generate_followups(client, prompt, domain, answer)
+
             render_sources(results)
             new_msg_idx = len(st.session_state.messages)
             st.session_state.messages.append(
                 {"role": "assistant", "content": answer, "sources": results,
-                 "rated": not low_confidence})
+                 "rated": not low_confidence, "followups": followups})
 
             # Action row: copy + feedback buttons
             if not low_confidence and client is not None and daily_usage() < DAILY_LIMIT:
-                # Copy-to-clipboard button via iframe (bypasses Streamlit sanitizer)
                 render_copy_button(answer, f"new_{new_msg_idx}")
-
                 fb_cols = st.columns([1, 1, 8])
                 if fb_cols[0].button("👍", key=f"fb_up_{new_msg_idx}",
                                      type="secondary", help="This answer was helpful"):
@@ -1194,16 +1211,14 @@ if prompt:
                     st.session_state.feedback[new_msg_idx] = "down"
                     st.rerun()
 
-            # Suggested follow-up questions
-            if not low_confidence and client is not None:
-                followups = generate_followups(client, prompt, domain, answer)
-                if followups:
-                    st.markdown(
-                        "<div style='font-size:.8rem;color:#6B7C93;margin-top:.6rem;"
-                        "margin-bottom:.25rem;font-weight:600'>💡 You might also ask:</div>",
-                        unsafe_allow_html=True)
-                    for i, fq in enumerate(followups):
-                        if st.button(fq, key=f"followup_{new_msg_idx}_{i}",
-                                     use_container_width=True):
-                            st.session_state["pending_q"] = fq
-                            st.rerun()
+            # Suggested follow-up questions (rendered from stored list)
+            if followups:
+                st.markdown(
+                    "<div style='font-size:.8rem;color:#6B7C93;margin-top:.6rem;"
+                    "margin-bottom:.25rem;font-weight:600'>💡 You might also ask:</div>",
+                    unsafe_allow_html=True)
+                for i, fq in enumerate(followups):
+                    if st.button(fq, key=f"followup_{new_msg_idx}_{i}",
+                                 use_container_width=True):
+                        st.session_state["pending_q"] = fq
+                        st.rerun()
