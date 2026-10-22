@@ -366,22 +366,19 @@ def ensure_index() -> bool:
         return False
     archive = INDEX_DIR.parent / "_index_download.tar.gz"
     try:
-        with st.sidebar.status("Loading the document library…", expanded=False) as status:
-            import requests as _req
-            with _req.get(INDEX_URL, stream=True, timeout=(15, 300),
-                          allow_redirects=True) as r:
-                r.raise_for_status()
-                with open(archive, "wb") as fh:
-                    for chunk in r.iter_content(chunk_size=1 << 20):
-                        fh.write(chunk)
-            with tarfile.open(archive, "r:gz") as tar:
-                try:
-                    tar.extractall(INDEX_DIR.parent, filter="data")
-                except TypeError:          # filter= added in Python 3.12
-                    tar.extractall(INDEX_DIR.parent)
-            archive.unlink(missing_ok=True)
-            status.update(label="Document library ready", state="complete",
-                          expanded=False)
+        import requests as _req
+        with _req.get(INDEX_URL, stream=True, timeout=(15, 300),
+                      allow_redirects=True) as r:
+            r.raise_for_status()
+            with open(archive, "wb") as fh:
+                for chunk in r.iter_content(chunk_size=1 << 20):
+                    fh.write(chunk)
+        with tarfile.open(archive, "r:gz") as tar:
+            try:
+                tar.extractall(INDEX_DIR.parent, filter="data")
+            except TypeError:          # filter= added in Python 3.12
+                tar.extractall(INDEX_DIR.parent)
+        archive.unlink(missing_ok=True)
         return INDEX_DIR.exists() and any(INDEX_DIR.iterdir())
     except Exception as exc:                                 # noqa: BLE001
         archive.unlink(missing_ok=True)
