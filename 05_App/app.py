@@ -380,7 +380,7 @@ def scope_universe(domain: str) -> list[str]:
     which case the count may be shown but no scope filter is applied.
     """
     try:
-        if ensure_index():
+        if INDEX_DIR.exists() and any(INDEX_DIR.iterdir()):
             return index_titles(get_store(), domain)
     except Exception:                                           # noqa: BLE001
         pass
