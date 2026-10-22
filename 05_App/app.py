@@ -838,17 +838,19 @@ def log_feedback(domain: str, question: str, answer: str,
     if not url or not key:
         return
     try:
-        import requests as _req  # noqa: PLC0415
-        _resp = _req.post(
-            f"{url}/rest/v1/feedback",
-            headers={"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json", "Prefer": "return=minimal"},
-            json={"domain": domain, "question": question, "answer_snippet": answer[:300], "confidence_score": round(confidence_score, 4), "confidence_label": confidence_label, "feedback_type": feedback_type, "feedback_reason": reason},
-            timeout=5,
-        )
-        if not _resp.ok:
-            st.session_state["_fb_err"] = f"HTTP {_resp.status_code}: {_resp.text[:200]}"
-    except Exception as _log_err:
-        st.session_state["_fb_err"] = str(_log_err)
+        import supabase as _sb  # type: ignore  # noqa: PLC0415
+        _client = _sb.create_client(url, key)
+        _client.table("feedback").insert({
+            "domain": domain,
+            "question": question,
+            "answer_snippet": answer[:300],
+            "confidence_score": round(confidence_score, 4),
+            "confidence_label": confidence_label,
+            "feedback_type": feedback_type,
+            "feedback_reason": reason,
+        }).execute()
+    except Exception:
+        pass  # Never break the UI over a logging failure
 
 
 def generate(client, question: str, domain: str, results, effort: str) -> str:
@@ -1020,8 +1022,6 @@ with st.sidebar:
                         st.error(f"Could not load feedback: {_e}")
             else:
                 st.caption("Enter admin password above to view analytics.")
-            if st.session_state.get("_fb_err"):
-                st.error(f"Last feedback error: {st.session_state['_fb_err']}")
 
     st.divider()
     st.markdown(
