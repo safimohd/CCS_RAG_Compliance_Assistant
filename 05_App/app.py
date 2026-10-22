@@ -1123,14 +1123,37 @@ for msg_idx, msg in enumerate(st.session_state.messages):
             dn_type = "primary" if existing == "down" else "secondary"
             if fb_cols[0].button("👍", key=f"fb_up_{msg_idx}",
                                  type=up_type, help="This answer was helpful"):
-                st.session_state.feedback[msg_idx] = (
-                    None if existing == "up" else "up")
+                new_val = None if existing == "up" else "up"
+                st.session_state.feedback[msg_idx] = new_val
+                if new_val is not None:
+                    # Find the preceding user question for this answer
+                    _q = ""
+                    for _pi in range(msg_idx - 1, -1, -1):
+                        if st.session_state.messages[_pi]["role"] == "user":
+                            _q = st.session_state.messages[_pi]["content"]
+                            break
+                    log_feedback(domain, _q, msg["content"],
+                                 msg.get("conf_label", ""), msg.get("conf_score", 0.0),
+                                 "up")
                 st.rerun()
             if fb_cols[1].button("👎", key=f"fb_dn_{msg_idx}",
                                  type=dn_type, help="This answer needs improvement"):
-                st.session_state.feedback[msg_idx] = (
-                    None if existing == "down" else "down")
+                new_val = None if existing == "down" else "down"
+                st.session_state.feedback[msg_idx] = new_val
+                if new_val is not None:
+                    _q = ""
+                    for _pi in range(msg_idx - 1, -1, -1):
+                        if st.session_state.messages[_pi]["role"] == "user":
+                            _q = st.session_state.messages[_pi]["content"]
+                            break
+                    log_feedback(domain, _q, msg["content"],
+                                 msg.get("conf_label", ""), msg.get("conf_score", 0.0),
+                                 "down")
                 st.rerun()
+
+            # Surface any feedback-logging error
+            if st.session_state.get("_fb_err"):
+                st.warning(f"Feedback not saved: {st.session_state.pop('_fb_err')}")
 
         # Follow-up questions -- only show for the last assistant message
         if (msg["role"] == "assistant"
