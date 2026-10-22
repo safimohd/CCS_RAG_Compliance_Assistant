@@ -58,6 +58,7 @@ except Exception:
     pass
 
 import streamlit as st
+import streamlit.components.v1 as _stc
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from rag_query import (  # noqa: E402
@@ -768,6 +769,25 @@ def render_sources(results) -> None:
 # and an empty scope is reported rather than widened.
 
 
+def render_copy_button(text: str, key: str) -> None:
+    """Render a clipboard copy button using an iframe so Streamlit's HTML
+    sanitizer cannot strip the onclick handler."""
+    safe = html.escape(text, quote=True)
+    _stc.html(
+        f"""<button id="cb_{key}"
+            onclick="navigator.clipboard.writeText(document.getElementById('ct_{key}').innerText)
+                     .then(()=>{{document.getElementById('cb_{key}').innerText='✅ Copied';
+                                setTimeout(()=>{{document.getElementById('cb_{key}').innerText='📋 Copy answer'}},1500)}})"
+            style="background:none;border:1px solid #d1d5db;border-radius:6px;
+                   padding:3px 10px;font-size:13px;cursor:pointer;color:#4B5563;
+                   font-family:sans-serif;">
+            📋 Copy answer
+        </button>
+        <div id="ct_{key}" style="display:none">{safe}</div>""",
+        height=36,
+    )
+
+
 def generate_followups(client, question: str, domain: str, answer: str) -> list[str]:
     """Generate 3 short follow-up questions based on the answer just given."""
     if client is None:
@@ -992,21 +1012,36 @@ for msg_idx, msg in enumerate(st.session_state.messages):
         st.markdown(msg["content"])
         if msg.get("sources"):
             render_sources(msg["sources"])
-        # Show feedback buttons only for assistant messages that have sources
-        # and were rated as confident answers (not low-confidence or limit notices).
+        if msg["role"] == "assistant" and msg.get("rated"):
+            # Confidence badge from stored similarity scores
+            hist_sim = max((r["similarity"] for r in msg.get("sources", [])), default=0.0)
+            if hist_sim >= 0.65:
+                h_color, h_label, h_icon = "#1a7f4b", "High confidence", "✅"
+            elif hist_sim >= 0.45:
+                h_color, h_label, h_icon = "#b45309", "Medium confidence", "🟡"
+            else:
+                h_color, h_label, h_icon = "#6B7C93", "Low confidence", "⚠️"
+            st.markdown(
+                f"<span style='font-size:.75rem;color:{h_color};"
+                f"font-weight:600;background:{h_color}18;padding:2px 8px;"
+                f"border-radius:10px;'>{h_icon} {h_label}</span>",
+                unsafe_allow_html=True)
+
+            # Copy button
+            render_copy_button(msg["content"], f"hist_{msg_idx}")
+
+        # Feedback buttons for rated answers with sources
         if msg["role"] == "assistant" and msg.get("sources") and msg.get("rated"):
             existing = st.session_state.feedback.get(msg_idx)
             fb_cols = st.columns([1, 1, 8])
-            up_label = "👍" if existing == "up" else "👍"
-            dn_label = "👎" if existing == "down" else "👎"
             up_type = "primary" if existing == "up" else "secondary"
             dn_type = "primary" if existing == "down" else "secondary"
-            if fb_cols[0].button(up_label, key=f"fb_up_{msg_idx}",
+            if fb_cols[0].button("👍", key=f"fb_up_{msg_idx}",
                                  type=up_type, help="This answer was helpful"):
                 st.session_state.feedback[msg_idx] = (
                     None if existing == "up" else "up")
                 st.rerun()
-            if fb_cols[1].button(dn_label, key=f"fb_dn_{msg_idx}",
+            if fb_cols[1].button("👎", key=f"fb_dn_{msg_idx}",
                                  type=dn_type, help="This answer needs improvement"):
                 st.session_state.feedback[msg_idx] = (
                     None if existing == "down" else "down")
@@ -1146,16 +1181,8 @@ if prompt:
 
             # Action row: copy + feedback buttons
             if not low_confidence and client is not None and daily_usage() < DAILY_LIMIT:
-                # Copy-to-clipboard button via JS
-                escaped = answer.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
-                copy_js = (
-                    f"<button onclick=\"navigator.clipboard.writeText(`{escaped}`)"
-                    f".then(()=>{{this.textContent='✅ Copied';setTimeout(()=>"
-                    f"{{this.textContent='📋 Copy answer'}},1500)}})\" "
-                    f"style='background:none;border:1px solid #d1d5db;border-radius:6px;"
-                    f"padding:3px 10px;font-size:.78rem;cursor:pointer;color:#4B5563;"
-                    f"margin-bottom:.4rem;'>📋 Copy answer</button>")
-                st.markdown(copy_js, unsafe_allow_html=True)
+                # Copy-to-clipboard button via iframe (bypasses Streamlit sanitizer)
+                render_copy_button(answer, f"new_{new_msg_idx}")
 
                 fb_cols = st.columns([1, 1, 8])
                 if fb_cols[0].button("👍", key=f"fb_up_{new_msg_idx}",
