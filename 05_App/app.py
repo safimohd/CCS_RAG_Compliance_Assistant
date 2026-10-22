@@ -1005,9 +1005,16 @@ with st.sidebar:
                     st.info("Supabase not configured — no feedback data yet.")
                 else:
                     try:
-                        import supabase as _sb_mod  # type: ignore  # noqa: PLC0415
-                        _sb_c = _sb_mod.create_client(_sb_url, _sb_key)
-                        _rows = _sb_c.table("feedback").select("*").execute().data or []
+                        import requests as _req  # noqa: PLC0415
+                        _fb_resp = _req.get(
+                            f"{_sb_url}/rest/v1/feedback",
+                            headers={"apikey": _sb_key,
+                                     "Authorization": f"Bearer {_sb_key}"},
+                            params={"select": "*"},
+                            timeout=10,
+                        )
+                        _fb_resp.raise_for_status()
+                        _rows = _fb_resp.json() or []
                         _total = len(_rows)
                         _ups = sum(1 for r in _rows if r.get("feedback_type") == "up")
                         _dns = _total - _ups
@@ -1310,6 +1317,10 @@ if prompt:
                     st.session_state.feedback[new_msg_idx] = "down"
                     log_feedback(domain, prompt, answer, _conf_label, best_sim, "down")
                     st.rerun()
+
+            # Surface any feedback-logging error as a warning
+            if st.session_state.get("_fb_err"):
+                st.warning(f"Feedback not saved: {st.session_state.pop('_fb_err')}")
 
             # Suggested follow-up questions (rendered from stored list)
             if followups:
