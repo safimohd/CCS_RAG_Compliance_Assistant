@@ -358,7 +358,7 @@ def ensure_index() -> bool:
         return False
     archive = INDEX_DIR.parent / "_index_download.tar.gz"
     try:
-        with st.status("Loading the document library…", expanded=True) as status:
+        with st.sidebar.status("Loading the document library…", expanded=True) as status:
             st.write("This happens once, when the service starts up.")
             import requests as _req
             with _req.get(INDEX_URL, stream=True, timeout=(15, 300),
