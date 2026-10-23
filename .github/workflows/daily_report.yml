@@ -1,0 +1,35 @@
+name: Daily Report — Query Stats + Expiry Alerts
+
+on:
+  schedule:
+    # 08:00 IST = 02:30 UTC
+    - cron: "30 2 * * *"
+  workflow_dispatch:   # run manually from GitHub Actions UI
+
+jobs:
+  daily-report:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      REPORT_TO_EMAIL:      ${{ secrets.REPORT_TO_EMAIL }}
+      REPORT_FROM_EMAIL:    ${{ secrets.REPORT_FROM_EMAIL }}
+      SMTP_HOST:            ${{ secrets.SMTP_HOST }}
+      SMTP_PORT:            ${{ secrets.SMTP_PORT }}
+      SMTP_USER:            ${{ secrets.SMTP_USER }}
+      SMTP_PASS:            ${{ secrets.SMTP_PASS }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Generate and send daily report
+        run: python .github/workflows/daily_report.py
