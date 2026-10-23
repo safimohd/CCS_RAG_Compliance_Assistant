@@ -702,23 +702,58 @@ DARK_CSS = """
   --ink:#D9E8F5; --muted:#8FA8C4; --line:#253A50; --paper:#0D1B2A;
   --card:#152030; --brand:#4A90D9; --brand-2:#6BAEE8; --gold:#D4A843;
 }
-.stApp{ background:var(--paper) !important; }
-.block-container{ background:var(--paper) !important; }
-[data-testid="stSidebar"]{ background:#060F18 !important; }
-[data-testid="stChatMessage"]{ background:var(--card) !important; border-color:var(--line) !important; }
-.rc-scope{ background:var(--card) !important; color:#8FA8C4 !important; border-color:var(--line) !important; }
+/* ── Main containers ── */
+.stApp,
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"],
+section.main,
+.main .block-container,
+.block-container,
+[data-testid="stVerticalBlock"],
+[data-testid="stHorizontalBlock"] {
+  background-color:#0D1B2A !important;
+}
+/* ── Sidebar ── */
+[data-testid="stSidebar"],
+[data-testid="stSidebar"] > div { background:#060F18 !important; }
+/* ── Chat messages ── */
+[data-testid="stChatMessage"]{ background:#152030 !important; border-color:#253A50 !important; }
+/* ── Buttons (suggestion chips + all stButton) ── */
+.stButton > button{
+  background:#152030 !important; color:#D9E8F5 !important;
+  border-color:#253A50 !important;
+}
+.stButton > button:hover{ background:#1e3248 !important; border-color:#4A90D9 !important; }
+/* ── Chat input ── */
+[data-testid="stChatInput"],
+[data-testid="stChatInput"] > div,
+[data-testid="stChatInput"] textarea,
+[data-testid="stChatInputContainer"] {
+  background:#152030 !important; border-color:#253A50 !important; color:#D9E8F5 !important;
+}
+/* ── Form inputs ── */
+.stTextInput input, .stSelectbox > div > div,
+.stSelectbox [data-baseweb="select"] > div {
+  background:#152030 !important; color:#D9E8F5 !important; border-color:#253A50 !important;
+}
+/* ── Expanders ── */
+[data-testid="stExpander"],
+[data-testid="stExpander"] > div {
+  background:#152030 !important; border-color:#253A50 !important;
+}
+/* ── Custom component classes ── */
+.rc-scope{ background:#152030 !important; color:#8FA8C4 !important; border-color:#253A50 !important; }
 .rc-basis{ color:#8FA8C4 !important; }
-.rc-src{ background:var(--card) !important; border-color:var(--line) !important; }
-.rc-src-t{ color:var(--ink) !important; }
-.rc-quote{ background:#1A2D40 !important; color:#B0C8E0 !important; border-color:var(--line) !important; }
+.rc-src{ background:#152030 !important; border-color:#253A50 !important; }
+.rc-src-t{ color:#D9E8F5 !important; }
+.rc-quote{ background:#1A2D40 !important; color:#B0C8E0 !important; border-color:#253A50 !important; }
 .rc-fb-thanks{ color:#4ade80 !important; background:#052e16 !important; }
-.stButton > button{ background:var(--card) !important; color:var(--ink) !important; border-color:var(--line) !important; }
-.stButton > button:hover{ background:#1e3248 !important; }
-div[data-testid="stChatInput"] > div{ background:var(--card) !important; border-color:var(--line) !important; }
-div[data-testid="stChatInput"] textarea{ color:var(--ink) !important; }
-.stTextInput input, .stSelectbox select{ background:var(--card) !important; color:var(--ink) !important; }
-.stExpander{ background:var(--card) !important; border-color:var(--line) !important; }
-p, label, .stMarkdown{ color:var(--ink) !important; }
+/* ── Text ── */
+p, span, label, div, .stMarkdown, .stMarkdown p { color:#D9E8F5 !important; }
+h1,h2,h3,h4{ color:#D9E8F5 !important; }
+/* ── Keep hero card as-is (has its own gradient) ── */
+.rc-hero, .rc-hero * { color:#fff !important; }
+.rc-hero p{ color:#CFE0F2 !important; }
 </style>
 """
 
