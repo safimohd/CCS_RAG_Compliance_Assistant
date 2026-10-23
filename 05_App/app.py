@@ -696,6 +696,32 @@ html, body, [class*="css"] { font-family:'Inter',-apple-system,'Segoe UI',sans-s
 </style>
 """
 
+DARK_CSS = """
+<style>
+:root{
+  --ink:#D9E8F5; --muted:#8FA8C4; --line:#253A50; --paper:#0D1B2A;
+  --card:#152030; --brand:#4A90D9; --brand-2:#6BAEE8; --gold:#D4A843;
+}
+.stApp{ background:var(--paper) !important; }
+.block-container{ background:var(--paper) !important; }
+[data-testid="stSidebar"]{ background:#060F18 !important; }
+[data-testid="stChatMessage"]{ background:var(--card) !important; border-color:var(--line) !important; }
+.rc-scope{ background:var(--card) !important; color:#8FA8C4 !important; border-color:var(--line) !important; }
+.rc-basis{ color:#8FA8C4 !important; }
+.rc-src{ background:var(--card) !important; border-color:var(--line) !important; }
+.rc-src-t{ color:var(--ink) !important; }
+.rc-quote{ background:#1A2D40 !important; color:#B0C8E0 !important; border-color:var(--line) !important; }
+.rc-fb-thanks{ color:#4ade80 !important; background:#052e16 !important; }
+.stButton > button{ background:var(--card) !important; color:var(--ink) !important; border-color:var(--line) !important; }
+.stButton > button:hover{ background:#1e3248 !important; }
+div[data-testid="stChatInput"] > div{ background:var(--card) !important; border-color:var(--line) !important; }
+div[data-testid="stChatInput"] textarea{ color:var(--ink) !important; }
+.stTextInput input, .stSelectbox select{ background:var(--card) !important; color:var(--ink) !important; }
+.stExpander{ background:var(--card) !important; border-color:var(--line) !important; }
+p, label, .stMarkdown{ color:var(--ink) !important; }
+</style>
+"""
+
 
 def chip(tier: str) -> str:
     label, colour = STATUS[tier]
@@ -1040,6 +1066,8 @@ st.set_page_config(page_title=DOMAIN_META[_default_domain]["title"],
                    page_icon="📋", layout="wide",
                    initial_sidebar_state="expanded")
 st.markdown(CSS, unsafe_allow_html=True)
+if st.session_state.get("dark_mode"):
+    st.markdown(DARK_CSS, unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown(f"<div class='rc-brand'>{DOMAIN_META[_default_domain]['title']}</div>"
@@ -1131,6 +1159,10 @@ with st.sidebar:
                            file_name="compliance_conversation.txt",
                            mime="text/plain",
                            use_container_width=True)
+
+    st.divider()
+    st.toggle("🌙 Dark mode", key="dark_mode",
+              help="Switch between light and dark theme")
 
     # Admin feedback dashboard (hidden behind a password)
     with st.expander("📊 Feedback analytics"):
