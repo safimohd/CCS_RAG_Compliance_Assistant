@@ -658,11 +658,20 @@ html, body, [class*="css"] { font-family:'Inter',-apple-system,'Segoe UI',sans-s
 }
 [data-testid="stSidebar"]{ background:#0E2439; }
 [data-testid="stSidebar"] *{ color:#D9E4F1; }
-/* Sidebar selectbox visible on dark sidebar background */
-[data-testid="stSidebar"] [data-baseweb="select"] > div{
-  background:#1A3352 !important; border-color:#2E4E6E !important; color:#D9E4F1 !important;
+/* Sidebar selectbox — match the dark navy sidebar in light mode */
+[data-testid="stSidebar"] [data-baseweb="select"],
+[data-testid="stSidebar"] [data-baseweb="select"] > div,
+[data-testid="stSidebar"] [data-baseweb="select"] > div > div,
+[data-testid="stSidebar"] [data-baseweb="select"] > div > div > div,
+[data-testid="stSidebar"] [data-testid="stSelectbox"] > div > div,
+[data-testid="stSidebar"] [data-testid="stSelectbox"] > div > div > div {
+  background:#1A3352 !important;
+  border-color:#2E4E6E !important;
+  color:#D9E4F1 !important;
 }
-[data-testid="stSidebar"] [data-baseweb="select"] span{ color:#D9E4F1 !important; }
+[data-testid="stSidebar"] [data-baseweb="select"] span,
+[data-testid="stSidebar"] [data-baseweb="select"] div,
+[data-testid="stSidebar"] [data-baseweb="select"] svg { color:#D9E4F1 !important; fill:#D9E4F1 !important; }
 /* Sidebar "Start a new conversation" button — white text on visible dark bg */
 [data-testid="stSidebar"] .stButton > button{
   background:#1A3352 !important; color:#D9E4F1 !important;
