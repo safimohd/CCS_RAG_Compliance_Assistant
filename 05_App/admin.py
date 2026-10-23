@@ -21,81 +21,33 @@ st.set_page_config(
     layout="wide",
 )
 
-# Global dark theme CSS
-st.markdown("""
-<style>
-  /* Base dark canvas */
-  .stApp { background-color: #0d1117; color: #e6edf3; }
-  section[data-testid="stSidebar"] { background-color: #161b22; }
+# Dark mode toggle (off by default)
+if "dark_mode" not in st.session_state:
+    st.session_state.dark_mode = False
 
-  /* Tabs */
-  .stTabs [data-baseweb="tab-list"] {
-    background: #161b22;
-    border-radius: 10px;
-    padding: 4px;
-    gap: 4px;
-  }
-  .stTabs [data-baseweb="tab"] {
-    background: transparent;
-    color: #8b949e;
-    border-radius: 8px;
-    font-weight: 500;
-    padding: 8px 18px;
-  }
-  .stTabs [aria-selected="true"] {
-    background: #21262d;
-    color: #e6edf3;
-  }
+# Dark mode CSS (injected only when toggled on)
+if st.session_state.dark_mode:
+    st.markdown("""
+    <style>
+      .stApp { background-color: #0d1117 !important; color: #e6edf3 !important; }
+      section[data-testid="stSidebar"] { background-color: #161b22 !important; }
+      .stTabs [data-baseweb="tab-list"] { background: #161b22; border-radius: 10px; padding: 4px; gap: 4px; }
+      .stTabs [data-baseweb="tab"] { background: transparent; color: #8b949e; border-radius: 8px; font-weight: 500; padding: 8px 18px; }
+      .stTabs [aria-selected="true"] { background: #21262d; color: #e6edf3; }
+      [data-testid="metric-container"] { background: #161b22 !important; border: 1px solid #30363d; border-radius: 10px; padding: 16px; }
+      [data-testid="stMetricValue"] { color: #e6edf3 !important; }
+      .stButton > button { background: #21262d; border: 1px solid #30363d; color: #e6edf3; border-radius: 8px; font-weight: 500; }
+      .stButton > button:hover { background: #30363d; border-color: #58a6ff; color: #58a6ff; }
+      .stTextInput > div > div > input, .stSelectbox > div > div { background: #161b22 !important; border: 1px solid #30363d; color: #e6edf3; border-radius: 8px; }
+      .stDataFrame { border: 1px solid #30363d; border-radius: 8px; }
+      hr { border-color: #21262d; }
+      .stAlert { border-radius: 8px; }
+      .stRadio > div { gap: 12px; }
+    </style>
+    """, unsafe_allow_html=True)
 
-  /* Metrics */
-  [data-testid="metric-container"] {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 10px;
-    padding: 16px;
-  }
-  [data-testid="stMetricValue"] { color: #e6edf3; }
-  [data-testid="stMetricDelta"] { font-size: 12px; }
-
-  /* Buttons */
-  .stButton > button {
-    background: #21262d;
-    border: 1px solid #30363d;
-    color: #e6edf3;
-    border-radius: 8px;
-    font-weight: 500;
-  }
-  .stButton > button:hover {
-    background: #30363d;
-    border-color: #58a6ff;
-    color: #58a6ff;
-  }
-
-  /* Inputs */
-  .stTextInput > div > div > input,
-  .stSelectbox > div > div {
-    background: #161b22;
-    border: 1px solid #30363d;
-    color: #e6edf3;
-    border-radius: 8px;
-  }
-
-  /* Dataframe */
-  .stDataFrame { border: 1px solid #30363d; border-radius: 8px; }
-
-  /* Divider */
-  hr { border-color: #21262d; }
-
-  /* Info / success boxes */
-  .stAlert { border-radius: 8px; }
-
-  /* Radio buttons */
-  .stRadio > div { gap: 12px; }
-
-  /* Hide Streamlit branding */
-  #MainMenu, footer, header { visibility: hidden; }
-</style>
-""", unsafe_allow_html=True)
+# Always hide Streamlit chrome
+st.markdown("<style>#MainMenu, footer, header { visibility: hidden; }</style>", unsafe_allow_html=True)
 
 
 # Auth guard
@@ -109,21 +61,17 @@ if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
 
 if not st.session_state.authenticated:
-    st.markdown("""
-    <div style='max-width:420px;margin:80px auto 0;'>
-      <div style='background:#161b22;border:1px solid #30363d;border-radius:14px;padding:36px 32px;'>
-        <div style='text-align:center;margin-bottom:28px;'>
-          <div style='font-size:40px;margin-bottom:10px;'>🛡️</div>
-          <h2 style='color:#e6edf3;margin:0;font-size:20px;font-weight:700;'>CCS RAG Admin</h2>
-          <p style='color:#8b949e;margin:6px 0 0;font-size:13px;'>Compliance Intelligence Dashboard</p>
+    # Centered login card - everything inside one column
+    _, center_col, _ = st.columns([1, 1.2, 1])
+    with center_col:
+        st.markdown("<div style='height:60px'></div>", unsafe_allow_html=True)
+        st.markdown("""
+        <div style='text-align:center;margin-bottom:24px;'>
+          <div style='font-size:44px;margin-bottom:10px;'>🛡️</div>
+          <h2 style='margin:0;font-size:22px;font-weight:700;'>CCS RAG Admin</h2>
+          <p style='color:#888;margin:6px 0 0;font-size:13px;'>Compliance Intelligence Dashboard</p>
         </div>
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    login_col, _ = st.columns([1, 1])
-    with login_col:
-        st.markdown("<div style='max-width:420px;margin:0 auto;'>", unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
         login_type = st.radio(
             "Login as",
@@ -151,8 +99,6 @@ if not st.session_state.authenticated:
                     st.rerun()
                 else:
                     st.error("Incorrect password.")
-
-        st.markdown("</div>", unsafe_allow_html=True)
 
     st.stop()
 
@@ -211,21 +157,30 @@ role_badge = (
     "border-radius:12px;padding:2px 10px;margin-left:10px;'>VIEWER</span>"
 )
 
-st.markdown(f"""
-<div style='background:linear-gradient(135deg,#1a3a5c 0%,#0d1f33 100%);
-            padding:20px 28px;border-radius:12px;margin-bottom:24px;
-            border:1px solid #1f3a5c;display:flex;align-items:center;justify-content:space-between;'>
-  <div>
-    <h1 style='color:#e6edf3;margin:0;font-size:22px;font-weight:700;'>
-      🛡️ CCS RAG Compliance Assistant {role_badge}
-    </h1>
-    <p style='color:#8b949e;margin:4px 0 0;font-size:13px;'>Admin Dashboard</p>
-  </div>
-  <div style='text-align:right;'>
-    <div style='color:#58a6ff;font-size:12px;font-weight:500;'>{TODAY.strftime("%d %b %Y")}</div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
+hdr_col, dm_col = st.columns([5, 1])
+with hdr_col:
+    st.markdown(f"""
+    <div style='background:linear-gradient(135deg,#1a3a5c 0%,#0d1f33 100%);
+                padding:20px 28px;border-radius:12px;margin-bottom:8px;
+                border:1px solid #1f3a5c;display:flex;align-items:center;justify-content:space-between;'>
+      <div>
+        <h1 style='color:#e6edf3;margin:0;font-size:22px;font-weight:700;'>
+          🛡️ CCS RAG Compliance Assistant {role_badge}
+        </h1>
+        <p style='color:#8b949e;margin:4px 0 0;font-size:13px;'>Admin Dashboard</p>
+      </div>
+      <div style='text-align:right;'>
+        <div style='color:#58a6ff;font-size:12px;font-weight:500;'>{TODAY.strftime("%d %b %Y")}</div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+with dm_col:
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+    dm_label = "☀️ Light" if st.session_state.dark_mode else "🌙 Dark"
+    if st.button(dm_label, key="dark_mode_toggle", use_container_width=True):
+        st.session_state.dark_mode = not st.session_state.dark_mode
+        st.rerun()
+st.markdown("<div style='margin-bottom:16px'></div>", unsafe_allow_html=True)
 
 tab1, tab2, tab3, tab4 = st.tabs(["📊 Query Stats", "📁 Document Registry", "🤖 Bots", "📚 KB Coverage"])
 
