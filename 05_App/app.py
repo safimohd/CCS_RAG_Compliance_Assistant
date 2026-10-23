@@ -702,58 +702,78 @@ DARK_CSS = """
   --ink:#D9E8F5; --muted:#8FA8C4; --line:#253A50; --paper:#0D1B2A;
   --card:#152030; --brand:#4A90D9; --brand-2:#6BAEE8; --gold:#D4A843;
 }
-/* ── Main containers ── */
-.stApp,
+/* 1. Paint the root dark — everything else becomes transparent so this shows through */
+html, body, #root { background:#0D1B2A !important; }
+.stApp { background:#0D1B2A !important; }
+
+/* 2. Make ALL Streamlit layout containers transparent */
 [data-testid="stAppViewContainer"],
 [data-testid="stMain"],
-section.main,
-.main .block-container,
-.block-container,
+[data-testid="stMainBlockContainer"],
 [data-testid="stVerticalBlock"],
-[data-testid="stHorizontalBlock"] {
-  background-color:#0D1B2A !important;
-}
-/* ── Sidebar ── */
+[data-testid="stHorizontalBlock"],
+[data-testid="stHeader"],
+[data-testid="stDecoration"],
+[data-testid="stToolbar"],
+.block-container,
+section.main { background:transparent !important; }
+
+/* 3. Sidebar stays its own dark shade */
 [data-testid="stSidebar"],
-[data-testid="stSidebar"] > div { background:#060F18 !important; }
-/* ── Chat messages ── */
-[data-testid="stChatMessage"]{ background:#152030 !important; border-color:#253A50 !important; }
-/* ── Buttons (suggestion chips + all stButton) ── */
-.stButton > button{
+[data-testid="stSidebar"] > div,
+[data-testid="stSidebarContent"] { background:#060F18 !important; }
+
+/* 4. Buttons */
+.stButton > button,
+[data-testid="stBaseButton-secondary"],
+[data-testid="stBaseButton-primary"] {
   background:#152030 !important; color:#D9E8F5 !important;
   border-color:#253A50 !important;
 }
-.stButton > button:hover{ background:#1e3248 !important; border-color:#4A90D9 !important; }
-/* ── Chat input ── */
-[data-testid="stChatInput"],
+.stButton > button:hover { background:#1e3248 !important; border-color:#4A90D9 !important; }
+
+/* 5. Chat messages */
+[data-testid="stChatMessage"] { background:#152030 !important; border-color:#253A50 !important; }
+
+/* 6. Chat input */
 [data-testid="stChatInput"] > div,
-[data-testid="stChatInput"] textarea,
-[data-testid="stChatInputContainer"] {
-  background:#152030 !important; border-color:#253A50 !important; color:#D9E8F5 !important;
-}
-/* ── Form inputs ── */
-.stTextInput input, .stSelectbox > div > div,
-.stSelectbox [data-baseweb="select"] > div {
-  background:#152030 !important; color:#D9E8F5 !important; border-color:#253A50 !important;
-}
-/* ── Expanders ── */
-[data-testid="stExpander"],
-[data-testid="stExpander"] > div {
-  background:#152030 !important; border-color:#253A50 !important;
-}
-/* ── Custom component classes ── */
-.rc-scope{ background:#152030 !important; color:#8FA8C4 !important; border-color:#253A50 !important; }
-.rc-basis{ color:#8FA8C4 !important; }
-.rc-src{ background:#152030 !important; border-color:#253A50 !important; }
-.rc-src-t{ color:#D9E8F5 !important; }
-.rc-quote{ background:#1A2D40 !important; color:#B0C8E0 !important; border-color:#253A50 !important; }
-.rc-fb-thanks{ color:#4ade80 !important; background:#052e16 !important; }
-/* ── Text ── */
-p, span, label, div, .stMarkdown, .stMarkdown p { color:#D9E8F5 !important; }
-h1,h2,h3,h4{ color:#D9E8F5 !important; }
-/* ── Keep hero card as-is (has its own gradient) ── */
+[data-testid="stChatInputContainer"],
+textarea { background:#152030 !important; color:#D9E8F5 !important; border-color:#253A50 !important; }
+
+/* 7. Selectbox / dropdowns */
+[data-baseweb="select"] > div,
+[data-baseweb="input"] > div,
+[data-baseweb="popover"] { background:#152030 !important; border-color:#253A50 !important; }
+[data-baseweb="select"] span,
+[data-baseweb="input"] input { color:#D9E8F5 !important; }
+
+/* 8. Expanders */
+[data-testid="stExpander"] summary,
+[data-testid="stExpander"] > div { background:#152030 !important; border-color:#253A50 !important; }
+
+/* 9. Text — target only Streamlit markdown, not everything */
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] li,
+[data-testid="stMarkdownContainer"] span,
+.stMarkdown p, .stMarkdown li,
+label, .stSelectbox label, .stToggle label,
+[data-testid="stWidgetLabel"] { color:#D9E8F5 !important; }
+
+/* 10. Custom classes */
+.rc-scope { background:#152030 !important; color:#8FA8C4 !important; border-color:#253A50 !important; }
+.rc-basis  { color:#8FA8C4 !important; }
+.rc-src    { background:#152030 !important; border-color:#253A50 !important; }
+.rc-src-t  { color:#D9E8F5 !important; }
+.rc-quote  { background:#1A2D40 !important; color:#B0C8E0 !important; border-color:#253A50 !important; }
+.rc-fb-thanks { color:#4ade80 !important; background:#052e16 !important; }
+
+/* 11. Hero card keeps its gradient */
 .rc-hero, .rc-hero * { color:#fff !important; }
-.rc-hero p{ color:#CFE0F2 !important; }
+.rc-hero p { color:#CFE0F2 !important; }
+
+/* 12. Caption / small text */
+[data-testid="stCaptionContainer"] p,
+small, .stCaption { color:#8FA8C4 !important; }
 </style>
 """
 
