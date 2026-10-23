@@ -92,7 +92,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-tab1, tab2, tab3 = st.tabs(["📊 Query Stats", "📁 Document Registry", "🤖 Bots"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 Query Stats", "📁 Document Registry", "🤖 Bots", "📚 KB Coverage"])
 
 
 # ── Tab 1: Query Stats ─────────────────────────────────────────────────────────
@@ -284,3 +284,104 @@ with tab3:
         "If the URLs above don't match your actual Streamlit deployment links, "
         "update them in `05_App/admin.py` under the Bots tab."
     )
+
+
+# ── Tab 4: KB Coverage ─────────────────────────────────────────────────────────
+with tab4:
+    import pandas as pd
+
+    col_ref_kb, _ = st.columns([1, 3])
+    with col_ref_kb:
+        if st.button("Refresh", key="refresh_kb"):
+            st.cache_data.clear()
+            st.rerun()
+
+    all_docs = fetch_documents()
+    total_registered = len(all_docs) if all_docs else 0
+
+    HC_TOTAL   = 255   # downloadable Healthcare docs
+    HC_DEAD    = 7     # permanently dead URLs
+    RERA_TOTAL = 230   # RERA docs
+    BASELINE   = 114   # docs registered before the bulk-ingest run
+
+    hc_docs   = [d for d in (all_docs or []) if (d.get("domain") or "").lower() == "healthcare"]
+    rera_docs = [d for d in (all_docs or []) if (d.get("domain") or "").lower() == "rera"]
+
+    hc_pct   = round(len(hc_docs)   / HC_TOTAL   * 100, 1) if HC_TOTAL   else 0
+    rera_pct = round(len(rera_docs) / RERA_TOTAL * 100, 1) if RERA_TOTAL else 0
+
+    st.markdown("### Knowledge Base Coverage")
+    st.caption("Documents registered in Supabase and available to the RAG pipeline.")
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Total Registered", total_registered, delta=f"+{total_registered - BASELINE} vs baseline")
+    m2.metric("Healthcare Coverage", f"{hc_pct}%", delta=f"{len(hc_docs)} / {HC_TOTAL} docs")
+    m3.metric("RERA Coverage",       f"{rera_pct}%", delta=f"{len(rera_docs)} / {RERA_TOTAL} docs")
+    m4.metric("Dead URLs (HC)",      HC_DEAD, delta="permanently unreachable", delta_color="inverse")
+
+    st.divider()
+
+    # Progress bars
+    st.markdown("#### Coverage by Domain")
+    col_hc, col_rera = st.columns(2)
+
+    with col_hc:
+        st.markdown(f"""
+        <div style='background:#1a3a5c;border-radius:10px;padding:18px;'>
+          <div style='color:#90caf9;font-size:13px;font-weight:600;letter-spacing:.05em;'>HEALTHCARE</div>
+          <div style='color:#fff;font-size:28px;font-weight:700;margin:6px 0;'>{hc_pct}%</div>
+          <div style='background:#0d2137;border-radius:6px;height:10px;'>
+            <div style='background:#2196f3;width:{hc_pct}%;height:10px;border-radius:6px;'></div>
+          </div>
+          <div style='color:#90caf9;font-size:12px;margin-top:8px;'>{len(hc_docs)} of {HC_TOTAL} docs &nbsp;|&nbsp; {HC_DEAD} dead URLs excluded</div>
+        </div>""", unsafe_allow_html=True)
+
+    with col_rera:
+        st.markdown(f"""
+        <div style='background:#2d4a1e;border-radius:10px;padding:18px;'>
+          <div style='color:#a5d6a7;font-size:13px;font-weight:600;letter-spacing:.05em;'>K-RERA</div>
+          <div style='color:#fff;font-size:28px;font-weight:700;margin:6px 0;'>{rera_pct}%</div>
+          <div style='background:#1a2e10;border-radius:6px;height:10px;'>
+            <div style='background:#4caf50;width:{rera_pct}%;height:10px;border-radius:6px;'></div>
+          </div>
+          <div style='color:#a5d6a7;font-size:12px;margin-top:8px;'>{len(rera_docs)} of {RERA_TOTAL} docs indexed</div>
+        </div>""", unsafe_allow_html=True)
+
+    st.divider()
+
+    # Before / After
+    st.markdown("#### Before vs After Bulk Ingest")
+    ba1, ba2 = st.columns(2)
+    with ba1:
+        st.markdown(f"""
+        <div style='background:#1a1a2e;border:1px solid #444;border-radius:8px;padding:16px;text-align:center;'>
+          <div style='color:#aaa;font-size:12px;'>BEFORE (baseline)</div>
+          <div style='color:#ff7043;font-size:36px;font-weight:700;'>{BASELINE}</div>
+          <div style='color:#aaa;font-size:12px;'>documents registered</div>
+        </div>""", unsafe_allow_html=True)
+    with ba2:
+        st.markdown(f"""
+        <div style='background:#1a2e1a;border:1px solid #4caf50;border-radius:8px;padding:16px;text-align:center;'>
+          <div style='color:#a5d6a7;font-size:12px;'>AFTER (bulk ingest)</div>
+          <div style='color:#4caf50;font-size:36px;font-weight:700;'>{total_registered}</div>
+          <div style='color:#a5d6a7;font-size:12px;'>documents registered</div>
+        </div>""", unsafe_allow_html=True)
+
+    st.divider()
+
+    # Dead URL warning
+    st.markdown(f"""
+    <div style='background:#1a1205;border:1px solid #9a6700;border-radius:8px;padding:14px;color:#d29922;'>
+      ⚠️ <strong>{HC_DEAD} Healthcare URLs are permanently unreachable</strong> (MoHFW 404/403 and mciindia.org DNS failure — MCI dissolved 2020).
+      These are excluded from the coverage count.
+    </div>""", unsafe_allow_html=True)
+
+    st.divider()
+
+    # Source breakdown table
+    st.markdown("#### Source Breakdown")
+    sources = [
+        {"Domain": "Healthcare", "Source": "MoHFW / NHA / ABDM / CGHS", "Docs": len(hc_docs), "Coverage": f"{hc_pct}%"},
+        {"Domain": "RERA",       "Source": "K-RERA / MahaRERA / Central RERA", "Docs": len(rera_docs), "Coverage": f"{rera_pct}%"},
+    ]
+    st.dataframe(pd.DataFrame(sources), use_container_width=True, hide_index=True)
