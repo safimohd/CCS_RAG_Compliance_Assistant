@@ -299,10 +299,9 @@ with tab4:
     all_docs = fetch_documents()
     total_registered = len(all_docs) if all_docs else 0
 
-    HC_TOTAL   = 255   # downloadable Healthcare docs
-    HC_DEAD    = 7     # permanently dead URLs
-    RERA_TOTAL = 230   # RERA docs
-    BASELINE   = 114   # docs registered before the bulk-ingest run
+    HC_TOTAL   = 255
+    HC_DEAD    = 7
+    RERA_TOTAL = 230
 
     hc_docs   = [d for d in (all_docs or []) if (d.get("domain") or "").lower() == "healthcare"]
     rera_docs = [d for d in (all_docs or []) if (d.get("domain") or "").lower() == "rera"]
@@ -310,78 +309,145 @@ with tab4:
     hc_pct   = round(len(hc_docs)   / HC_TOTAL   * 100, 1) if HC_TOTAL   else 0
     rera_pct = round(len(rera_docs) / RERA_TOTAL * 100, 1) if RERA_TOTAL else 0
 
-    st.markdown("### Knowledge Base Coverage")
-    st.caption("Documents registered in Supabase and available to the RAG pipeline.")
+    st.markdown("### 📚 Knowledge Base Coverage")
+    st.caption("Live counts from Supabase — documents registered and available to the RAG pipeline.")
 
+    # Top-level summary tiles
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Total Registered", total_registered, delta=f"+{total_registered - BASELINE} vs baseline")
-    m2.metric("Healthcare Coverage", f"{hc_pct}%", delta=f"{len(hc_docs)} / {HC_TOTAL} docs")
-    m3.metric("RERA Coverage",       f"{rera_pct}%", delta=f"{len(rera_docs)} / {RERA_TOTAL} docs")
-    m4.metric("Dead URLs (HC)",      HC_DEAD, delta="permanently unreachable", delta_color="inverse")
+    m1.metric("Total Registered", total_registered)
+    m2.metric("Healthcare",  f"{len(hc_docs)} docs",  delta=f"{hc_pct}% coverage")
+    m3.metric("RERA",        f"{len(rera_docs)} docs", delta=f"{rera_pct}% coverage")
+    m4.metric("Dead URLs (HC)", HC_DEAD, delta="permanently unreachable", delta_color="inverse")
 
     st.divider()
 
-    # Progress bars
-    st.markdown("#### Coverage by Domain")
-    col_hc, col_rera = st.columns(2)
+    # ── Healthcare domain breakdown ────────────────────────────────────────────
+    st.markdown("#### 🏥 Healthcare (CDSCO / Drug Regulation)")
 
-    with col_hc:
-        st.markdown(f"""
-        <div style='background:#1a3a5c;border-radius:10px;padding:18px;'>
-          <div style='color:#90caf9;font-size:13px;font-weight:600;letter-spacing:.05em;'>HEALTHCARE</div>
-          <div style='color:#fff;font-size:28px;font-weight:700;margin:6px 0;'>{hc_pct}%</div>
-          <div style='background:#0d2137;border-radius:6px;height:10px;'>
-            <div style='background:#2196f3;width:{hc_pct}%;height:10px;border-radius:6px;'></div>
-          </div>
-          <div style='color:#90caf9;font-size:12px;margin-top:8px;'>{len(hc_docs)} of {HC_TOTAL} docs &nbsp;|&nbsp; {HC_DEAD} dead URLs excluded</div>
-        </div>""", unsafe_allow_html=True)
-
-    with col_rera:
-        st.markdown(f"""
-        <div style='background:#2d4a1e;border-radius:10px;padding:18px;'>
-          <div style='color:#a5d6a7;font-size:13px;font-weight:600;letter-spacing:.05em;'>K-RERA</div>
-          <div style='color:#fff;font-size:28px;font-weight:700;margin:6px 0;'>{rera_pct}%</div>
-          <div style='background:#1a2e10;border-radius:6px;height:10px;'>
-            <div style='background:#4caf50;width:{rera_pct}%;height:10px;border-radius:6px;'></div>
-          </div>
-          <div style='color:#a5d6a7;font-size:12px;margin-top:8px;'>{len(rera_docs)} of {RERA_TOTAL} docs indexed</div>
-        </div>""", unsafe_allow_html=True)
-
-    st.divider()
-
-    # Before / After
-    st.markdown("#### Before vs After Bulk Ingest")
-    ba1, ba2 = st.columns(2)
-    with ba1:
-        st.markdown(f"""
-        <div style='background:#1a1a2e;border:1px solid #444;border-radius:8px;padding:16px;text-align:center;'>
-          <div style='color:#aaa;font-size:12px;'>BEFORE (baseline)</div>
-          <div style='color:#ff7043;font-size:36px;font-weight:700;'>{BASELINE}</div>
-          <div style='color:#aaa;font-size:12px;'>documents registered</div>
-        </div>""", unsafe_allow_html=True)
-    with ba2:
-        st.markdown(f"""
-        <div style='background:#1a2e1a;border:1px solid #4caf50;border-radius:8px;padding:16px;text-align:center;'>
-          <div style='color:#a5d6a7;font-size:12px;'>AFTER (bulk ingest)</div>
-          <div style='color:#4caf50;font-size:36px;font-weight:700;'>{total_registered}</div>
-          <div style='color:#a5d6a7;font-size:12px;'>documents registered</div>
-        </div>""", unsafe_allow_html=True)
-
-    st.divider()
-
-    # Dead URL warning
-    st.markdown(f"""
-    <div style='background:#1a1205;border:1px solid #9a6700;border-radius:8px;padding:14px;color:#d29922;'>
-      ⚠️ <strong>{HC_DEAD} Healthcare URLs are permanently unreachable</strong> (MoHFW 404/403 and mciindia.org DNS failure — MCI dissolved 2020).
-      These are excluded from the coverage count.
-    </div>""", unsafe_allow_html=True)
-
-    st.divider()
-
-    # Source breakdown table
-    st.markdown("#### Source Breakdown")
-    sources = [
-        {"Domain": "Healthcare", "Source": "MoHFW / NHA / ABDM / CGHS", "Docs": len(hc_docs), "Coverage": f"{hc_pct}%"},
-        {"Domain": "RERA",       "Source": "K-RERA / MahaRERA / Central RERA", "Docs": len(rera_docs), "Coverage": f"{rera_pct}%"},
+    hc_domains = [
+        {"domain": "Primary Legislation & Regulatory Framework",   "have": 3,  "total": 5,
+         "have_labels": ["D&C Act + Rules (Consolidated)", "D&C Act standalone", "India Code legislative text"],
+         "missing": ["Drugs & Magic Remedies Act 1954", "State Pharmacy Acts (Maharashtra, Karnataka)"]},
+        {"domain": "New Drug Approval & Clinical Trials",          "have": 4,  "total": 6,
+         "have_labels": ["NDCT Rules 2019", "CDSCO NDA guidance", "CT Protocol template", "Import licence rules"],
+         "missing": ["Cell & Gene Therapy guidance", "Paediatric clinical trial addendum"]},
+        {"domain": "Medical Devices & Diagnostics",                "have": 5,  "total": 7,
+         "have_labels": ["MDR 2017", "In-vitro diagnostics rules", "CDSCO IVD guidance", "QMS guidance", "Import/export rules"],
+         "missing": ["Class C/D device specific guidance", "Post-market surveillance SOP"]},
+        {"domain": "Pharmacovigilance & Drug Safety",              "have": 4,  "total": 5,
+         "have_labels": ["PvPI guidelines", "ADR reporting SOP", "Good Pharmacovigilance Practice", "Schedule Y"],
+         "missing": ["PVPI periodic safety update guidance"]},
+        {"domain": "Insurance & PMJAY / ABDM",                    "have": 8,  "total": 10,
+         "have_labels": ["PMJAY scheme doc", "ABDM HPR", "ABDM HFR", "PHR policy", "IRDAI health regulations",
+                         "CGHS rates", "Ayushman Bharat guidelines", "NHA operational manual"],
+         "missing": ["State-level Ayushman implementation orders", "IRDAI TPA licensing circulars"]},
+        {"domain": "Cosmetics Regulation",                         "have": 1,  "total": 4,
+         "have_labels": ["Cosmetics FAQ document"],
+         "missing": ["Cosmetics Rules 2020 full text", "Cosmetics labelling schedule", "Import licence guidance"]},
+        {"domain": "E-Pharmacy",                                   "have": 0,  "total": 1,
+         "have_labels": [],
+         "missing": ["Draft E-Pharmacy Rules 2018 — intentionally excluded (unnotified)"]},
+        {"domain": "AYUSH / Traditional Medicine",                 "have": 0,  "total": 3,
+         "have_labels": [],
+         "missing": ["Ayurvedic drug rules", "Siddha/Unani manufacturing rules", "AYUSH Ministry circulars"]},
+        {"domain": "State-Level Licensing",                        "have": 0,  "total": 3,
+         "have_labels": [],
+         "missing": ["Maharashtra FDA circulars", "Gujarat FDA fee schedules", "State-specific licensing SOPs"]},
+        {"domain": "Blood Banks / Large-Volume Parenterals",       "have": 1,  "total": 3,
+         "have_labels": ["CDSCO blood bank schedule"],
+         "missing": ["CLA-licensed category guidance", "LVP manufacturing compliance guide"]},
     ]
-    st.dataframe(pd.DataFrame(sources), use_container_width=True, hide_index=True)
+
+    for item in hc_domains:
+        pct = round(item["have"] / item["total"] * 100) if item["total"] else 0
+        bar_color = "#2196f3" if pct >= 60 else ("#f59e0b" if pct >= 30 else "#ef4444")
+        badge_bg  = "#1a3a5c" if pct >= 60 else ("#3a2a00" if pct >= 30 else "#3a0a0a")
+        badge_col = "#90caf9" if pct >= 60 else ("#fbbf24" if pct >= 30 else "#f87171")
+
+        have_chips = "".join(
+            f"<span style='background:#1a3a5c;color:#90caf9;border-radius:4px;padding:2px 8px;font-size:11px;margin:2px;display:inline-block;'>{h}</span>"
+            for h in item["have_labels"]
+        )
+        miss_chips = "".join(
+            f"<span style='background:#2a1515;color:#f87171;border-radius:4px;padding:2px 8px;font-size:11px;margin:2px;display:inline-block;'>✗ {m}</span>"
+            for m in item["missing"]
+        )
+
+        st.markdown(f"""
+        <div style='border:1px solid #2a3a4a;border-radius:8px;padding:14px 18px;margin-bottom:10px;'>
+          <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;'>
+            <span style='font-weight:600;font-size:14px;'>{item["domain"]}</span>
+            <span style='background:{badge_bg};color:{badge_col};border-radius:12px;padding:2px 12px;font-size:12px;font-weight:600;'>{pct}% covered</span>
+          </div>
+          <div style='color:#888;font-size:12px;margin-bottom:8px;'>We have <strong>{item["have"]} docs</strong> &nbsp; Total available ~<strong>{item["total"]}</strong></div>
+          <div style='background:#1a2230;border-radius:4px;height:6px;margin-bottom:10px;'>
+            <div style='background:{bar_color};width:{pct}%;height:6px;border-radius:4px;'></div>
+          </div>
+          <div style='line-height:1.8;'>{have_chips}{miss_chips}</div>
+        </div>""", unsafe_allow_html=True)
+
+    st.divider()
+
+    # ── RERA domain breakdown ──────────────────────────────────────────────────
+    st.markdown("#### 🏠 Real Estate (K-RERA)")
+
+    rera_domains = [
+        {"domain": "Central RERA Act & Rules",               "have": 4,  "total": 5,
+         "have_labels": ["Real Estate (Regulation & Development) Act 2016", "Central RERA Rules 2016",
+                         "Model Builder-Buyer Agreement", "MoHUA circulars"],
+         "missing": ["RERA (Amendment) Bill 2023"]},
+        {"domain": "Karnataka RERA Rules & Procedures",      "have": 0,  "total": 4,
+         "have_labels": [],
+         "missing": ["Karnataka RERA Rules 2017", "K-RERA fee schedule", "K-RERA registration forms", "K-RERA circulars"]},
+        {"domain": "Project Registration & Compliance",      "have": 3,  "total": 5,
+         "have_labels": ["Project registration guidelines", "Quarterly progress report format", "Completion certificate SOP"],
+         "missing": ["Escrow account management rules", "Designated bank circular"]},
+        {"domain": "Agent Licensing",                        "have": 2,  "total": 3,
+         "have_labels": ["Real estate agent registration rules", "RERA agent code of conduct"],
+         "missing": ["State-specific agent fee schedules"]},
+        {"domain": "Dispute Resolution & Appeals",           "have": 1,  "total": 4,
+         "have_labels": ["RERA adjudication process overview"],
+         "missing": ["RERA Appellate Tribunal rules", "K-RERA precedent orders", "COVID extension circulars"]},
+        {"domain": "Allottee Rights & Disclosures",          "have": 3,  "total": 4,
+         "have_labels": ["Disclosure norms", "Allottee rights chapter", "Refund & interest rules"],
+         "missing": ["Homebuyer grievance portal SOP"]},
+        {"domain": "K-RERA Orders & Circulars",              "have": 0,  "total": 3,
+         "have_labels": [],
+         "missing": ["K-RERA Authority orders", "Complaint precedents", "COVID extension orders"]},
+    ]
+
+    for item in rera_domains:
+        pct = round(item["have"] / item["total"] * 100) if item["total"] else 0
+        bar_color = "#4caf50" if pct >= 60 else ("#f59e0b" if pct >= 30 else "#ef4444")
+        badge_bg  = "#2d4a1e" if pct >= 60 else ("#3a2a00" if pct >= 30 else "#3a0a0a")
+        badge_col = "#a5d6a7" if pct >= 60 else ("#fbbf24" if pct >= 30 else "#f87171")
+
+        have_chips = "".join(
+            f"<span style='background:#2d4a1e;color:#a5d6a7;border-radius:4px;padding:2px 8px;font-size:11px;margin:2px;display:inline-block;'>{h}</span>"
+            for h in item["have_labels"]
+        )
+        miss_chips = "".join(
+            f"<span style='background:#2a1515;color:#f87171;border-radius:4px;padding:2px 8px;font-size:11px;margin:2px;display:inline-block;'>✗ {m}</span>"
+            for m in item["missing"]
+        )
+
+        st.markdown(f"""
+        <div style='border:1px solid #2a3a2a;border-radius:8px;padding:14px 18px;margin-bottom:10px;'>
+          <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;'>
+            <span style='font-weight:600;font-size:14px;'>{item["domain"]}</span>
+            <span style='background:{badge_bg};color:{badge_col};border-radius:12px;padding:2px 12px;font-size:12px;font-weight:600;'>{pct}% covered</span>
+          </div>
+          <div style='color:#888;font-size:12px;margin-bottom:8px;'>We have <strong>{item["have"]} docs</strong> &nbsp; Total available ~<strong>{item["total"]}</strong></div>
+          <div style='background:#1a2a1a;border-radius:4px;height:6px;margin-bottom:10px;'>
+            <div style='background:{bar_color};width:{pct}%;height:6px;border-radius:4px;'></div>
+          </div>
+          <div style='line-height:1.8;'>{have_chips}{miss_chips}</div>
+        </div>""", unsafe_allow_html=True)
+
+    st.divider()
+
+    # Dead URL note
+    st.markdown(f"""
+    <div style='background:#1a1205;border:1px solid #9a6700;border-radius:8px;padding:14px;color:#d29922;font-size:13px;'>
+      ⚠️ <strong>{HC_DEAD} Healthcare URLs are permanently unreachable</strong> — MoHFW 404/403 errors and mciindia.org DNS failure (MCI dissolved 2020). Excluded from all counts above.
+    </div>""", unsafe_allow_html=True)
