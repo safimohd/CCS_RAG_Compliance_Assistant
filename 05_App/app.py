@@ -735,10 +735,26 @@ section.main { background:transparent !important; }
 /* 5. Chat messages */
 [data-testid="stChatMessage"] { background:#152030 !important; border-color:#253A50 !important; }
 
-/* 6. Chat input */
+/* 6. Chat input — target every layer Streamlit wraps around the textarea */
+[data-testid="stChatInput"],
 [data-testid="stChatInput"] > div,
 [data-testid="stChatInputContainer"],
-textarea { background:#152030 !important; color:#D9E8F5 !important; border-color:#253A50 !important; }
+[data-testid="stBottom"],
+[data-testid="stBottom"] > div,
+.stChatFloatingInputContainer,
+.stChatFloatingInputContainer > div,
+div:has(> [data-testid="stChatInput"]),
+textarea {
+  background:#152030 !important;
+  color:#D9E8F5 !important;
+  border-color:#253A50 !important;
+}
+/* The sticky bottom bar that holds the input */
+[data-testid="stBottomBlockContainer"],
+[data-testid="stBottomBlockContainer"] > div {
+  background:#0D1B2A !important;
+  border-color:#253A50 !important;
+}
 
 /* 7. Selectbox / dropdowns */
 [data-baseweb="select"] > div,
