@@ -2,42 +2,48 @@ name: keep apps warm
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/25 * * * *"
   workflow_dispatch:
 
 jobs:
   ping:
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
-      - name: Ping both apps
+      - name: Wake both Streamlit apps
         env:
           HEALTHCARE_URL: https://ccsragcomplianceassistant-6hug2utprjrpwtyijwjanr.streamlit.app
           RERA_URL: https://ccsragcomplianceassistant-cisyv46xzq7kte95ywkmhg.streamlit.app
         run: |
-          fail=0
-          for pair in "Healthcare:$HEALTHCARE_URL" "RERA:$RERA_URL"; do
-            name="${pair%%:*}"
-            url="${pair#*:}"
-            case "$url" in
-              *REPLACE-ME*)
-                echo "::warning::$name URL not set yet - skipping"
-                continue
-                ;;
-            esac
-            start=$(date +%s)
-            code=$(curl -sS -L -o /dev/null -w '%{http_code}' \
-                     --max-time 240 --retry 2 --retry-delay 15 "$url" || echo 000)
-            took=$(( $(date +%s) - start ))
-            if [ "$code" = "200" ]; then
-              echo "$name: HTTP $code in ${took}s"
-              if [ "$took" -gt 30 ]; then
-                echo "::warning::$name took ${took}s - container was cold"
+          ping_app() {
+            local name="$1"
+            local url="$2"
+            local max_attempts=5
+            local attempt=1
+            local code
+
+            echo "--- $name ---"
+            while [ $attempt -le $max_attempts ]; do
+              start=$(date +%s)
+              code=$(curl -sS -L -o /dev/null -w '%{http_code}' \
+                       --max-time 60 "$url" 2>/dev/null || echo "000")
+              took=$(( $(date +%s) - start ))
+              echo "Attempt $attempt: HTTP $code in ${took}s"
+
+              if [ "$code" = "200" ]; then
+                echo "$name is awake"
+                return 0
               fi
-            else
-              echo "::error::$name: HTTP $code after ${took}s"
-              fail=1
-            fi
-          done
-          exit $fail
 
+              echo "Not ready yet (HTTP $code) -- waiting 30s..."
+              sleep 30
+              attempt=$(( attempt + 1 ))
+            done
 
+            echo "::warning::$name did not reach 200 after $max_attempts attempts"
+            return 0
+          }
+
+          ping_app "Healthcare" "$HEALTHCARE_URL"
+          ping_app "RERA" "$RERA_URL"
+          echo "Done."
