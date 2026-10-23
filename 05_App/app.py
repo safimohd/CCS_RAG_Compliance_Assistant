@@ -668,6 +668,29 @@ html, body, [class*="css"] { font-family:'Inter',-apple-system,'Segoe UI',sans-s
   text-transform:uppercase; letter-spacing:.1em; font-size:.65rem; font-weight:700;
   color:#7E99BA !important; margin:.15rem 0 .35rem;
 }
+.rc-how-to{
+  background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.13);
+  border-radius:8px; padding:.6rem .8rem; margin-bottom:.6rem;
+  font-size:.78rem; line-height:1.55; color:#CFE0F2;
+}
+.rc-how-to b{ color:#EAF2FB; }
+.rc-clear-row{
+  display:flex; justify-content:flex-end; margin-bottom:.4rem;
+}
+.rc-fb-thanks{
+  font-size:.72rem; color:#1a7f4b; font-weight:600; margin-left:.3rem;
+  padding:2px 6px; background:#e6f4ec; border-radius:6px; vertical-align:middle;
+}
+/* Mobile: chips wrap cleanly and don't overflow */
+@media (max-width: 640px) {
+  .rc-stats{ gap:.3rem; }
+  .rc-stat{ font-size:.65rem; padding:.18rem .5rem; }
+  .block-container{ padding-left:.6rem !important; padding-right:.6rem !important; }
+  .rc-hero{ padding:1rem 1rem .9rem; }
+  .rc-hero h1{ font-size:1.3rem; }
+  .rc-scope{ font-size:.74rem; }
+  [data-testid="stHorizontalBlock"] > div{ min-width:0 !important; }
+}
 </style>
 """
 
@@ -704,7 +727,7 @@ def basis_sentence(results) -> str:
             f"regulation was found for this question.")
 
 
-def render_sources(results) -> None:
+def render_sources(results, domain: str = "") -> None:
     # Show the top 3 source titles inline so the reader sees provenance at a
     # glance without having to open the expander. Full passages are inside.
     if results:
@@ -730,7 +753,11 @@ def render_sources(results) -> None:
             + "<br>".join(preview_lines) + "</div>",
             unsafe_allow_html=True)
 
-    with st.expander(f"View the {len(results)} sources behind this answer"):
+    n = len(results)
+    domain_tag = f" {domain}" if domain else ""
+    expander_label = (f"View {n}{domain_tag} source{'s' if n != 1 else ''} behind this answer"
+                      if n else "Sources")
+    with st.expander(expander_label):
         for i, r in enumerate(results, 1):
             # Raw PDF and OCR text contains stray <, > and & often enough that
             # injecting it unescaped silently swallows parts of the quotation.
@@ -860,10 +887,61 @@ _DOMAIN_FOLLOWUPS: dict[str, list[str]] = {
     ],
 }
 
+_HEALTHCARE_FOLLOWUP_POOLS: dict[str, list[str]] = {
+    "staff":        ["What qualifications must the medical officer in charge hold?",
+                     "What are the minimum nurse-to-patient ratios required?",
+                     "How often must staff training and competency checks be conducted?"],
+    "record":       ["For how long must patient records be retained under CEA?",
+                     "What information must be recorded in the admission register?",
+                     "Who is responsible for records when a facility changes ownership?"],
+    "equipment":    ["What maintenance schedule is required for medical equipment?",
+                     "Which equipment must be calibrated and at what intervals?",
+                     "Are there storage standards specified for medical devices?"],
+    "penalty":      ["What is the penalty for operating without a valid CEA registration?",
+                     "Can a facility appeal a cancellation of its registration?",
+                     "What is the process for a compliance audit under CEA?"],
+    "registr":      ["What documents are required to register a clinical establishment?",
+                     "How is a clinical establishment classified for registration?",
+                     "How often must a CEA registration be renewed?"],
+    "infra":        ["What are the minimum space requirements per bed?",
+                     "What ventilation and sanitation standards apply to wards?",
+                     "Are there specifications for wheelchair access and ramps?"],
+}
 
-def get_followups(domain: str) -> list[str]:
-    """Return 3 suggested follow-up questions for the given domain.
-    No LLM call -- always returns instantly."""
+_RERA_FOLLOWUP_POOLS: dict[str, list[str]] = {
+    "registr":      ["What happens if a project exceeds its registered completion date?",
+                     "Can a project be de-registered, and on what grounds?",
+                     "How are changes to an approved plan notified to RERA?"],
+    "buyer":        ["Can a buyer cancel the agreement and get a full refund?",
+                     "How does a buyer file a complaint with the RERA authority?",
+                     "What compensation is a buyer entitled to for project delays?"],
+    "delay":        ["What is the process for applying for a project extension?",
+                     "Can force majeure events excuse a promoter from delay penalties?",
+                     "What compensation must a promoter pay for delayed possession?"],
+    "agent":        ["What are the obligations of a RERA-registered real estate agent?",
+                     "What penalty does an unregistered agent face?",
+                     "How often must a real estate agent renew their registration?"],
+    "penalty":      ["What is the process for enforcing a RERA order against a promoter?",
+                     "Can criminal action be taken against a promoter under RERA?",
+                     "What are the monetary limits for penalties under Karnataka RERA rules?"],
+    "escrow":       ["What percentage of collections must be kept in escrow?",
+                     "Can escrow funds be withdrawn before project completion?",
+                     "Who audits the escrow account and at what frequency?"],
+    "complaint":    ["What is the timeline for adjudicating a RERA complaint?",
+                     "Can a complaint be filed online with Karnataka RERA?",
+                     "What documents must accompany a home buyer's complaint?"],
+}
+
+
+def get_contextual_followups(domain: str, question: str, answer: str) -> list[str]:
+    """Return 3 follow-up questions tailored to what was just asked.
+    No LLM call -- keyword-match on question + answer text."""
+    combined = (question + " " + answer).lower()
+    pool_map = (_HEALTHCARE_FOLLOWUP_POOLS if domain == "Healthcare"
+                else _RERA_FOLLOWUP_POOLS)
+    for kw, suggestions in pool_map.items():
+        if kw in combined:
+            return suggestions
     return _DOMAIN_FOLLOWUPS.get(domain, [])
 
 
@@ -975,6 +1053,19 @@ with st.sidebar:
                           format_func=lambda d: DOMAIN_META[d]["title"])
         st.divider()
 
+    # "How to use" pinned prominently above the filters so first-time
+    # users see it before they start typing.
+    _no_msgs = not st.session_state.get("messages")
+    with st.expander("ℹ️ How to use this assistant", expanded=_no_msgs):
+        st.markdown(
+            "**Ask in plain language.** No legal terms needed.\n\n"
+            "**Use the filter** below to narrow results to your role or "
+            "facility type.\n\n"
+            "**Check the sources.** Every answer lists the exact documents "
+            "and passages it relied on.\n\n"
+            "**Confidence badge** — a warning appears when the match is weak.\n\n"
+            "**Not legal advice.** Always verify with a professional before acting.")
+
     st.markdown("<div class='rc-side-h'>Narrow the search</div>",
                 unsafe_allow_html=True)
     if domain == "RERA":
@@ -1015,18 +1106,6 @@ with st.sidebar:
                                      value=False,
                                      help="Material whose legal status we have not "
                                           "confirmed.")
-
-    with st.expander("How to use this assistant"):
-        st.markdown(
-            "**Ask in plain language.** You don't need legal terms.\n\n"
-            "**Use the role filter** (above) to narrow results to documents "
-            "relevant to your stakeholder type.\n\n"
-            "**Check the sources.** Every answer lists the exact documents "
-            "and passages it was drawn from. Click to expand.\n\n"
-            "**Confidence matters.** A warning banner appears when the "
-            "documents don't closely match your question.\n\n"
-            "**This is not legal advice.** Always verify with a qualified "
-            "professional before acting.")
 
     st.divider()
     if st.button("Start a new conversation"):
@@ -1138,6 +1217,14 @@ if "feedback" not in st.session_state:
     # Maps message index → "up" | "down"
     st.session_state.feedback = {}
 
+# Clear-chat shortcut in the main area (complement to sidebar button)
+if st.session_state.get("messages"):
+    _cc_cols = st.columns([9, 1])
+    if _cc_cols[1].button("🗑️", key="main_clear", help="Clear conversation"):
+        st.session_state.messages = []
+        st.session_state.feedback = {}
+        st.rerun()
+
 # Examples sit directly above the chat and ask the question in place. An earlier
 # version put them behind a tab; the answer rendered in a tab the reader was not
 # looking at, so the buttons appeared to do nothing. Reviewed 9 Oct.
@@ -1155,7 +1242,7 @@ for msg_idx, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
         if msg.get("sources"):
-            render_sources(msg["sources"])
+            render_sources(msg["sources"], domain)
         if msg["role"] == "assistant" and msg.get("rated"):
             # Confidence badge from stored similarity scores
             hist_sim = max((r["similarity"] for r in msg.get("sources", [])), default=0.0)
@@ -1171,14 +1258,6 @@ for msg_idx, msg in enumerate(st.session_state.messages):
                 f"border-radius:10px;'>{h_icon} {h_label}</span>",
                 unsafe_allow_html=True)
 
-            # Timestamp
-            _ts = msg.get("timestamp", "")
-            if _ts:
-                st.markdown(
-                    f"<div style='font-size:.68rem;color:#9CA3AF;margin-top:.2rem;'>"
-                    f"🕐 Answered {_ts}</div>",
-                    unsafe_allow_html=True)
-
             # Copy button
             render_copy_button(msg["content"], f"hist_{msg_idx}")
 
@@ -1191,9 +1270,19 @@ for msg_idx, msg in enumerate(st.session_state.messages):
             render_share_button(_prev_q, msg["content"],
                                 msg.get("sources", []), f"hist_{msg_idx}")
 
+        # Timestamp -- shown for any assistant message that has one
+        if msg["role"] == "assistant":
+            _ts = msg.get("timestamp", "")
+            if _ts:
+                st.markdown(
+                    f"<div style='font-size:.68rem;color:#9CA3AF;margin-top:.2rem;'>"
+                    f"🕐 Answered {_ts}</div>",
+                    unsafe_allow_html=True)
+
         # Feedback buttons for rated answers with sources
         if msg["role"] == "assistant" and msg.get("sources") and msg.get("rated"):
             existing = st.session_state.feedback.get(msg_idx)
+            _fb_thanks = st.session_state.get("_fb_thanks", set())
             fb_cols = st.columns([1, 1, 8])
             up_type = "primary" if existing == "up" else "secondary"
             dn_type = "primary" if existing == "down" else "secondary"
@@ -1211,6 +1300,7 @@ for msg_idx, msg in enumerate(st.session_state.messages):
                     log_feedback(domain, _q, msg["content"],
                                  msg.get("conf_label", ""), msg.get("conf_score", 0.0),
                                  "up")
+                    st.session_state.setdefault("_fb_thanks", set()).add(msg_idx)
                 st.rerun()
             if fb_cols[1].button("👎", key=f"fb_dn_{msg_idx}",
                                  type=dn_type, help="This answer needs improvement"):
@@ -1225,7 +1315,13 @@ for msg_idx, msg in enumerate(st.session_state.messages):
                     log_feedback(domain, _q, msg["content"],
                                  msg.get("conf_label", ""), msg.get("conf_score", 0.0),
                                  "down")
+                    st.session_state.setdefault("_fb_thanks", set()).add(msg_idx)
                 st.rerun()
+            # Show visual confirmation after feedback
+            if msg_idx in _fb_thanks:
+                fb_cols[2].markdown(
+                    "<span class='rc-fb-thanks'>Thanks for your feedback!</span>",
+                    unsafe_allow_html=True)
 
             # Surface any feedback-logging error
             if st.session_state.get("_fb_err"):
@@ -1399,9 +1495,9 @@ if prompt:
             # Generate follow-ups before appending so they are stored with the message
             followups: list[str] = []
             if not low_confidence:
-                followups = get_followups(domain)
+                followups = get_contextual_followups(domain, prompt, answer)
 
-            render_sources(results)
+            render_sources(results, domain)
             new_msg_idx = len(st.session_state.messages)
             _conf_label = badge_label if not low_confidence else "Low confidence"
             st.session_state.messages.append(
@@ -1418,11 +1514,13 @@ if prompt:
                 if fb_cols[0].button("👍", key=f"fb_up_{new_msg_idx}",
                                      type="secondary", help="This answer was helpful"):
                     st.session_state.feedback[new_msg_idx] = "up"
+                    st.session_state.setdefault("_fb_thanks", set()).add(new_msg_idx)
                     log_feedback(domain, prompt, answer, _conf_label, best_sim, "up")
                     st.rerun()
                 if fb_cols[1].button("👎", key=f"fb_dn_{new_msg_idx}",
                                      type="secondary", help="This answer needs improvement"):
                     st.session_state.feedback[new_msg_idx] = "down"
+                    st.session_state.setdefault("_fb_thanks", set()).add(new_msg_idx)
                     log_feedback(domain, prompt, answer, _conf_label, best_sim, "down")
                     st.rerun()
 
