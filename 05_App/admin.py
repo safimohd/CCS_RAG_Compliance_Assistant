@@ -29,20 +29,66 @@ if "dark_mode" not in st.session_state:
 if st.session_state.dark_mode:
     st.markdown("""
     <style>
-      .stApp { background-color: #0d1117 !important; color: #e6edf3 !important; }
-      section[data-testid="stSidebar"] { background-color: #161b22 !important; }
-      .stTabs [data-baseweb="tab-list"] { background: #161b22; border-radius: 10px; padding: 4px; gap: 4px; }
-      .stTabs [data-baseweb="tab"] { background: transparent; color: #8b949e; border-radius: 8px; font-weight: 500; padding: 8px 18px; }
-      .stTabs [aria-selected="true"] { background: #21262d; color: #e6edf3; }
-      [data-testid="metric-container"] { background: #161b22 !important; border: 1px solid #30363d; border-radius: 10px; padding: 16px; }
-      [data-testid="stMetricValue"] { color: #e6edf3 !important; }
-      .stButton > button { background: #21262d; border: 1px solid #30363d; color: #e6edf3; border-radius: 8px; font-weight: 500; }
-      .stButton > button:hover { background: #30363d; border-color: #58a6ff; color: #58a6ff; }
-      .stTextInput > div > div > input, .stSelectbox > div > div { background: #161b22 !important; border: 1px solid #30363d; color: #e6edf3; border-radius: 8px; }
-      .stDataFrame { border: 1px solid #30363d; border-radius: 8px; }
-      hr { border-color: #21262d; }
-      .stAlert { border-radius: 8px; }
+      /* App background and base text */
+      .stApp, .stApp > div, [data-testid="stAppViewContainer"] {
+        background-color: #0d1117 !important; color: #e6edf3 !important;
+      }
+      [data-testid="stHeader"] { background: #0d1117 !important; }
+      /* Tabs */
+      .stTabs [data-baseweb="tab-list"] { background: #161b22 !important; border-radius: 10px; padding: 4px; gap: 4px; border: 1px solid #30363d; }
+      .stTabs [data-baseweb="tab"] { background: transparent !important; color: #8b949e !important; border-radius: 8px; font-weight: 500; padding: 8px 18px; }
+      .stTabs [aria-selected="true"] { background: #21262d !important; color: #e6edf3 !important; }
+      .stTabs [data-baseweb="tab-panel"] { background: #0d1117 !important; }
+      /* Metrics */
+      [data-testid="metric-container"] { background: #161b22 !important; border: 1px solid #30363d !important; border-radius: 10px; }
+      [data-testid="stMetricValue"], [data-testid="stMetricLabel"] { color: #e6edf3 !important; }
+      /* Buttons */
+      .stButton > button { background: #21262d !important; border: 1px solid #30363d !important; color: #e6edf3 !important; border-radius: 8px; font-weight: 500; }
+      .stButton > button:hover { background: #30363d !important; border-color: #58a6ff !important; color: #58a6ff !important; }
+      /* Inputs & selects */
+      .stTextInput > div > div > input { background: #161b22 !important; border: 1px solid #30363d !important; color: #e6edf3 !important; border-radius: 8px; }
+      .stSelectbox > div > div, [data-baseweb="select"] { background: #161b22 !important; border-color: #30363d !important; }
+      [data-baseweb="select"] span { color: #e6edf3 !important; }
+      /* Chart containers - force dark background */
+      [data-testid="stVegaLiteChart"], .stVegaLiteChart, .element-container iframe,
+      [data-testid="stArrowVegaLiteChart"] { background: #161b22 !important; border-radius: 8px; }
+      /* Override chart white background via vega embed */
+      .vega-embed, .vega-embed svg, canvas { background: #161b22 !important; }
+      /* Dataframe */
+      .stDataFrame, [data-testid="stDataFrame"] { background: #161b22 !important; border: 1px solid #30363d !important; border-radius: 8px; }
+      [data-testid="stDataFrameResizable"] { background: #161b22 !important; }
+      /* Radio buttons */
       .stRadio > div { gap: 12px; }
+      .stRadio label { color: #e6edf3 !important; }
+      [data-testid="stWidgetLabel"] { color: #8b949e !important; }
+      /* Dividers and alerts */
+      hr { border-color: #21262d !important; }
+      .stAlert { border-radius: 8px !important; }
+      /* Captions */
+      .stCaption, [data-testid="stCaptionContainer"] { color: #8b949e !important; }
+      /* Block containers */
+      [data-testid="stVerticalBlock"], [data-testid="stHorizontalBlock"] { background: transparent; }
+      /* Column containers */
+      [data-testid="column"] { background: transparent; }
+    </style>
+    """, unsafe_allow_html=True)
+else:
+    # Light mode: clean white with subtle blue-grey accents
+    st.markdown("""
+    <style>
+      .stApp, .stApp > div, [data-testid="stAppViewContainer"] {
+        background-color: #f0f4f8 !important; color: #1a2332 !important;
+      }
+      [data-testid="stHeader"] { background: #f0f4f8 !important; }
+      .stTabs [data-baseweb="tab-list"] { background: #dde6f0 !important; border-radius: 10px; padding: 4px; gap: 4px; }
+      .stTabs [data-baseweb="tab"] { background: transparent !important; color: #5a7a9a !important; border-radius: 8px; font-weight: 500; }
+      .stTabs [aria-selected="true"] { background: #ffffff !important; color: #1a2332 !important; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+      [data-testid="metric-container"] { background: #ffffff !important; border: 1px solid #c5d5e8 !important; border-radius: 10px; }
+      [data-testid="stMetricValue"] { color: #1a2332 !important; }
+      .stButton > button { background: #ffffff !important; border: 1px solid #c5d5e8 !important; color: #1a2332 !important; border-radius: 8px; }
+      .stButton > button:hover { border-color: #2196f3 !important; color: #2196f3 !important; }
+      .stDataFrame, [data-testid="stDataFrame"] { background: #ffffff !important; border: 1px solid #c5d5e8 !important; border-radius: 8px; }
+      hr { border-color: #c5d5e8 !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -157,7 +203,7 @@ role_badge = (
     "border-radius:12px;padding:2px 10px;margin-left:10px;'>VIEWER</span>"
 )
 
-hdr_col, dm_col = st.columns([5, 1])
+hdr_col, btn_col = st.columns([5, 1])
 with hdr_col:
     st.markdown(f"""
     <div style='background:linear-gradient(135deg,#1a3a5c 0%,#0d1f33 100%);
@@ -174,11 +220,15 @@ with hdr_col:
       </div>
     </div>
     """, unsafe_allow_html=True)
-with dm_col:
+with btn_col:
     st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
     dm_label = "☀️ Light" if st.session_state.dark_mode else "🌙 Dark"
     if st.button(dm_label, key="dark_mode_toggle", use_container_width=True):
         st.session_state.dark_mode = not st.session_state.dark_mode
+        st.rerun()
+    if st.button("🚪 Logout", key="logout_btn", use_container_width=True):
+        st.session_state.authenticated = False
+        st.session_state.is_admin = False
         st.rerun()
 st.markdown("<div style='margin-bottom:16px'></div>", unsafe_allow_html=True)
 
