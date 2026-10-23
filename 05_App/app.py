@@ -789,8 +789,7 @@ def render_copy_button(text: str, key: str) -> None:
 
 
 def render_share_button(question: str, answer: str, sources: list, key: str) -> None:
-    """Render a 'Share answer' button that copies the question, answer and
-    source titles as a single formatted text block."""
+    """Render a row of share buttons: WhatsApp, Gmail, Outlook and Copy."""
     source_lines = []
     for r in sources:
         title = clean_title(str(r.get("title", "")), r.get("source_file", ""))
@@ -802,19 +801,49 @@ def render_share_button(question: str, answer: str, sources: list, key: str) -> 
         f"Sources:\n{sources_block}\n\n"
         f"-- via CCS Regulatory Compliance Assistant (IIM Bangalore)"
     )
-    safe = html.escape(share_text, quote=True)
+    safe_js = share_text.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
+    enc_js  = (
+        "encodeURIComponent(`" + safe_js + "`)"
+    )
+
     _stc.html(
-        f"""<button id="sb_{key}"
-            onclick="navigator.clipboard.writeText(document.getElementById('st_{key}').innerText)
-                     .then(()=>{{document.getElementById('sb_{key}').innerText='✅ Copied';
-                                setTimeout(()=>{{document.getElementById('sb_{key}').innerText='📤 Share answer'}},1500)}})"
-            style="background:none;border:1px solid #d1d5db;border-radius:6px;
-                   padding:3px 10px;font-size:13px;cursor:pointer;color:#4B5563;
-                   font-family:sans-serif;">
-            📤 Share answer
-        </button>
-        <div id="st_{key}" style="display:none">{safe}</div>""",
-        height=36,
+        f"""<style>
+  .sr-row-{key}{{display:flex;align-items:center;gap:6px;font-family:sans-serif;flex-wrap:wrap}}
+  .sr-lbl-{key}{{font-size:12px;color:#9CA3AF;margin-right:2px}}
+  .sr-a-{key}{{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;
+              font-size:12px;border:1px solid #e5e7eb;border-radius:6px;
+              text-decoration:none;color:#374151;background:#fff;cursor:pointer;
+              white-space:nowrap}}
+  .sr-a-{key}:hover{{background:#f3f4f6;border-color:#d1d5db}}
+</style>
+<div class="sr-row-{key}">
+  <span class="sr-lbl-{key}">Share via:</span>
+  <a class="sr-a-{key}" id="wa_{key}" href="#" target="_blank" rel="noopener">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="#25D366"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+    WhatsApp
+  </a>
+  <a class="sr-a-{key}" id="gm_{key}" href="#" target="_blank" rel="noopener">
+    <svg width="13" height="13" viewBox="0 0 24 24"><path d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 010 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L12 9.641l8.073-6.148C21.69 2.28 24 3.434 24 5.457z" fill="#EA4335"/></svg>
+    Gmail
+  </a>
+  <a class="sr-a-{key}" id="ol_{key}" href="#" target="_blank" rel="noopener">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="#0078D4"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 8l10 7 10-7" stroke="#fff" stroke-width="1.5" fill="none"/></svg>
+    Outlook
+  </a>
+  <button class="sr-a-{key}" id="cp_{key}"
+    onclick="(function(){{var t=`{safe_js}`;navigator.clipboard.writeText(t).then(function(){{var b=document.getElementById('cp_{key}');b.textContent='✅ Copied';setTimeout(function(){{b.textContent='📋 Copy'}},1500)}})}})()"
+    style="border:1px solid #e5e7eb;background:#fff">📋 Copy
+  </button>
+</div>
+<script>
+(function(){{
+  var enc = {enc_js};
+  document.getElementById('wa_{key}').href = 'https://api.whatsapp.com/send?text=' + enc;
+  document.getElementById('gm_{key}').href = 'https://mail.google.com/mail/?view=cm&body=' + enc;
+  document.getElementById('ol_{key}').href = 'https://outlook.live.com/mail/0/deeplink/compose?body=' + enc;
+}})();
+</script>""",
+        height=44,
     )
 
 
