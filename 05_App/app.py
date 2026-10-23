@@ -1621,6 +1621,7 @@ if prompt:
                           "sources panel; please review them directly or try a "
                           "more specific query.")
                 st.markdown(answer)
+                log_query(domain, prompt, answer, best_sim, results, True)  # 3A-patch-applied
             elif hit:
                 answer = hit["answer"]
                 st.markdown(answer)
@@ -1640,6 +1641,10 @@ if prompt:
                 cache_put(key, {"answer": answer, "question": prompt,
                                 "domain": domain})
                 log_query(domain, prompt, answer, best_sim, results, low_confidence)
+                st.caption(
+                    "⚠️ This answer is AI-generated from regulatory documents. "
+                    "Always verify with the official source before acting on it."
+                )
 
             # Confidence badge
             if not low_confidence:
@@ -1655,7 +1660,9 @@ if prompt:
                 st.markdown(
                     f"<span style='font-size:.75rem;color:{badge_color};"
                     f"font-weight:600;background:{badge_color}18;padding:2px 8px;"
-                    f"border-radius:10px;'>{badge_icon} {badge_label}</span>",
+                    f"border-radius:10px;'>{badge_icon} {badge_label}"
+                    f"<span style='font-weight:400;opacity:.75;margin-left:6px'>"
+                    f"(score: {best_sim:.2f})</span></span>",
                     unsafe_allow_html=True)
                 # Regulation currency footer
                 _reg_date = _REG_DATE.get(domain, "2024")
