@@ -44,7 +44,9 @@ import re
 import sys
 import tarfile
 import urllib.request
-from datetime import date, datetime
+from datetime import date, datetime, timezone, timedelta
+
+IST = timezone(timedelta(hours=5, minutes=30))
 from pathlib import Path
 
 # Chroma requires SQLite >= 3.35. Streamlit Community Cloud's image ships an
@@ -1486,7 +1488,7 @@ if prompt:
                     unsafe_allow_html=True)
 
                 # Timestamp
-                _now_ts = datetime.now().strftime("%b %d, %Y  %I:%M %p")
+                _now_ts = datetime.now(tz=IST).strftime("%b %d, %Y  %I:%M %p IST")
                 st.markdown(
                     f"<div style='font-size:.68rem;color:#9CA3AF;margin-top:.2rem;'>"
                     f"🕐 Answered {_now_ts}</div>",
@@ -1504,7 +1506,7 @@ if prompt:
                 {"role": "assistant", "content": answer, "sources": results,
                  "rated": not low_confidence, "followups": followups,
                  "conf_label": _conf_label, "conf_score": best_sim,
-                 "timestamp": datetime.now().strftime("%b %d, %Y  %I:%M %p")})
+                 "timestamp": datetime.now(tz=IST).strftime("%b %d, %Y  %I:%M %p IST")})
 
             # Action row: copy + share + feedback buttons
             if not low_confidence and client is not None and daily_usage() < DAILY_LIMIT:
