@@ -658,6 +658,16 @@ html, body, [class*="css"] { font-family:'Inter',-apple-system,'Segoe UI',sans-s
 }
 [data-testid="stSidebar"]{ background:#0E2439; }
 [data-testid="stSidebar"] *{ color:#D9E4F1; }
+/* Sidebar selectbox visible on dark sidebar background */
+[data-testid="stSidebar"] [data-baseweb="select"] > div{
+  background:#1A3352 !important; border-color:#2E4E6E !important; color:#D9E4F1 !important;
+}
+[data-testid="stSidebar"] [data-baseweb="select"] span{ color:#D9E4F1 !important; }
+/* Sidebar "Start a new conversation" button — white text on visible dark bg */
+[data-testid="stSidebar"] .stButton > button{
+  background:#1A3352 !important; color:#D9E4F1 !important;
+  border:1px solid #2E4E6E !important; border-radius:9px !important;
+}
 .rc-brand{
   font-family:'Source Serif 4',Georgia,serif; font-size:1.02rem; font-weight:700;
   color:#fff; line-height:1.25;
@@ -756,12 +766,29 @@ textarea {
   border-color:#253A50 !important;
 }
 
-/* 7. Selectbox / dropdowns */
+/* 7. Selectbox / dropdowns — all layers */
+[data-baseweb="select"],
 [data-baseweb="select"] > div,
+[data-baseweb="select"] > div > div,
+[data-baseweb="select"] input,
 [data-baseweb="input"] > div,
-[data-baseweb="popover"] { background:#152030 !important; border-color:#253A50 !important; }
+[data-baseweb="popover"],
+[data-baseweb="menu"],
+[data-testid="stSelectbox"] > div > div {
+  background:#152030 !important;
+  border-color:#253A50 !important;
+  color:#D9E8F5 !important;
+}
 [data-baseweb="select"] span,
+[data-baseweb="select"] div,
 [data-baseweb="input"] input { color:#D9E8F5 !important; }
+/* Dropdown option list */
+[role="listbox"], [role="option"] {
+  background:#152030 !important; color:#D9E8F5 !important;
+}
+/* Placeholder text in chat input */
+[data-testid="stChatInput"] textarea::placeholder,
+textarea::placeholder { color:#8FA8C4 !important; opacity:1 !important; }
 
 /* 8. Expanders */
 [data-testid="stExpander"] summary,
@@ -1157,7 +1184,7 @@ with st.sidebar:
     # "How to use" pinned prominently above the filters so first-time
     # users see it before they start typing.
     _no_msgs = not st.session_state.get("messages")
-    with st.expander("ℹ️ How to use this assistant", expanded=_no_msgs):
+    with st.expander("ℹ️ How to use this assistant", expanded=False):
         st.markdown(
             "**Ask in plain language.** No legal terms needed.\n\n"
             "**Use the filter** below to narrow results to your role or "
