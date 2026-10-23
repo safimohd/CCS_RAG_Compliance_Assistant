@@ -54,7 +54,7 @@ TODAY = datetime.date.today()
 def fetch_queries(since_date: str):
     r = requests.get(
         f"{SUPABASE_URL}/rest/v1/queries"
-        f"?select=id,created_at,bot,prompt,similarity_score,flagged_low_conf"
+        f"?select=id,created_at,bot,question,confidence,flagged_low_conf"
         f"&created_at=gte.{since_date}T00:00:00"
         f"&order=created_at.desc",
         headers=HDRS,
@@ -122,7 +122,7 @@ with tab1:
     total    = len(rows)
     hc       = sum(1 for r in rows if r["bot"] == "Healthcare")
     rera     = sum(1 for r in rows if r["bot"] == "RERA")
-    flagged  = sum(1 for r in rows if r["flagged_low_conf"])
+    flagged  = sum(1 for r in rows if r.get("flagged_low_conf"))
     flag_pct = f"{flagged/total*100:.1f}%" if total else "0%"
 
     # Stat tiles
@@ -162,15 +162,15 @@ with tab1:
         st.divider()
 
         # Low confidence table
-        low_conf_rows = [r for r in rows if r["flagged_low_conf"]]
+        low_conf_rows = [r for r in rows if r.get("flagged_low_conf")]
         st.subheader(f"Low Confidence Queries ({len(low_conf_rows)})")
         if low_conf_rows:
             df_lc = pd.DataFrame([
                 {
                     "Date":  r["created_at"][:10],
                     "Bot":   r["bot"],
-                    "Query": (r.get("prompt") or "")[:120] + ("..." if len(r.get("prompt") or "") > 120 else ""),
-                    "Score": round(r["similarity_score"] or 0, 3),
+                    "Query": (r.get("question") or "")[:120] + ("..." if len(r.get("question") or "") > 120 else ""),
+                    "Score": round(r.get("confidence") or 0, 3),
                 }
                 for r in low_conf_rows
             ])
@@ -250,7 +250,7 @@ with tab3:
               <p style='color:#aac4e0;font-size:13px;margin:0 0 16px'>
                 CDSCO / Drug & Cosmetics Act compliance assistant
               </p>
-              <a href='https://ccs-healthcare.streamlit.app' target='_blank'
+              <a href='https://ccsragcomplianceassistant-6hug2utprjrpwtyijwjanr.streamlit.app/' target='_blank'
                  style='background:#2196f3;color:#fff;padding:8px 20px;border-radius:6px;
                         text-decoration:none;font-size:14px;font-weight:600'>
                 Open Bot →
@@ -269,7 +269,7 @@ with tab3:
               <p style='color:#a8c890;font-size:13px;margin:0 0 16px'>
                 Karnataka RERA real estate compliance assistant
               </p>
-              <a href='https://ccs-rera.streamlit.app' target='_blank'
+              <a href='https://ccsragcomplianceassistant-cisyv46xzq7kte95ywkmhg.streamlit.app/' target='_blank'
                  style='background:#4caf50;color:#fff;padding:8px 20px;border-radius:6px;
                         text-decoration:none;font-size:14px;font-weight:600'>
                 Open Bot →
