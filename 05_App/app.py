@@ -658,25 +658,6 @@ html, body, [class*="css"] { font-family:'Inter',-apple-system,'Segoe UI',sans-s
 }
 [data-testid="stSidebar"]{ background:#0E2439; }
 [data-testid="stSidebar"] *{ color:#D9E4F1; }
-/* Sidebar selectbox — match the dark navy sidebar in light mode */
-[data-testid="stSidebar"] [data-baseweb="select"],
-[data-testid="stSidebar"] [data-baseweb="select"] > div,
-[data-testid="stSidebar"] [data-baseweb="select"] > div > div,
-[data-testid="stSidebar"] [data-baseweb="select"] > div > div > div,
-[data-testid="stSidebar"] [data-testid="stSelectbox"] > div > div,
-[data-testid="stSidebar"] [data-testid="stSelectbox"] > div > div > div {
-  background:#1A3352 !important;
-  border-color:#2E4E6E !important;
-  color:#D9E4F1 !important;
-}
-[data-testid="stSidebar"] [data-baseweb="select"] span,
-[data-testid="stSidebar"] [data-baseweb="select"] div,
-[data-testid="stSidebar"] [data-baseweb="select"] svg { color:#D9E4F1 !important; fill:#D9E4F1 !important; }
-/* Sidebar "Start a new conversation" button — white text on visible dark bg */
-[data-testid="stSidebar"] .stButton > button{
-  background:#1A3352 !important; color:#D9E4F1 !important;
-  border:1px solid #2E4E6E !important; border-radius:9px !important;
-}
 .rc-brand{
   font-family:'Source Serif 4',Georgia,serif; font-size:1.02rem; font-weight:700;
   color:#fff; line-height:1.25;
@@ -712,120 +693,6 @@ html, body, [class*="css"] { font-family:'Inter',-apple-system,'Segoe UI',sans-s
   .rc-scope{ font-size:.74rem; }
   [data-testid="stHorizontalBlock"] > div{ min-width:0 !important; }
 }
-</style>
-"""
-
-DARK_CSS = """
-<style>
-:root{
-  --ink:#D9E8F5; --muted:#8FA8C4; --line:#253A50; --paper:#0D1B2A;
-  --card:#152030; --brand:#4A90D9; --brand-2:#6BAEE8; --gold:#D4A843;
-}
-/* 1. Paint the root dark — everything else becomes transparent so this shows through */
-html, body, #root { background:#0D1B2A !important; }
-.stApp { background:#0D1B2A !important; }
-
-/* 2. Make ALL Streamlit layout containers transparent */
-[data-testid="stAppViewContainer"],
-[data-testid="stMain"],
-[data-testid="stMainBlockContainer"],
-[data-testid="stVerticalBlock"],
-[data-testid="stHorizontalBlock"],
-[data-testid="stHeader"],
-[data-testid="stDecoration"],
-[data-testid="stToolbar"],
-.block-container,
-section.main { background:transparent !important; }
-
-/* 3. Sidebar stays its own dark shade */
-[data-testid="stSidebar"],
-[data-testid="stSidebar"] > div,
-[data-testid="stSidebarContent"] { background:#060F18 !important; }
-
-/* 4. Buttons */
-.stButton > button,
-[data-testid="stBaseButton-secondary"],
-[data-testid="stBaseButton-primary"] {
-  background:#152030 !important; color:#D9E8F5 !important;
-  border-color:#253A50 !important;
-}
-.stButton > button:hover { background:#1e3248 !important; border-color:#4A90D9 !important; }
-
-/* 5. Chat messages */
-[data-testid="stChatMessage"] { background:#152030 !important; border-color:#253A50 !important; }
-
-/* 6. Chat input — target every layer Streamlit wraps around the textarea */
-[data-testid="stChatInput"],
-[data-testid="stChatInput"] > div,
-[data-testid="stChatInputContainer"],
-[data-testid="stBottom"],
-[data-testid="stBottom"] > div,
-.stChatFloatingInputContainer,
-.stChatFloatingInputContainer > div,
-div:has(> [data-testid="stChatInput"]),
-textarea {
-  background:#152030 !important;
-  color:#D9E8F5 !important;
-  border-color:#253A50 !important;
-}
-/* The sticky bottom bar that holds the input */
-[data-testid="stBottomBlockContainer"],
-[data-testid="stBottomBlockContainer"] > div {
-  background:#0D1B2A !important;
-  border-color:#253A50 !important;
-}
-
-/* 7. Selectbox / dropdowns — all layers */
-[data-baseweb="select"],
-[data-baseweb="select"] > div,
-[data-baseweb="select"] > div > div,
-[data-baseweb="select"] input,
-[data-baseweb="input"] > div,
-[data-baseweb="popover"],
-[data-baseweb="menu"],
-[data-testid="stSelectbox"] > div > div {
-  background:#152030 !important;
-  border-color:#253A50 !important;
-  color:#D9E8F5 !important;
-}
-[data-baseweb="select"] span,
-[data-baseweb="select"] div,
-[data-baseweb="input"] input { color:#D9E8F5 !important; }
-/* Dropdown option list */
-[role="listbox"], [role="option"] {
-  background:#152030 !important; color:#D9E8F5 !important;
-}
-/* Placeholder text in chat input */
-[data-testid="stChatInput"] textarea::placeholder,
-textarea::placeholder { color:#8FA8C4 !important; opacity:1 !important; }
-
-/* 8. Expanders */
-[data-testid="stExpander"] summary,
-[data-testid="stExpander"] > div { background:#152030 !important; border-color:#253A50 !important; }
-
-/* 9. Text — target only Streamlit markdown, not everything */
-[data-testid="stMarkdownContainer"] p,
-[data-testid="stMarkdownContainer"] li,
-[data-testid="stMarkdownContainer"] span,
-.stMarkdown p, .stMarkdown li,
-label, .stSelectbox label, .stToggle label,
-[data-testid="stWidgetLabel"] { color:#D9E8F5 !important; }
-
-/* 10. Custom classes */
-.rc-scope { background:#152030 !important; color:#8FA8C4 !important; border-color:#253A50 !important; }
-.rc-basis  { color:#8FA8C4 !important; }
-.rc-src    { background:#152030 !important; border-color:#253A50 !important; }
-.rc-src-t  { color:#D9E8F5 !important; }
-.rc-quote  { background:#1A2D40 !important; color:#B0C8E0 !important; border-color:#253A50 !important; }
-.rc-fb-thanks { color:#4ade80 !important; background:#052e16 !important; }
-
-/* 11. Hero card keeps its gradient */
-.rc-hero, .rc-hero * { color:#fff !important; }
-.rc-hero p { color:#CFE0F2 !important; }
-
-/* 12. Caption / small text */
-[data-testid="stCaptionContainer"] p,
-small, .stCaption { color:#8FA8C4 !important; }
 </style>
 """
 
@@ -1173,8 +1040,6 @@ st.set_page_config(page_title=DOMAIN_META[_default_domain]["title"],
                    page_icon="📋", layout="wide",
                    initial_sidebar_state="expanded")
 st.markdown(CSS, unsafe_allow_html=True)
-if st.session_state.get("dark_mode"):
-    st.markdown(DARK_CSS, unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown(f"<div class='rc-brand'>{DOMAIN_META[_default_domain]['title']}</div>"
@@ -1193,7 +1058,7 @@ with st.sidebar:
     # "How to use" pinned prominently above the filters so first-time
     # users see it before they start typing.
     _no_msgs = not st.session_state.get("messages")
-    with st.expander("ℹ️ How to use this assistant", expanded=False):
+    with st.expander("ℹ️ How to use this assistant", expanded=_no_msgs):
         st.markdown(
             "**Ask in plain language.** No legal terms needed.\n\n"
             "**Use the filter** below to narrow results to your role or "
@@ -1266,10 +1131,6 @@ with st.sidebar:
                            file_name="compliance_conversation.txt",
                            mime="text/plain",
                            use_container_width=True)
-
-    st.divider()
-    st.toggle("🌙 Dark mode", key="dark_mode",
-              help="Switch between light and dark theme")
 
     # Admin feedback dashboard (hidden behind a password)
     with st.expander("📊 Feedback analytics"):
