@@ -6,37 +6,158 @@ Deployed as a separate app on Streamlit Community Cloud pointing to this file.
 Secrets required (same Supabase project as main app):
     SUPABASE_URL
     SUPABASE_SERVICE_KEY
+    ADMIN_PASSWORD   -- password for regular access (Prof, reviewers)
+    ADMIN_USERNAME   -- username for admin-level access
+    ADMIN_SECRET     -- password for admin-level access
 """
 import datetime
 import requests
 import streamlit as st
 
-# ── Page config ────────────────────────────────────────────────────────────────
+# Page config
 st.set_page_config(
     page_title="CCS RAG Admin",
-    page_icon="🛡️",
+    page_icon="shield:",
     layout="wide",
 )
 
-# ── Auth guard (simple password check) ─────────────────────────────────────────
+# Global dark theme CSS
+st.markdown("""
+<style>
+  /* Base dark canvas */
+  .stApp { background-color: #0d1117; color: #e6edf3; }
+  section[data-testid="stSidebar"] { background-color: #161b22; }
+
+  /* Tabs */
+  .stTabs [data-baseweb="tab-list"] {
+    background: #161b22;
+    border-radius: 10px;
+    padding: 4px;
+    gap: 4px;
+  }
+  .stTabs [data-baseweb="tab"] {
+    background: transparent;
+    color: #8b949e;
+    border-radius: 8px;
+    font-weight: 500;
+    padding: 8px 18px;
+  }
+  .stTabs [aria-selected="true"] {
+    background: #21262d;
+    color: #e6edf3;
+  }
+
+  /* Metrics */
+  [data-testid="metric-container"] {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    padding: 16px;
+  }
+  [data-testid="stMetricValue"] { color: #e6edf3; }
+  [data-testid="stMetricDelta"] { font-size: 12px; }
+
+  /* Buttons */
+  .stButton > button {
+    background: #21262d;
+    border: 1px solid #30363d;
+    color: #e6edf3;
+    border-radius: 8px;
+    font-weight: 500;
+  }
+  .stButton > button:hover {
+    background: #30363d;
+    border-color: #58a6ff;
+    color: #58a6ff;
+  }
+
+  /* Inputs */
+  .stTextInput > div > div > input,
+  .stSelectbox > div > div {
+    background: #161b22;
+    border: 1px solid #30363d;
+    color: #e6edf3;
+    border-radius: 8px;
+  }
+
+  /* Dataframe */
+  .stDataFrame { border: 1px solid #30363d; border-radius: 8px; }
+
+  /* Divider */
+  hr { border-color: #21262d; }
+
+  /* Info / success boxes */
+  .stAlert { border-radius: 8px; }
+
+  /* Radio buttons */
+  .stRadio > div { gap: 12px; }
+
+  /* Hide Streamlit branding */
+  #MainMenu, footer, header { visibility: hidden; }
+</style>
+""", unsafe_allow_html=True)
+
+
+# Auth guard
 ADMIN_PASSWORD = st.secrets.get("ADMIN_PASSWORD", "")
+ADMIN_USERNAME = st.secrets.get("ADMIN_USERNAME", "")
+ADMIN_SECRET   = st.secrets.get("ADMIN_SECRET", "")
 
-if ADMIN_PASSWORD:
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+if "is_admin" not in st.session_state:
+    st.session_state.is_admin = False
 
-    if not st.session_state.authenticated:
-        st.title("🛡️ CCS RAG Admin Dashboard")
-        pwd = st.text_input("Enter admin password", type="password")
-        if st.button("Login"):
-            if pwd == ADMIN_PASSWORD:
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Incorrect password.")
-        st.stop()
+if not st.session_state.authenticated:
+    st.markdown("""
+    <div style='max-width:420px;margin:80px auto 0;'>
+      <div style='background:#161b22;border:1px solid #30363d;border-radius:14px;padding:36px 32px;'>
+        <div style='text-align:center;margin-bottom:28px;'>
+          <div style='font-size:40px;margin-bottom:10px;'>🛡️</div>
+          <h2 style='color:#e6edf3;margin:0;font-size:20px;font-weight:700;'>CCS RAG Admin</h2>
+          <p style='color:#8b949e;margin:6px 0 0;font-size:13px;'>Compliance Intelligence Dashboard</p>
+        </div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# ── Supabase config ────────────────────────────────────────────────────────────
+    login_col, _ = st.columns([1, 1])
+    with login_col:
+        st.markdown("<div style='max-width:420px;margin:0 auto;'>", unsafe_allow_html=True)
+
+        login_type = st.radio(
+            "Login as",
+            ["Reviewer / Guest", "Admin"],
+            horizontal=True,
+            key="login_type_radio",
+        )
+
+        if login_type == "Admin":
+            uname = st.text_input("Username", key="login_uname")
+            pwd   = st.text_input("Password", type="password", key="login_pwd_admin")
+            if st.button("Login", key="btn_admin_login", use_container_width=True):
+                if uname == ADMIN_USERNAME and pwd == ADMIN_SECRET:
+                    st.session_state.authenticated = True
+                    st.session_state.is_admin = True
+                    st.rerun()
+                else:
+                    st.error("Invalid username or password.")
+        else:
+            pwd = st.text_input("Password", type="password", key="login_pwd_guest")
+            if st.button("Login", key="btn_guest_login", use_container_width=True):
+                if pwd == ADMIN_PASSWORD:
+                    st.session_state.authenticated = True
+                    st.session_state.is_admin = False
+                    st.rerun()
+                else:
+                    st.error("Incorrect password.")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.stop()
+
+
+# Supabase config
 SUPABASE_URL = st.secrets["SUPABASE_URL"].rstrip("/")
 SVC_KEY      = st.secrets["SUPABASE_SERVICE_KEY"]
 
@@ -49,7 +170,7 @@ HDRS = {
 TODAY = datetime.date.today()
 
 
-# ── Data fetchers ──────────────────────────────────────────────────────────────
+# Data fetchers
 @st.cache_data(ttl=120)
 def fetch_queries(since_date: str):
     r = requests.get(
@@ -81,21 +202,35 @@ def fetch_documents():
     return r.json()
 
 
-# ── Header ─────────────────────────────────────────────────────────────────────
-st.markdown(
-    """
-    <div style='background:#1a3a5c;padding:16px 24px;border-radius:8px;margin-bottom:24px'>
-      <h1 style='color:#fff;margin:0;font-size:22px'>🛡️ CCS RAG Compliance Assistant</h1>
-      <p style='color:#aac4e0;margin:4px 0 0;font-size:13px'>Admin Dashboard</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
+# Header
+role_badge = (
+    "<span style='background:#1f6feb;color:#e6edf3;font-size:11px;font-weight:600;"
+    "border-radius:12px;padding:2px 10px;margin-left:10px;'>ADMIN</span>"
+    if st.session_state.is_admin else
+    "<span style='background:#30363d;color:#8b949e;font-size:11px;"
+    "border-radius:12px;padding:2px 10px;margin-left:10px;'>VIEWER</span>"
 )
+
+st.markdown(f"""
+<div style='background:linear-gradient(135deg,#1a3a5c 0%,#0d1f33 100%);
+            padding:20px 28px;border-radius:12px;margin-bottom:24px;
+            border:1px solid #1f3a5c;display:flex;align-items:center;justify-content:space-between;'>
+  <div>
+    <h1 style='color:#e6edf3;margin:0;font-size:22px;font-weight:700;'>
+      🛡️ CCS RAG Compliance Assistant {role_badge}
+    </h1>
+    <p style='color:#8b949e;margin:4px 0 0;font-size:13px;'>Admin Dashboard</p>
+  </div>
+  <div style='text-align:right;'>
+    <div style='color:#58a6ff;font-size:12px;font-weight:500;'>{TODAY.strftime("%d %b %Y")}</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
 tab1, tab2, tab3, tab4 = st.tabs(["📊 Query Stats", "📁 Document Registry", "🤖 Bots", "📚 KB Coverage"])
 
 
-# ── Tab 1: Query Stats ─────────────────────────────────────────────────────────
+# Tab 1: Query Stats
 with tab1:
     col_range, col_refresh = st.columns([3, 1])
     with col_range:
@@ -125,7 +260,6 @@ with tab1:
     flagged  = sum(1 for r in rows if r.get("flagged_low_conf"))
     flag_pct = f"{flagged/total*100:.1f}%" if total else "0%"
 
-    # Stat tiles
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Queries", total)
     c2.metric("Healthcare", hc)
@@ -135,7 +269,6 @@ with tab1:
     st.divider()
 
     if rows:
-        # Queries per day chart
         from collections import defaultdict
         daily_hc   = defaultdict(int)
         daily_rera = defaultdict(int)
@@ -157,11 +290,10 @@ with tab1:
         st.subheader("Queries per Day")
         import pandas as pd
         df_chart = pd.DataFrame(chart_data).set_index("Date")
-        st.bar_chart(df_chart, color=["#1a7f4b", "#8e44ad"])
+        st.bar_chart(df_chart, color=["#2196f3", "#4caf50"])
 
         st.divider()
 
-        # Low confidence table
         low_conf_rows = [r for r in rows if r.get("flagged_low_conf")]
         st.subheader(f"Low Confidence Queries ({len(low_conf_rows)})")
         if low_conf_rows:
@@ -181,7 +313,7 @@ with tab1:
         st.info("No queries found for the selected date range.")
 
 
-# ── Tab 2: Document Registry ───────────────────────────────────────────────────
+# Tab 2: Document Registry
 with tab2:
     col_bot, col_status, col_ref2 = st.columns([2, 2, 1])
     with col_ref2:
@@ -234,7 +366,7 @@ with tab2:
         st.info("No documents match the selected filters.")
 
 
-# ── Tab 3: Bots ────────────────────────────────────────────────────────────────
+# Tab 3: Bots
 with tab3:
     st.markdown("### 🤖 Deployed Compliance Bots")
     st.caption("Click a bot to open it in a new tab.")
@@ -242,54 +374,119 @@ with tab3:
     col_hc, col_rera = st.columns(2)
 
     with col_hc:
-        st.markdown(
-            """
-            <div style='background:#1a3a5c;padding:20px 24px;border-radius:10px;text-align:center'>
-              <div style='font-size:36px'>🏥</div>
-              <h3 style='color:#fff;margin:8px 0 4px'>Healthcare Bot</h3>
-              <p style='color:#aac4e0;font-size:13px;margin:0 0 16px'>
-                CDSCO / Drug & Cosmetics Act compliance assistant
-              </p>
-              <a href='https://ccsragcomplianceassistant-6hug2utprjrpwtyijwjanr.streamlit.app/' target='_blank'
-                 style='background:#2196f3;color:#fff;padding:8px 20px;border-radius:6px;
-                        text-decoration:none;font-size:14px;font-weight:600'>
-                Open Bot →
-              </a>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.markdown("""
+        <div style='background:linear-gradient(135deg,#1a3a5c 0%,#0d2137 100%);
+                    padding:28px 24px;border-radius:12px;text-align:center;
+                    border:1px solid #1f4068;'>
+          <div style='font-size:40px;margin-bottom:10px;'>🏥</div>
+          <h3 style='color:#e6edf3;margin:0 0 6px;font-size:18px;font-weight:700;'>Healthcare Bot</h3>
+          <p style='color:#8b949e;font-size:13px;margin:0 0 20px;'>
+            CDSCO / Drug and Cosmetics Act compliance assistant
+          </p>
+          <a href='https://ccsragcomplianceassistant-6hug2utprjrpwtyijwjanr.streamlit.app/' target='_blank'
+             style='background:#2196f3;color:#fff;padding:10px 24px;border-radius:8px;
+                    text-decoration:none;font-size:14px;font-weight:600;'>
+            Open Bot
+          </a>
+        </div>
+        """, unsafe_allow_html=True)
 
     with col_rera:
-        st.markdown(
-            """
-            <div style='background:#2d4a1e;padding:20px 24px;border-radius:10px;text-align:center'>
-              <div style='font-size:36px'>🏠</div>
-              <h3 style='color:#fff;margin:8px 0 4px'>RERA Bot</h3>
-              <p style='color:#a8c890;font-size:13px;margin:0 0 16px'>
-                Karnataka RERA real estate compliance assistant
-              </p>
-              <a href='https://ccsragcomplianceassistant-cisyv46xzq7kte95ywkmhg.streamlit.app/' target='_blank'
-                 style='background:#4caf50;color:#fff;padding:8px 20px;border-radius:6px;
-                        text-decoration:none;font-size:14px;font-weight:600'>
-                Open Bot →
-              </a>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.markdown("""
+        <div style='background:linear-gradient(135deg,#2d4a1e 0%,#1a2e10 100%);
+                    padding:28px 24px;border-radius:12px;text-align:center;
+                    border:1px solid #3a6324;'>
+          <div style='font-size:40px;margin-bottom:10px;'>🏠</div>
+          <h3 style='color:#e6edf3;margin:0 0 6px;font-size:18px;font-weight:700;'>RERA Bot</h3>
+          <p style='color:#8b949e;font-size:13px;margin:0 0 20px;'>
+            Karnataka RERA real estate compliance assistant
+          </p>
+          <a href='https://ccsragcomplianceassistant-cisyv46xzq7kte95ywkmhg.streamlit.app/' target='_blank'
+             style='background:#4caf50;color:#fff;padding:10px 24px;border-radius:8px;
+                    text-decoration:none;font-size:14px;font-weight:600;'>
+            Open Bot
+          </a>
+        </div>
+        """, unsafe_allow_html=True)
 
     st.divider()
-    st.info(
-        "If the URLs above don't match your actual Streamlit deployment links, "
-        "update them in `05_App/admin.py` under the Bots tab."
-    )
+    st.info("If the URLs above do not match your actual Streamlit deployment links, update them in 05_App/admin.py under the Bots tab.")
 
 
-# ── Tab 4: KB Coverage ─────────────────────────────────────────────────────────
+# Tab 4: KB Coverage
 with tab4:
     import pandas as pd
 
+    # ── Domain data ──────────────────────────────────────────────────────────
+    hc_domains = [
+        {"domain": "Primary Legislation and Regulatory Framework",    "have": 3,  "total": 5,
+         "have_labels": ["D&C Act + Rules (Consolidated)", "D&C Act standalone", "India Code legislative text"],
+         "missing": ["Drugs and Magic Remedies Act 1954", "State Pharmacy Acts (Maharashtra, Karnataka)"]},
+        {"domain": "New Drug Approval and Clinical Trials",           "have": 4,  "total": 6,
+         "have_labels": ["NDCT Rules 2019", "CDSCO NDA guidance", "CT Protocol template", "Import licence rules"],
+         "missing": ["Cell and Gene Therapy guidance", "Paediatric clinical trial addendum"]},
+        {"domain": "Medical Devices and Diagnostics",                 "have": 5,  "total": 7,
+         "have_labels": ["MDR 2017", "In-vitro diagnostics rules", "CDSCO IVD guidance", "QMS guidance", "Import/export rules"],
+         "missing": ["Class C/D device specific guidance", "Post-market surveillance SOP"]},
+        {"domain": "Pharmacovigilance and Drug Safety",               "have": 4,  "total": 5,
+         "have_labels": ["PvPI guidelines", "ADR reporting SOP", "Good Pharmacovigilance Practice", "Schedule Y"],
+         "missing": ["PvPI periodic safety update guidance"]},
+        {"domain": "Insurance, PMJAY and ABDM",                      "have": 8,  "total": 10,
+         "have_labels": ["PMJAY scheme doc", "ABDM HPR", "ABDM HFR", "PHR policy", "IRDAI health regulations",
+                         "CGHS rates", "Ayushman Bharat guidelines", "NHA operational manual"],
+         "missing": ["State-level Ayushman implementation orders", "IRDAI TPA licensing circulars"]},
+        {"domain": "Cosmetics Regulation",                            "have": 1,  "total": 4,
+         "have_labels": ["Cosmetics FAQ document"],
+         "missing": ["Cosmetics Rules 2020 full text", "Cosmetics labelling schedule", "Import licence guidance"]},
+        {"domain": "E-Pharmacy",                                      "have": 0,  "total": 1,
+         "have_labels": [],
+         "missing": ["Draft E-Pharmacy Rules 2018 (intentionally excluded, unnotified draft)"]},
+        {"domain": "AYUSH / Traditional Medicine",                    "have": 0,  "total": 3,
+         "have_labels": [],
+         "missing": ["Ayurvedic drug rules", "Siddha/Unani manufacturing rules", "AYUSH Ministry circulars"]},
+        {"domain": "State-Level Licensing",                           "have": 0,  "total": 3,
+         "have_labels": [],
+         "missing": ["Maharashtra FDA circulars", "Gujarat FDA fee schedules", "State-specific licensing SOPs"]},
+        {"domain": "Blood Banks / Large-Volume Parenterals",          "have": 1,  "total": 3,
+         "have_labels": ["CDSCO blood bank schedule"],
+         "missing": ["CLA-licensed category guidance", "LVP manufacturing compliance guide"]},
+    ]
+
+    rera_domains = [
+        {"domain": "Central RERA Act and Rules",               "have": 4,  "total": 5,
+         "have_labels": ["Real Estate (Regulation and Development) Act 2016", "Central RERA Rules 2016",
+                         "Model Builder-Buyer Agreement", "MoHUA circulars"],
+         "missing": ["RERA (Amendment) Bill 2023"]},
+        {"domain": "Karnataka RERA Rules and Procedures",      "have": 0,  "total": 4,
+         "have_labels": [],
+         "missing": ["Karnataka RERA Rules 2017", "K-RERA fee schedule", "K-RERA registration forms", "K-RERA circulars"]},
+        {"domain": "Project Registration and Compliance",      "have": 3,  "total": 5,
+         "have_labels": ["Project registration guidelines", "Quarterly progress report format", "Completion certificate SOP"],
+         "missing": ["Escrow account management rules", "Designated bank circular"]},
+        {"domain": "Agent Licensing",                          "have": 2,  "total": 3,
+         "have_labels": ["Real estate agent registration rules", "RERA agent code of conduct"],
+         "missing": ["State-specific agent fee schedules"]},
+        {"domain": "Dispute Resolution and Appeals",           "have": 1,  "total": 4,
+         "have_labels": ["RERA adjudication process overview"],
+         "missing": ["RERA Appellate Tribunal rules", "K-RERA precedent orders", "COVID extension circulars"]},
+        {"domain": "Allottee Rights and Disclosures",          "have": 3,  "total": 4,
+         "have_labels": ["Disclosure norms", "Allottee rights chapter", "Refund and interest rules"],
+         "missing": ["Homebuyer grievance portal SOP"]},
+        {"domain": "K-RERA Orders and Circulars",              "have": 0,  "total": 3,
+         "have_labels": [],
+         "missing": ["K-RERA Authority orders", "Complaint precedents", "COVID extension orders"]},
+    ]
+
+    # Overall coverage % per domain group
+    hc_have  = sum(d["have"] for d in hc_domains)
+    hc_total = sum(d["total"] for d in hc_domains)
+    hc_overall_pct = round(hc_have / hc_total * 100) if hc_total else 0
+
+    rr_have  = sum(d["have"] for d in rera_domains)
+    rr_total = sum(d["total"] for d in rera_domains)
+    rr_overall_pct = round(rr_have / rr_total * 100) if rr_total else 0
+
+    # Live Supabase counts
     col_ref_kb, _ = st.columns([1, 3])
     with col_ref_kb:
         if st.button("Refresh", key="refresh_kb"):
@@ -298,156 +495,122 @@ with tab4:
 
     all_docs = fetch_documents()
     total_registered = len(all_docs) if all_docs else 0
+    hc_live   = sum(1 for d in (all_docs or []) if (d.get("domain") or d.get("bot") or "").lower() == "healthcare")
+    rera_live = sum(1 for d in (all_docs or []) if (d.get("domain") or d.get("bot") or "").lower() == "rera")
+    HC_DEAD   = 7
 
-    HC_TOTAL   = 255
-    HC_DEAD    = 7
-    RERA_TOTAL = 230
-
-    hc_docs   = [d for d in (all_docs or []) if (d.get("domain") or "").lower() == "healthcare"]
-    rera_docs = [d for d in (all_docs or []) if (d.get("domain") or "").lower() == "rera"]
-
-    hc_pct   = round(len(hc_docs)   / HC_TOTAL   * 100, 1) if HC_TOTAL   else 0
-    rera_pct = round(len(rera_docs) / RERA_TOTAL * 100, 1) if RERA_TOTAL else 0
-
+    # Summary tiles
     st.markdown("### 📚 Knowledge Base Coverage")
-    st.caption("Live counts from Supabase — documents registered and available to the RAG pipeline.")
+    st.caption("Live counts from Supabase. Domain breakdown is based on the curated knowledge base audit.")
 
-    # Top-level summary tiles
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Total Registered", total_registered)
-    m2.metric("Healthcare",  f"{len(hc_docs)} docs",  delta=f"{hc_pct}% coverage")
-    m3.metric("RERA",        f"{len(rera_docs)} docs", delta=f"{rera_pct}% coverage")
-    m4.metric("Dead URLs (HC)", HC_DEAD, delta="permanently unreachable", delta_color="inverse")
+    m2.metric("Healthcare Docs",  total_registered - rera_live if rera_live else hc_live)
+    m3.metric("RERA Docs",        rera_live)
+    m4.metric("Dead URLs (HC)",   HC_DEAD, delta="permanently unreachable", delta_color="inverse")
 
+    # Overall coverage bars side by side
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+    ov1, ov2 = st.columns(2)
+
+    with ov1:
+        st.markdown(f"""
+        <div style='background:linear-gradient(135deg,#1a3a5c 0%,#0d2137 100%);
+                    border:1px solid #1f4068;border-radius:12px;padding:20px 22px;'>
+          <div style='color:#8b949e;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px;'>Healthcare (CDSCO)</div>
+          <div style='display:flex;align-items:baseline;gap:8px;margin-bottom:12px;'>
+            <span style='color:#58a6ff;font-size:32px;font-weight:700;'>{hc_overall_pct}%</span>
+            <span style='color:#8b949e;font-size:13px;'>overall coverage</span>
+          </div>
+          <div style='background:#0d1117;border-radius:6px;height:8px;overflow:hidden;'>
+            <div style='background:linear-gradient(90deg,#2196f3,#58a6ff);width:{hc_overall_pct}%;height:8px;border-radius:6px;'></div>
+          </div>
+          <div style='color:#8b949e;font-size:12px;margin-top:10px;'>
+            {hc_have} of {hc_total} regulatory docs across {len(hc_domains)} domains
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with ov2:
+        st.markdown(f"""
+        <div style='background:linear-gradient(135deg,#2d4a1e 0%,#1a2e10 100%);
+                    border:1px solid #3a6324;border-radius:12px;padding:20px 22px;'>
+          <div style='color:#8b949e;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px;'>Real Estate (K-RERA)</div>
+          <div style='display:flex;align-items:baseline;gap:8px;margin-bottom:12px;'>
+            <span style='color:#4caf50;font-size:32px;font-weight:700;'>{rr_overall_pct}%</span>
+            <span style='color:#8b949e;font-size:13px;'>overall coverage</span>
+          </div>
+          <div style='background:#0d1117;border-radius:6px;height:8px;overflow:hidden;'>
+            <div style='background:linear-gradient(90deg,#4caf50,#81c784);width:{rr_overall_pct}%;height:8px;border-radius:6px;'></div>
+          </div>
+          <div style='color:#8b949e;font-size:12px;margin-top:10px;'>
+            {rr_have} of {rr_total} regulatory docs across {len(rera_domains)} domains
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<div style='height:24px'></div>", unsafe_allow_html=True)
     st.divider()
 
-    # ── Healthcare domain breakdown ────────────────────────────────────────────
-    st.markdown("#### 🏥 Healthcare (CDSCO / Drug Regulation)")
+    # Domain toggle
+    st.markdown("#### Domain-level Breakdown")
+    domain_view = st.radio(
+        "View domain",
+        ["🏥 Healthcare (CDSCO)", "🏠 Real Estate (K-RERA)"],
+        horizontal=True,
+        key="kb_domain_toggle",
+        label_visibility="collapsed",
+    )
 
-    hc_domains = [
-        {"domain": "Primary Legislation & Regulatory Framework",   "have": 3,  "total": 5,
-         "have_labels": ["D&C Act + Rules (Consolidated)", "D&C Act standalone", "India Code legislative text"],
-         "missing": ["Drugs & Magic Remedies Act 1954", "State Pharmacy Acts (Maharashtra, Karnataka)"]},
-        {"domain": "New Drug Approval & Clinical Trials",          "have": 4,  "total": 6,
-         "have_labels": ["NDCT Rules 2019", "CDSCO NDA guidance", "CT Protocol template", "Import licence rules"],
-         "missing": ["Cell & Gene Therapy guidance", "Paediatric clinical trial addendum"]},
-        {"domain": "Medical Devices & Diagnostics",                "have": 5,  "total": 7,
-         "have_labels": ["MDR 2017", "In-vitro diagnostics rules", "CDSCO IVD guidance", "QMS guidance", "Import/export rules"],
-         "missing": ["Class C/D device specific guidance", "Post-market surveillance SOP"]},
-        {"domain": "Pharmacovigilance & Drug Safety",              "have": 4,  "total": 5,
-         "have_labels": ["PvPI guidelines", "ADR reporting SOP", "Good Pharmacovigilance Practice", "Schedule Y"],
-         "missing": ["PVPI periodic safety update guidance"]},
-        {"domain": "Insurance & PMJAY / ABDM",                    "have": 8,  "total": 10,
-         "have_labels": ["PMJAY scheme doc", "ABDM HPR", "ABDM HFR", "PHR policy", "IRDAI health regulations",
-                         "CGHS rates", "Ayushman Bharat guidelines", "NHA operational manual"],
-         "missing": ["State-level Ayushman implementation orders", "IRDAI TPA licensing circulars"]},
-        {"domain": "Cosmetics Regulation",                         "have": 1,  "total": 4,
-         "have_labels": ["Cosmetics FAQ document"],
-         "missing": ["Cosmetics Rules 2020 full text", "Cosmetics labelling schedule", "Import licence guidance"]},
-        {"domain": "E-Pharmacy",                                   "have": 0,  "total": 1,
-         "have_labels": [],
-         "missing": ["Draft E-Pharmacy Rules 2018 — intentionally excluded (unnotified)"]},
-        {"domain": "AYUSH / Traditional Medicine",                 "have": 0,  "total": 3,
-         "have_labels": [],
-         "missing": ["Ayurvedic drug rules", "Siddha/Unani manufacturing rules", "AYUSH Ministry circulars"]},
-        {"domain": "State-Level Licensing",                        "have": 0,  "total": 3,
-         "have_labels": [],
-         "missing": ["Maharashtra FDA circulars", "Gujarat FDA fee schedules", "State-specific licensing SOPs"]},
-        {"domain": "Blood Banks / Large-Volume Parenterals",       "have": 1,  "total": 3,
-         "have_labels": ["CDSCO blood bank schedule"],
-         "missing": ["CLA-licensed category guidance", "LVP manufacturing compliance guide"]},
-    ]
+    active_domains  = hc_domains  if "Healthcare" in domain_view else rera_domains
+    accent_have_bg  = "#1a3a5c"   if "Healthcare" in domain_view else "#2d4a1e"
+    accent_have_col = "#58a6ff"   if "Healthcare" in domain_view else "#81c784"
+    bar_accent      = "#2196f3"   if "Healthcare" in domain_view else "#4caf50"
+    card_border     = "#1f4068"   if "Healthcare" in domain_view else "#3a6324"
 
-    for item in hc_domains:
-        pct = round(item["have"] / item["total"] * 100) if item["total"] else 0
-        bar_color = "#2196f3" if pct >= 60 else ("#f59e0b" if pct >= 30 else "#ef4444")
-        badge_bg  = "#1a3a5c" if pct >= 60 else ("#3a2a00" if pct >= 30 else "#3a0a0a")
-        badge_col = "#90caf9" if pct >= 60 else ("#fbbf24" if pct >= 30 else "#f87171")
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+    for item in active_domains:
+        pct       = round(item["have"] / item["total"] * 100) if item["total"] else 0
+        bar_color = bar_accent  if pct >= 60 else ("#f59e0b" if pct >= 30 else "#ef4444")
+        badge_bg  = accent_have_bg if pct >= 60 else ("#2e1f00" if pct >= 30 else "#2a0d0d")
+        badge_col = accent_have_col if pct >= 60 else ("#fbbf24" if pct >= 30 else "#f87171")
 
         have_chips = "".join(
-            f"<span style='background:#1a3a5c;color:#90caf9;border-radius:4px;padding:2px 8px;font-size:11px;margin:2px;display:inline-block;'>{h}</span>"
+            f"<span style='background:{accent_have_bg};color:{accent_have_col};"
+            f"border-radius:4px;padding:3px 9px;font-size:11px;margin:2px;display:inline-block;'>{h}</span>"
             for h in item["have_labels"]
         )
         miss_chips = "".join(
-            f"<span style='background:#2a1515;color:#f87171;border-radius:4px;padding:2px 8px;font-size:11px;margin:2px;display:inline-block;'>✗ {m}</span>"
+            f"<span style='background:#1f0d0d;color:#f87171;border:1px solid #3a1515;"
+            f"border-radius:4px;padding:3px 9px;font-size:11px;margin:2px;display:inline-block;'>✗ {m}</span>"
             for m in item["missing"]
         )
 
         st.markdown(f"""
-        <div style='border:1px solid #2a3a4a;border-radius:8px;padding:14px 18px;margin-bottom:10px;'>
+        <div style='background:#161b22;border:1px solid {card_border};border-radius:10px;
+                    padding:16px 20px;margin-bottom:10px;'>
           <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;'>
-            <span style='font-weight:600;font-size:14px;'>{item["domain"]}</span>
-            <span style='background:{badge_bg};color:{badge_col};border-radius:12px;padding:2px 12px;font-size:12px;font-weight:600;'>{pct}% covered</span>
+            <span style='color:#e6edf3;font-weight:600;font-size:14px;'>{item["domain"]}</span>
+            <span style='background:{badge_bg};color:{badge_col};border-radius:20px;
+                         padding:3px 14px;font-size:12px;font-weight:600;white-space:nowrap;'>
+              {pct}% covered
+            </span>
           </div>
-          <div style='color:#888;font-size:12px;margin-bottom:8px;'>We have <strong>{item["have"]} docs</strong> &nbsp; Total available ~<strong>{item["total"]}</strong></div>
-          <div style='background:#1a2230;border-radius:4px;height:6px;margin-bottom:10px;'>
-            <div style='background:{bar_color};width:{pct}%;height:6px;border-radius:4px;'></div>
+          <div style='color:#8b949e;font-size:12px;margin-bottom:8px;'>
+            {item["have"]} of ~{item["total"]} docs indexed
           </div>
-          <div style='line-height:1.8;'>{have_chips}{miss_chips}</div>
+          <div style='background:#0d1117;border-radius:4px;height:5px;margin-bottom:12px;overflow:hidden;'>
+            <div style='background:{bar_color};width:{pct}%;height:5px;border-radius:4px;'></div>
+          </div>
+          <div style='line-height:2;'>{have_chips}{miss_chips}</div>
         </div>""", unsafe_allow_html=True)
 
-    st.divider()
-
-    # ── RERA domain breakdown ──────────────────────────────────────────────────
-    st.markdown("#### 🏠 Real Estate (K-RERA)")
-
-    rera_domains = [
-        {"domain": "Central RERA Act & Rules",               "have": 4,  "total": 5,
-         "have_labels": ["Real Estate (Regulation & Development) Act 2016", "Central RERA Rules 2016",
-                         "Model Builder-Buyer Agreement", "MoHUA circulars"],
-         "missing": ["RERA (Amendment) Bill 2023"]},
-        {"domain": "Karnataka RERA Rules & Procedures",      "have": 0,  "total": 4,
-         "have_labels": [],
-         "missing": ["Karnataka RERA Rules 2017", "K-RERA fee schedule", "K-RERA registration forms", "K-RERA circulars"]},
-        {"domain": "Project Registration & Compliance",      "have": 3,  "total": 5,
-         "have_labels": ["Project registration guidelines", "Quarterly progress report format", "Completion certificate SOP"],
-         "missing": ["Escrow account management rules", "Designated bank circular"]},
-        {"domain": "Agent Licensing",                        "have": 2,  "total": 3,
-         "have_labels": ["Real estate agent registration rules", "RERA agent code of conduct"],
-         "missing": ["State-specific agent fee schedules"]},
-        {"domain": "Dispute Resolution & Appeals",           "have": 1,  "total": 4,
-         "have_labels": ["RERA adjudication process overview"],
-         "missing": ["RERA Appellate Tribunal rules", "K-RERA precedent orders", "COVID extension circulars"]},
-        {"domain": "Allottee Rights & Disclosures",          "have": 3,  "total": 4,
-         "have_labels": ["Disclosure norms", "Allottee rights chapter", "Refund & interest rules"],
-         "missing": ["Homebuyer grievance portal SOP"]},
-        {"domain": "K-RERA Orders & Circulars",              "have": 0,  "total": 3,
-         "have_labels": [],
-         "missing": ["K-RERA Authority orders", "Complaint precedents", "COVID extension orders"]},
-    ]
-
-    for item in rera_domains:
-        pct = round(item["have"] / item["total"] * 100) if item["total"] else 0
-        bar_color = "#4caf50" if pct >= 60 else ("#f59e0b" if pct >= 30 else "#ef4444")
-        badge_bg  = "#2d4a1e" if pct >= 60 else ("#3a2a00" if pct >= 30 else "#3a0a0a")
-        badge_col = "#a5d6a7" if pct >= 60 else ("#fbbf24" if pct >= 30 else "#f87171")
-
-        have_chips = "".join(
-            f"<span style='background:#2d4a1e;color:#a5d6a7;border-radius:4px;padding:2px 8px;font-size:11px;margin:2px;display:inline-block;'>{h}</span>"
-            for h in item["have_labels"]
-        )
-        miss_chips = "".join(
-            f"<span style='background:#2a1515;color:#f87171;border-radius:4px;padding:2px 8px;font-size:11px;margin:2px;display:inline-block;'>✗ {m}</span>"
-            for m in item["missing"]
-        )
-
-        st.markdown(f"""
-        <div style='border:1px solid #2a3a2a;border-radius:8px;padding:14px 18px;margin-bottom:10px;'>
-          <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;'>
-            <span style='font-weight:600;font-size:14px;'>{item["domain"]}</span>
-            <span style='background:{badge_bg};color:{badge_col};border-radius:12px;padding:2px 12px;font-size:12px;font-weight:600;'>{pct}% covered</span>
-          </div>
-          <div style='color:#888;font-size:12px;margin-bottom:8px;'>We have <strong>{item["have"]} docs</strong> &nbsp; Total available ~<strong>{item["total"]}</strong></div>
-          <div style='background:#1a2a1a;border-radius:4px;height:6px;margin-bottom:10px;'>
-            <div style='background:{bar_color};width:{pct}%;height:6px;border-radius:4px;'></div>
-          </div>
-          <div style='line-height:1.8;'>{have_chips}{miss_chips}</div>
-        </div>""", unsafe_allow_html=True)
-
-    st.divider()
-
-    # Dead URL note
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
     st.markdown(f"""
-    <div style='background:#1a1205;border:1px solid #9a6700;border-radius:8px;padding:14px;color:#d29922;font-size:13px;'>
-      ⚠️ <strong>{HC_DEAD} Healthcare URLs are permanently unreachable</strong> — MoHFW 404/403 errors and mciindia.org DNS failure (MCI dissolved 2020). Excluded from all counts above.
+    <div style='background:#1c1500;border:1px solid #9a6700;border-radius:10px;
+                padding:14px 18px;color:#d29922;font-size:13px;'>
+      ⚠️ <strong>{HC_DEAD} Healthcare URLs are permanently unreachable.</strong>
+      MoHFW returned 404/403 errors and mciindia.org DNS lookup fails (MCI was dissolved in 2020).
+      These are excluded from all counts above.
     </div>""", unsafe_allow_html=True)
