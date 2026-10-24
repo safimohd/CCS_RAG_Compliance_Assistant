@@ -116,10 +116,13 @@ def _judge_one(client, question: str, expected: str, system_answer: str) -> dict
                 {"role": "system", "content": JUDGE_SYSTEM},
                 {"role": "user",   "content": user_msg},
             ],
+            response_format={"type": "json_object"},
         )
         raw = rsp.choices[0].message.content.strip()
-        # strip possible markdown code fence
-        raw = raw.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        # strip any markdown code fences the model adds despite being told not to
+        import re as _re
+        raw = _re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = _re.sub(r"\s*```$", "", raw).strip()
         result = json.loads(raw)
         # enforce total
         result["total"] = (
