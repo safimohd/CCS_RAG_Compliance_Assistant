@@ -141,10 +141,9 @@ def _passages_text(passages: list[dict]) -> str:
     return "\n\n".join(lines)
 
 
-def _llm_call(client, system: str, user: str, temperature: float = 0.0) -> str:
+def _llm_call(client, system: str, user: str) -> str:
     rsp = client.chat.completions.create(
         model=LLM_MODEL,
-        temperature=temperature,
         messages=[
             {"role": "system", "content": system},
             {"role": "user",   "content": user},

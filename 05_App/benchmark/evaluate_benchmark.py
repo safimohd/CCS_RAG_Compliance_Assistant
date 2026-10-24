@@ -112,7 +112,6 @@ def _judge_one(client, question: str, expected: str, system_answer: str) -> dict
     try:
         rsp = client.chat.completions.create(
             model=LLM_MODEL,
-            temperature=0.0,
             messages=[
                 {"role": "system", "content": JUDGE_SYSTEM},
                 {"role": "user",   "content": user_msg},

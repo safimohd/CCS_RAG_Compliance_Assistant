@@ -79,7 +79,6 @@ def system_a_answer(client, question_text: str) -> str:
     try:
         rsp = client.chat.completions.create(
             model=LLM_MODEL,
-            temperature=0.0,
             messages=[
                 {"role": "system", "content": SYSTEM_A_PROMPT},
                 {"role": "user",   "content": question_text},
@@ -154,7 +153,6 @@ insufficient, say so explicitly."""
 
         rsp = client.chat.completions.create(
             model=LLM_MODEL,
-            temperature=0.0,
             messages=[
                 {"role": "system", "content": SYSTEM_B_PROMPT},
                 {"role": "user",
