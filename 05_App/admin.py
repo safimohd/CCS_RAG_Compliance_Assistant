@@ -306,6 +306,26 @@ tab1, tab2, tab3, tab4 = st.tabs([
     "  Bots  ",
     "  KB Coverage  ",
 ])
+# Force center tabs via JS (CSS alone can't override Streamlit's tab container)
+st.markdown("""
+<script>
+(function centerTabs() {
+  const apply = () => {
+    const tl = document.querySelector('[data-baseweb="tab-list"]');
+    if (!tl) { setTimeout(apply, 200); return; }
+    const parent = tl.parentElement;
+    if (parent) {
+      parent.style.display = 'flex';
+      parent.style.justifyContent = 'center';
+    }
+    tl.style.width = 'fit-content';
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', apply);
+  } else { apply(); }
+})();
+</script>
+""", unsafe_allow_html=True)
 
 
 # ─── Tab 1: Activity ────────────────────────────────────────────────────────
