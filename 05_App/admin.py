@@ -58,6 +58,7 @@ if st.session_state.dark_mode:
       .stTabs [data-baseweb="tab-list"] {
         background: var(--surface) !important; border-radius: 10px;
         padding: 4px; gap: 4px; border: 1px solid var(--border);
+        display: flex !important; justify-content: center !important;
       }
       .stTabs [data-baseweb="tab"] {
         background: transparent !important; color: var(--muted) !important;
@@ -115,6 +116,7 @@ else:
       .stTabs [data-baseweb="tab-list"] {
         background: #e9edf5 !important; border-radius: 10px;
         padding: 4px; gap: 4px; border: 1px solid #d1d9eb;
+        display: flex !important; justify-content: center !important;
       }
       .stTabs [data-baseweb="tab"] {
         background: transparent !important; color: var(--muted) !important;
