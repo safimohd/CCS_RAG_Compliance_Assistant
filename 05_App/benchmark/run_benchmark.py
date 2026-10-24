@@ -137,7 +137,7 @@ def _system_b_inline(question_text: str, domain: str, store, client) -> str:
         top = scored[:TOP_K]
 
         context = "\n\n".join(
-            f"[{i}] Title: p['title'] | Tier: {p['tier']}\n{p['content']}"
+            f"[{i}] Title: {p['title']} | Tier: {p['tier']}\n{p['content']}"
             for i, p in enumerate(top, 1)
         )
 
