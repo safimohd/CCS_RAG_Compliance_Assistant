@@ -55,14 +55,15 @@ if st.session_state.dark_mode:
       .stApp, [data-testid="stAppViewContainer"] { background: var(--bg) !important; color: var(--text) !important; }
       [data-testid="stHeader"] { background: var(--bg) !important; }
       /* Tabs */
+      .stTabs > div:first-child { display: flex !important; justify-content: center !important; }
       .stTabs [data-baseweb="tab-list"] {
         background: var(--surface) !important; border-radius: 10px;
         padding: 4px; gap: 4px; border: 1px solid var(--border);
-        display: flex !important; justify-content: center !important;
+        width: fit-content !important;
       }
       .stTabs [data-baseweb="tab"] {
         background: transparent !important; color: var(--muted) !important;
-        border-radius: 8px; font-weight: 600; font-size: 13px; padding: 8px 18px;
+        border-radius: 8px; font-weight: 600; font-size: 15px; padding: 9px 24px;
         letter-spacing: 0.01em;
       }
       .stTabs [aria-selected="true"] {
@@ -113,14 +114,15 @@ else:
       }
       .stApp, [data-testid="stAppViewContainer"] { background: var(--bg) !important; color: var(--text) !important; }
       [data-testid="stHeader"] { background: var(--bg) !important; }
+      .stTabs > div:first-child { display: flex !important; justify-content: center !important; }
       .stTabs [data-baseweb="tab-list"] {
         background: #e9edf5 !important; border-radius: 10px;
         padding: 4px; gap: 4px; border: 1px solid #d1d9eb;
-        display: flex !important; justify-content: center !important;
+        width: fit-content !important;
       }
       .stTabs [data-baseweb="tab"] {
         background: transparent !important; color: var(--muted) !important;
-        border-radius: 8px; font-weight: 600; font-size: 13px; padding: 8px 18px;
+        border-radius: 8px; font-weight: 600; font-size: 15px; padding: 9px 24px;
         letter-spacing: 0.01em;
       }
       .stTabs [aria-selected="true"] {
