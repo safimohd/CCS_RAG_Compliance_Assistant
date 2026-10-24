@@ -55,15 +55,12 @@ if st.session_state.dark_mode:
       .stApp, [data-testid="stAppViewContainer"] { background: var(--bg) !important; color: var(--text) !important; }
       [data-testid="stHeader"] { background: var(--bg) !important; }
       /* Tabs */
-      .stTabs > div:first-child,
-      .stTabs [data-baseweb="tab-list"] ~ div,
-      div[data-testid="stTabs"] > div:first-child {
-        display: flex !important; justify-content: center !important;
-      }
       .stTabs [data-baseweb="tab-list"] {
         background: #1a2540 !important; border-radius: 10px;
         padding: 4px; gap: 4px; border: 1px solid #2a3f65;
-        width: fit-content !important; margin: 0 auto !important;
+        display: inline-flex !important; width: auto !important;
+        position: relative !important; left: 50% !important;
+        transform: translateX(-50%) !important;
       }
       .stTabs [data-baseweb="tab"] {
         background: transparent !important; color: #a8bdd8 !important;
@@ -118,14 +115,12 @@ else:
       }
       .stApp, [data-testid="stAppViewContainer"] { background: var(--bg) !important; color: var(--text) !important; }
       [data-testid="stHeader"] { background: var(--bg) !important; }
-      .stTabs > div:first-child,
-      div[data-testid="stTabs"] > div:first-child {
-        display: flex !important; justify-content: center !important;
-      }
       .stTabs [data-baseweb="tab-list"] {
         background: #e9edf5 !important; border-radius: 10px;
         padding: 4px; gap: 4px; border: 1px solid #d1d9eb;
-        width: fit-content !important; margin: 0 auto !important;
+        display: inline-flex !important; width: auto !important;
+        position: relative !important; left: 50% !important;
+        transform: translateX(-50%) !important;
       }
       .stTabs [data-baseweb="tab"] {
         background: transparent !important; color: var(--muted) !important;
