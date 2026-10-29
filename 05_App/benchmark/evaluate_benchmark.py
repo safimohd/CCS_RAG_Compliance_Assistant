@@ -48,6 +48,13 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+# Load .env file from the same folder as this script (if it exists)
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent / ".env")
+except ImportError:
+    pass  # dotenv not installed — rely on env vars set manually
+
 HERE    = Path(__file__).resolve().parent
 APP_DIR = HERE.parent
 sys.path.insert(0, str(APP_DIR))
@@ -110,15 +117,19 @@ def _judge_one(client, question: str, expected: str, system_answer: str) -> dict
         f"SYSTEM ANSWER (to evaluate):\n{system_answer}"
     )
     try:
-        rsp = client.chat.completions.create(
+        stream = client.chat.completions.create(
             model=LLM_MODEL,
             messages=[
                 {"role": "system", "content": JUDGE_SYSTEM},
                 {"role": "user",   "content": user_msg},
             ],
-            response_format={"type": "json_object"},
+            stream=True,
         )
-        raw = rsp.choices[0].message.content.strip()
+        raw = ""
+        for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                raw += chunk.choices[0].delta.content
+        raw = raw.strip()
         # strip any markdown code fences the model adds despite being told not to
         import re as _re
         raw = _re.sub(r"^```(?:json)?\s*", "", raw)
@@ -368,7 +379,8 @@ def main():
         sys.exit("ERROR: OPENAI_API_KEY not set in environment.")
 
     from openai import OpenAI
-    client = OpenAI(api_key=api_key)
+    llm_base_url = os.getenv("LLM_BASE_URL")
+    client = OpenAI(api_key=api_key, base_url=llm_base_url) if llm_base_url else OpenAI(api_key=api_key)
 
     if not args.answers_file.exists():
         sys.exit(f"ERROR: File not found: {args.answers_file}")
@@ -413,6 +425,7 @@ def main():
             scores = _judge_one(client, q_text, expected, answer)
             elapsed = time.time() - t0
             print(f"total={scores['total']}/8  ({elapsed:.1f}s)")
+            time.sleep(1)
 
             score_rows.append({
                 "question_id":            qid,
