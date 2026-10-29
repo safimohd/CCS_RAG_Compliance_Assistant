@@ -1,22 +1,32 @@
 """
 rerun_missing_answers.py
+========================
+Fixes rows in the answers file where the system answer is [ERROR: 429 ...]
+(API credits ran out mid-benchmark), then re-judges those rows.
 
-Finds every (question_id, system) pair in the answers file where the system
-answer is an [ERROR ...], regenerates those answers, scores them with the
-LLM judge, and writes two updated output files:
+Dependency tiers
+----------------
+  System A : only openai + openpyxl            (runs on IIMB laptop / anywhere)
+  System B : openai + chromadb + HF embeddings (needs torch; blocked by WDAC on IIMB)
+  System C : openai + chromadb + HF embeddings (same)
 
-  benchmark/results/benchmark_answers_<ts>_fixed.xlsx     (full answers, errors replaced)
-  benchmark/results/benchmark_evaluation_<ts>_fixed.xlsx  (full evaluation, zeros replaced)
+The script auto-detects which imports are available and regenerates whatever it can.
+Missing imports produce a warning, not a crash.
 
-Run from 05_App/benchmark/:
-    python rerun_missing_answers.py
+Usage
+-----
+  # From 05_App/benchmark/  (paths auto-detected)
+  python rerun_missing_answers.py
 
-OPENAI_API_KEY must be in the environment (loaded from benchmark/.env or 05_App/.env).
-ChromaDB index must exist at 05_App/chroma_db/.
+  # Explicit paths
+  python rerun_missing_answers.py \
+      --answers  results/benchmark_answers_20261024_185733.xlsx \
+      --eval     results/benchmark_evaluation_20261029_032200.xlsx
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
@@ -25,31 +35,133 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-HERE    = Path(__file__).resolve().parent   # benchmark/
-APP_DIR = HERE.parent                        # 05_App/
-sys.path.insert(0, str(APP_DIR))
+# env loading
+HERE = Path(__file__).resolve().parent
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv(HERE / ".env")
-    load_dotenv(APP_DIR / ".env", override=True)
-except ImportError:
-    pass
+def _load_env():
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(HERE / ".env")
+        load_dotenv(HERE.parent / ".env", override=True)
+    except ImportError:
+        pass
+
+_load_env()
 
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-RESULTS_DIR = HERE / "results"
-RESULTS_DIR.mkdir(exist_ok=True)
-
-LLM_MODEL = os.getenv("LLM_MODEL", "gpt-5-nano")
-
-ANSWERS_FILE = sorted(RESULTS_DIR.glob("benchmark_answers_*.xlsx"))[-1]
-EVAL_FILE    = sorted(RESULTS_DIR.glob("benchmark_evaluation_*.xlsx"))[-1]
+MODEL = os.getenv("LLM_MODEL", "gpt-5-nano")
 
 
-# ── Judge prompt (same as evaluate_benchmark.py) ──────────────────────────────
+def _make_openai_client():
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        sys.exit("ERROR: OPENAI_API_KEY not set. Check 05_App/.env.")
+    from openai import OpenAI
+    return OpenAI(api_key=api_key)
+
+
+def _load_chromadb_store():
+    try:
+        from langchain_huggingface import HuggingFaceEmbeddings
+        from langchain_chroma import Chroma
+        index_dir = HERE.parent / "chroma_db"
+        if not index_dir.exists():
+            print("  [WARN] chroma_db/ not found -- skipping Systems B & C.")
+            return None
+        emb = HuggingFaceEmbeddings(
+            model_name="BAAI/bge-small-en-v1.5",
+            encode_kwargs={"normalize_embeddings": True},
+        )
+        store = Chroma(
+            collection_name="regulatory_corpus",
+            embedding_function=emb,
+            persist_directory=str(index_dir),
+        )
+        print(f"  ChromaDB loaded: {index_dir}")
+        return store
+    except Exception as exc:
+        print(f"  [WARN] ChromaDB unavailable ({exc}).")
+        print("         Systems B & C will be skipped on this machine.")
+        return None
+
+
+SYSTEM_A_PROMPT = """\
+You are an Indian regulatory compliance expert. Answer the question using your
+general knowledge of Indian laws and regulations. Be specific, cite relevant
+sections where known, and flag any uncertainty. Structure your answer as:
+1. Direct answer
+2. Relevant legal provision (Act / Section / Rule)
+3. Key compliance takeaway
+"""
+
+def _gen_system_a(client, question_text):
+    rsp = client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {"role": "system", "content": SYSTEM_A_PROMPT},
+            {"role": "user",   "content": question_text},
+        ],
+    )
+    return rsp.choices[0].message.content.strip()
+
+
+SYSTEM_B_PROMPT = """\
+You are an Indian regulatory compliance assistant. Answer ONLY from the
+retrieved sources supplied. Structure every answer as:
+1. A direct answer.
+2. Sources relied on, cited by document TITLE.
+3. The specific regulatory provision (section, rule, clause).
+4. A concise compliance takeaway.
+Hard rules: never invent citations; flag DRAFT material; if evidence is
+insufficient, say so explicitly."""
+
+def _gen_system_b(client, question_text, domain, store):
+    TOP_K, CANDIDATE_K = 6, 24
+    TIER_WEIGHT = {"A": 1.00, "B": 0.95, "C": 0.80, "D": 0.55, "E": 0.35}
+    results = store.similarity_search_with_relevance_scores(
+        question_text, k=CANDIDATE_K, filter={"domain": domain}
+    )
+    scored = []
+    for doc, raw in results:
+        md = doc.metadata or {}
+        if md.get("tier", "E") == "E":
+            continue
+        space = (store._collection.metadata or {}).get("hnsw:space", "l2").lower()
+        cos = raw if space.startswith("cosine") else 1.0 - (1.0 - raw) ** 2
+        scored.append({
+            "content": doc.page_content,
+            "title": md.get("title", "Unknown"),
+            "tier": md.get("tier", "?"),
+            "weighted": cos * TIER_WEIGHT.get(md.get("tier", "C"), 0.80),
+        })
+    scored.sort(key=lambda x: x["weighted"], reverse=True)
+    context = "\n\n".join(
+        f"[{i}] Title: {p['title']} | Tier: {p['tier']}\n{p['content']}"
+        for i, p in enumerate(scored[:TOP_K], 1)
+    )
+    rsp = client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {"role": "system", "content": SYSTEM_B_PROMPT},
+            {"role": "user", "content": f"Domain: {domain}\n\nRetrieved sources:\n{context}\n\nQuestion: {question_text}"},
+        ],
+    )
+    return rsp.choices[0].message.content.strip()
+
+
+def _gen_system_c(client, question_text, domain, store):
+    try:
+        sys.path.insert(0, str(HERE.parent))
+        from agentic_rag import agentic_answer
+        result = agentic_answer(question_text, domain, store=store, client=client)
+        return result.get("answer", "")
+    except Exception as exc:
+        return f"[ERROR: {exc}]"
+
+
 JUDGE_SYSTEM = """\
 You are an expert evaluator for an Indian regulatory compliance Q&A system.
 Score the SYSTEM ANSWER against the EXPECTED ANSWER and the QUESTION on three
@@ -72,11 +184,11 @@ Completeness (0-2)
 Confidence Calibration (0-2)
   2 = Uncertainty expressed appropriately; no overconfidence where knowledge is thin;
       hedges on draft/proposed rules; does not claim certainty on unclear areas.
-  1 = Partially calibrated — some overconfidence or underconfidence.
+  1 = Partially calibrated -- some overconfidence or underconfidence.
   0 = Significantly overconfident (states wrong facts as certain) or so hedged
       as to be useless.
 
-Return ONLY valid JSON — no markdown, no preamble:
+Return ONLY valid JSON -- no markdown, no preamble:
 {
   "factual_accuracy":        <integer 0-4>,
   "completeness":            <integer 0-2>,
@@ -86,101 +198,8 @@ Return ONLY valid JSON — no markdown, no preamble:
 }
 """
 
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-def load_sheet(path: Path) -> tuple[list[str], list[dict]]:
-    wb = openpyxl.load_workbook(str(path), data_only=True)
-    ws = wb.active
-    headers = [str(ws.cell(1, c).value or "") for c in range(1, ws.max_column + 1)]
-    rows = []
-    for r in ws.iter_rows(min_row=2, values_only=True):
-        rows.append(dict(zip(headers, r)))
-    return headers, rows
-
-
-def save_answers(headers: list[str], rows: list[dict], out_path: Path) -> None:
-    thin = Side(style="thin", color="AAAAAA")
-    border = Border(left=thin, right=thin, top=thin, bottom=thin)
-    hdr_fill = PatternFill("solid", fgColor="1F4E79")
-    domain_fills = {
-        "Healthcare": PatternFill("solid", fgColor="E2EFDA"),
-        "RERA":       PatternFill("solid", fgColor="DDEEFF"),
-    }
-    col_widths = {
-        "Question Id": 14, "Domain": 12, "Tier": 6,
-        "Question Text": 55, "Expected Answer": 70,
-        "System A Answer": 70, "System B Answer": 70, "System C Answer": 70,
-        "System C Sub Queries": 40, "System C Steps": 40,
-    }
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Results"
-    for ci, h in enumerate(headers, 1):
-        cell = ws.cell(1, ci, h)
-        cell.font = Font(bold=True, color="FFFFFF", name="Calibri", size=10)
-        cell.fill = hdr_fill
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        cell.border = border
-        ws.column_dimensions[get_column_letter(ci)].width = col_widths.get(h, 20)
-    ws.row_dimensions[1].height = 25
-    for ri, row in enumerate(rows, 2):
-        fill = domain_fills.get(str(row.get("Domain", "")), PatternFill())
-        for ci, h in enumerate(headers, 1):
-            val = row.get(h, "")
-            cell = ws.cell(ri, ci, val)
-            cell.font = Font(name="Calibri", size=9)
-            cell.fill = fill
-            cell.alignment = Alignment(vertical="top", wrap_text=True)
-            cell.border = border
-        ws.row_dimensions[ri].height = 80
-    ws.freeze_panes = "A2"
-    wb.save(str(out_path))
-    print(f"Saved answers: {out_path}")
-
-
-def save_eval(headers: list[str], rows: list[dict], out_path: Path) -> None:
-    thin = Side(style="thin", color="BBBBBB")
-    border = Border(left=thin, right=thin, top=thin, bottom=thin)
-    hdr_fill = PatternFill("solid", fgColor="1F4E79")
-    sys_fills = {
-        "A": PatternFill("solid", fgColor="FFF2CC"),
-        "B": PatternFill("solid", fgColor="DDEEFF"),
-        "C": PatternFill("solid", fgColor="E2EFDA"),
-    }
-    col_widths = {
-        "Question Id": 14, "Domain": 12, "Tier": 6, "System": 8,
-        "Factual Accuracy": 10, "Completeness": 10, "Confidence Calibration": 14,
-        "Total": 8, "Rationale": 60, "Question Text": 50,
-        "Expected Answer": 55, "System Answer": 55,
-    }
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Scores"
-    for ci, h in enumerate(headers, 1):
-        cell = ws.cell(1, ci, h)
-        cell.font = Font(bold=True, color="FFFFFF", name="Calibri", size=10)
-        cell.fill = hdr_fill
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        cell.border = border
-        ws.column_dimensions[get_column_letter(ci)].width = col_widths.get(h, 14)
-    ws.row_dimensions[1].height = 28
-    for ri, row in enumerate(rows, 2):
-        fill = sys_fills.get(str(row.get("System", "")), PatternFill())
-        for ci, h in enumerate(headers, 1):
-            val = row.get(h, "")
-            cell = ws.cell(ri, ci, val)
-            cell.font = Font(name="Calibri", size=9)
-            cell.fill = fill
-            cell.alignment = Alignment(vertical="top", wrap_text=True)
-            cell.border = border
-        ws.row_dimensions[ri].height = 60
-    ws.freeze_panes = "A2"
-    wb.save(str(out_path))
-    print(f"Saved evaluation: {out_path}")
-
-
-def judge_one(client, question: str, expected: str, system_answer: str) -> dict:
-    if not system_answer or system_answer.startswith("[ERROR"):
+def _judge(client, question, expected, answer):
+    if not answer or answer.startswith("[ERROR"):
         return {
             "factual_accuracy": 0, "completeness": 0,
             "confidence_calibration": 0, "total": 0,
@@ -189,11 +208,11 @@ def judge_one(client, question: str, expected: str, system_answer: str) -> dict:
     user_msg = (
         f"QUESTION:\n{question}\n\n"
         f"EXPECTED ANSWER (ground truth):\n{expected}\n\n"
-        f"SYSTEM ANSWER (to evaluate):\n{system_answer}"
+        f"SYSTEM ANSWER (to evaluate):\n{answer}"
     )
     try:
         stream = client.chat.completions.create(
-            model=LLM_MODEL,
+            model=MODEL,
             messages=[
                 {"role": "system", "content": JUDGE_SYSTEM},
                 {"role": "user",   "content": user_msg},
@@ -221,195 +240,229 @@ def judge_one(client, question: str, expected: str, system_answer: str) -> dict:
         }
 
 
-def load_chromadb():
-    from langchain_huggingface import HuggingFaceEmbeddings
-    from langchain_chroma import Chroma
-    index_dir = APP_DIR / "chroma_db"
-    if not index_dir.exists():
-        sys.exit(f"ERROR: ChromaDB not found at {index_dir}. Run ingest_corpus.py first.")
-    emb = HuggingFaceEmbeddings(
-        model_name="BAAI/bge-small-en-v1.5",
-        encode_kwargs={"normalize_embeddings": True},
-    )
-    return Chroma(
-        collection_name="regulatory_corpus",
-        embedding_function=emb,
-        persist_directory=str(index_dir),
-    )
+def _load_sheet(path):
+    wb = openpyxl.load_workbook(str(path), data_only=True)
+    ws = wb.active
+    headers = [str(ws.cell(1, c).value or "") for c in range(1, ws.max_column + 1)]
+    rows = [dict(zip(headers, r)) for r in ws.iter_rows(min_row=2, values_only=True)]
+    return headers, rows
 
 
-# ── Answer generators (copied from run_benchmark.py) ─────────────────────────
-SYSTEM_A_PROMPT = """\
-You are an Indian regulatory compliance expert. Answer the question using your
-general knowledge of Indian laws and regulations. Be specific, cite relevant
-sections where known, and flag any uncertainty. Structure your answer as:
-1. Direct answer
-2. Relevant legal provision (Act / Section / Rule)
-3. Key compliance takeaway
-"""
-
-
-def get_system_a(client, question_text: str) -> str:
-    try:
-        rsp = client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=[
-                {"role": "system", "content": SYSTEM_A_PROMPT},
-                {"role": "user",   "content": question_text},
-            ],
-        )
-        return rsp.choices[0].message.content.strip()
-    except Exception as exc:
-        return f"[ERROR: {exc}]"
-
-
-def get_system_b(question_text: str, domain: str, store, client) -> str:
-    try:
-        from rag_query import query_rag
-        result = query_rag(question_text, domain=domain, store=store, client=client)
-        return result.get("answer", str(result))
-    except Exception as exc:
-        return f"[ERROR: {exc}]"
-
-
-def get_system_c(question_text: str, domain: str, store, client) -> str:
-    try:
-        from agentic_rag import agentic_answer
-        result = agentic_answer(question_text, domain, store=store, client=client)
-        return result.get("answer", f"[ERROR: no answer key]")
-    except Exception as exc:
-        return f"[ERROR: {exc}]"
-
-
-# ── Main ──────────────────────────────────────────────────────────────────────
-def main():
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        sys.exit("ERROR: OPENAI_API_KEY not set.")
-
-    from openai import OpenAI
-    client = OpenAI(api_key=api_key)
-
-    print(f"Answers file : {ANSWERS_FILE}")
-    print(f"Eval file    : {EVAL_FILE}")
-
-    ans_headers, ans_rows = load_sheet(ANSWERS_FILE)
-    eval_headers, eval_rows = load_sheet(EVAL_FILE)
-
-    # Build index of answer rows by question_id
-    ans_index = {str(r.get("Question Id", "")): i for i, r in enumerate(ans_rows)}
-
-    # Find which (question_id, system) pairs need new answers
-    sys_col = {
-        "A": "System A Answer",
-        "B": "System B Answer",
-        "C": "System C Answer",
+def _save_answers(headers, rows, path):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Results"
+    hdr_fill = PatternFill("solid", fgColor="1F4E79")
+    thin = Side(style="thin", color="AAAAAA")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    col_widths = {
+        "Question Id": 14, "Domain": 12, "Tier": 6,
+        "Question Text": 55, "Expected Answer": 70,
+        "System A Answer": 70, "System B Answer": 70, "System C Answer": 70,
     }
-    to_rerun: list[tuple[str, str]] = []   # (question_id, system)
-    for r in ans_rows:
-        qid = str(r.get("Question Id", ""))
-        for sys_label, col in sys_col.items():
-            val = str(r.get(col, "") or "")
-            if val.startswith("[ERROR"):
-                to_rerun.append((qid, sys_label))
+    for ci, h in enumerate(headers, 1):
+        cell = ws.cell(1, ci, h)
+        cell.font = Font(bold=True, color="FFFFFF", name="Calibri", size=10)
+        cell.fill = hdr_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = border
+        ws.column_dimensions[get_column_letter(ci)].width = col_widths.get(h, 14)
+    ws.row_dimensions[1].height = 25
+    domain_fills = {
+        "Healthcare": PatternFill("solid", fgColor="E2EFDA"),
+        "RERA":       PatternFill("solid", fgColor="DDEEFF"),
+    }
+    for ri, row in enumerate(rows, 2):
+        fill = domain_fills.get(str(row.get("Domain", "") or ""), PatternFill())
+        for ci, h in enumerate(headers, 1):
+            cell = ws.cell(ri, ci, row.get(h, ""))
+            cell.font = Font(name="Calibri", size=9)
+            cell.fill = fill
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
+            cell.border = border
+        ws.row_dimensions[ri].height = 80
+    ws.freeze_panes = "A2"
+    wb.save(str(path))
+    print(f"Saved answers: {path}")
 
-    print(f"\nFound {len(to_rerun)} (question, system) pairs to regenerate.")
-    if not to_rerun:
-        print("Nothing to do.")
+
+def _save_eval(headers, rows, path):
+    thin = Side(style="thin", color="BBBBBB")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    hdr_fill = PatternFill("solid", fgColor="1F4E79")
+    sys_fills = {
+        "A": PatternFill("solid", fgColor="FFF2CC"),
+        "B": PatternFill("solid", fgColor="DDEEFF"),
+        "C": PatternFill("solid", fgColor="E2EFDA"),
+    }
+    col_widths = {
+        "Question Id": 14, "Domain": 12, "Tier": 6, "System": 8,
+        "Factual Accuracy": 10, "Completeness": 10, "Confidence Calibration": 14,
+        "Total": 8, "Rationale": 60, "Question Text": 50,
+        "Expected Answer": 55, "System Answer": 55,
+    }
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Scores"
+    for ci, h in enumerate(headers, 1):
+        cell = ws.cell(1, ci, h)
+        cell.font = Font(bold=True, color="FFFFFF", name="Calibri", size=10)
+        cell.fill = hdr_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = border
+        ws.column_dimensions[get_column_letter(ci)].width = col_widths.get(h, 14)
+    ws.row_dimensions[1].height = 28
+    for ri, row in enumerate(rows, 2):
+        fill = sys_fills.get(str(row.get("System", "") or ""), PatternFill())
+        for ci, h in enumerate(headers, 1):
+            cell = ws.cell(ri, ci, row.get(h, ""))
+            cell.font = Font(name="Calibri", size=9)
+            cell.fill = fill
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
+            cell.border = border
+        ws.row_dimensions[ri].height = 60
+    ws.freeze_panes = "A2"
+    wb.save(str(path))
+    print(f"Saved eval: {path}")
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--answers", type=Path,
+                        default=HERE / "results" / "benchmark_answers_20261024_185733.xlsx")
+    parser.add_argument("--eval", type=Path,
+                        default=HERE / "results" / "benchmark_evaluation_20261029_032200.xlsx")
+    args = parser.parse_args()
+
+    if not args.answers.exists():
+        sys.exit(f"ERROR: {args.answers} not found")
+    if not args.eval.exists():
+        sys.exit(f"ERROR: {args.eval} not found")
+
+    client = _make_openai_client()
+    print(f"OpenAI client ready. Model: {MODEL}")
+
+    print("\nLoading ChromaDB (needed for Systems B & C) ...")
+    store = _load_chromadb_store()
+
+    # Load answers
+    print(f"\nLoading answers: {args.answers}")
+    ans_headers, ans_rows = _load_sheet(args.answers)
+    ans_by_qid = {str(r.get("Question Id") or ""): r for r in ans_rows}
+
+    # Find which cells need regeneration
+    need_regen = []
+    for r in ans_rows:
+        qid = str(r.get("Question Id") or "")
+        for col, label in [("System A Answer","A"), ("System B Answer","B"), ("System C Answer","C")]:
+            if str(r.get(col, "") or "").startswith("[ERROR"):
+                need_regen.append((qid, label))
+
+    can_do  = [(q,s) for q,s in need_regen if s == "A" or store is not None]
+    cant_do = [(q,s) for q,s in need_regen if s != "A" and store is None]
+
+    print(f"\nTotal error cells  : {len(need_regen)}")
+    print(f"  Will regenerate  : {len(can_do)}")
+    print(f"  Skipping (no ChromaDB): {len(cant_do)}")
+
+    if not can_do:
+        print("\nNothing to regenerate. Exiting.")
         return
 
-    # Load ChromaDB once (needed for B and C)
-    needs_store = any(s in ("B", "C") for _, s in to_rerun)
-    store = load_chromadb() if needs_store else None
-    if store:
-        print("ChromaDB loaded.")
+    # Step 1: regenerate answers
+    print(f"\n{'='*60}")
+    print("STEP 1: Regenerating answers")
+    print('='*60)
+    fixed = 0
+    for n, (qid, sys_label) in enumerate(can_do, 1):
+        row = ans_by_qid[qid]
+        domain = str(row.get("Domain") or "")
+        q_text = str(row.get("Question Text") or "")
+        col_key = f"System {sys_label} Answer"
 
-    # Regenerate answers
-    print("\n── Step 1: Regenerating answers ──────────────────────────────────")
-    for n, (qid, sys_label) in enumerate(to_rerun, 1):
-        idx = ans_index[qid]
-        row = ans_rows[idx]
-        q_text = str(row.get("Question Text", ""))
-        domain = str(row.get("Domain", ""))
-
-        print(f"[{n:3}/{len(to_rerun)}] {qid} System {sys_label} ...", end=" ", flush=True)
+        print(f"[{n:3}/{len(can_do)}] {qid} Sys {sys_label} ...", end=" ", flush=True)
         t0 = time.time()
+        try:
+            if sys_label == "A":
+                ans = _gen_system_a(client, q_text)
+            elif sys_label == "B":
+                ans = _gen_system_b(client, q_text, domain, store)
+            else:
+                ans = _gen_system_c(client, q_text, domain, store)
 
-        if sys_label == "A":
-            answer = get_system_a(client, q_text)
-        elif sys_label == "B":
-            answer = get_system_b(q_text, domain, store, client)
-        else:
-            answer = get_system_c(q_text, domain, store, client)
-
-        elapsed = time.time() - t0
-        status = "OK" if not answer.startswith("[ERROR") else "FAIL"
-        print(f"{status}  ({elapsed:.1f}s)")
-        ans_rows[idx][sys_col[sys_label]] = answer
+            if ans.startswith("[ERROR"):
+                print(f"STILL ERROR: {ans[:60]}")
+            else:
+                ans_by_qid[qid][col_key] = ans
+                fixed += 1
+                print(f"OK ({time.time()-t0:.1f}s) {len(ans)} chars")
+        except Exception as exc:
+            print(f"FAILED: {exc}")
         time.sleep(1)
 
-    # Save updated answers file
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    new_answers_path = RESULTS_DIR / f"benchmark_answers_{ts}_fixed.xlsx"
-    save_answers(ans_headers, ans_rows, new_answers_path)
+    new_ans_path = args.answers.parent / f"benchmark_answers_{ts}.xlsx"
+    _save_answers(ans_headers, list(ans_by_qid.values()), new_ans_path)
+    print(f"Fixed {fixed} answer cells.")
 
-    # Score the newly regenerated pairs
-    print("\n── Step 2: Scoring regenerated answers ───────────────────────────")
-    eval_index = {
-        (str(r.get("Question Id", "")), str(r.get("System", ""))): i
-        for i, r in enumerate(eval_rows)
-    }
-    eval_sys_col = {"A": "System A Answer", "B": "System B Answer", "C": "System C Answer"}
+    # Step 2: re-judge
+    print(f"\n{'='*60}")
+    print("STEP 2: Re-judging fixed rows")
+    print('='*60)
 
-    for n, (qid, sys_label) in enumerate(to_rerun, 1):
-        idx = ans_index[qid]
-        ans_row = ans_rows[idx]
-        answer = str(ans_row.get(eval_sys_col[sys_label], ""))
-        q_text = str(ans_row.get("Question Text", ""))
-        expected = str(ans_row.get("Expected Answer", ""))
+    eval_headers, eval_rows = _load_sheet(args.eval)
 
-        print(f"[{n:3}/{len(to_rerun)}] {qid} System {sys_label} ...", end=" ", flush=True)
+    fixed_pairs = set()
+    for qid, sys_label in can_do:
+        col = f"System {sys_label} Answer"
+        val = str(ans_by_qid[qid].get(col, "") or "")
+        if val and not val.startswith("[ERROR"):
+            fixed_pairs.add((qid, sys_label))
+
+    rejudge_idx = [
+        i for i, row in enumerate(eval_rows)
+        if (str(row.get("Question Id") or ""), str(row.get("System") or "")) in fixed_pairs
+    ]
+    print(f"Rows to re-judge: {len(rejudge_idx)}")
+
+    judged = 0
+    for n, idx in enumerate(rejudge_idx, 1):
+        row = eval_rows[idx]
+        qid = str(row.get("Question Id") or "")
+        sys_label = str(row.get("System") or "")
+        q_text = str(row.get("Question Text") or "")
+        expected = str(row.get("Expected Answer") or "")
+        new_ans = str(ans_by_qid[qid].get(f"System {sys_label} Answer", "") or "")
+
+        print(f"[{n:3}/{len(rejudge_idx)}] {qid} Sys {sys_label} ...", end=" ", flush=True)
         t0 = time.time()
-        scores = judge_one(client, q_text, expected, answer)
-        elapsed = time.time() - t0
-        print(f"total={scores['total']}/8  ({elapsed:.1f}s)")
+        scores = _judge(client, q_text, expected, new_ans)
+        print(f"total={scores['total']}/8  ({time.time()-t0:.1f}s)")
         time.sleep(1)
 
-        eval_key = (qid, sys_label)
-        if eval_key in eval_index:
-            ei = eval_index[eval_key]
-            eval_rows[ei]["Factual Accuracy"]       = scores.get("factual_accuracy", 0)
-            eval_rows[ei]["Completeness"]           = scores.get("completeness", 0)
-            eval_rows[ei]["Confidence Calibration"] = scores.get("confidence_calibration", 0)
-            eval_rows[ei]["Total"]                  = scores.get("total", 0)
-            eval_rows[ei]["Rationale"]              = scores.get("rationale", "")
-            eval_rows[ei]["System Answer"]          = answer
-        else:
-            print(f"  WARNING: {qid} System {sys_label} not found in eval file — skipping merge.")
+        eval_rows[idx]["System Answer"]          = new_ans
+        eval_rows[idx]["Factual Accuracy"]       = scores.get("factual_accuracy", 0)
+        eval_rows[idx]["Completeness"]           = scores.get("completeness", 0)
+        eval_rows[idx]["Confidence Calibration"] = scores.get("confidence_calibration", 0)
+        eval_rows[idx]["Total"]                  = scores.get("total", 0)
+        eval_rows[idx]["Rationale"]              = scores.get("rationale", "")
+        judged += 1
 
-    # Save updated eval file
-    new_eval_path = RESULTS_DIR / f"benchmark_evaluation_{ts}_fixed.xlsx"
-    save_eval(eval_headers, eval_rows, new_eval_path)
+    final_eval_path = args.eval.parent / f"benchmark_evaluation_{ts}.xlsx"
+    _save_eval(eval_headers, eval_rows, final_eval_path)
 
-    # Summary
-    from collections import defaultdict
-    by_sys: dict = defaultdict(list)
-    for r in eval_rows:
-        by_sys[str(r.get("System", ""))].append(r.get("Total") or 0)
-
-    remaining_errors = sum(
-        1 for r in eval_rows
-        if "Judge error" in str(r.get("Rationale", ""))
-        or "No answer produced" in str(r.get("Rationale", ""))
-    )
-
-    print(f"\nDone. Rows still with errors/no-answer: {remaining_errors}")
-    print("\n── Final Scores (Avg Total / 8) ──────────────────────────────────")
-    for s in sorted(by_sys):
-        vals = by_sys[s]
-        avg = sum(vals) / len(vals) if vals else 0
-        print(f"  System {s}: {avg:.2f}  (n={len(vals)})")
-    print("──────────────────────────────────────────────────────────────────")
+    still_zero = sum(1 for r in eval_rows if (r.get("Total") or 0) == 0)
+    print(f"\n{'='*60}")
+    print("DONE")
+    print(f"  Answers fixed    : {fixed}")
+    print(f"  Rows re-judged   : {judged}")
+    print(f"  Rows still 0     : {still_zero}")
+    print(f"  New answers file : {new_ans_path}")
+    print(f"  New eval file    : {final_eval_path}")
+    if cant_do:
+        from collections import Counter
+        cnt = Counter(s for _, s in cant_do)
+        print(f"\n  NOTE: {len(cant_do)} B/C cells skipped (ChromaDB/torch unavailable): {dict(cnt)}")
 
 
 if __name__ == "__main__":
