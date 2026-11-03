@@ -1868,7 +1868,7 @@ if store is None:
 client = get_client()
 
 # ── Right slide-out auth panel ────────────────────────────────────────────────
-# A narrow toggle tab sits at the right edge. Clicking it opens/closes a panel.
+# Auth panel row sits ABOVE the hero so the hero is always full width.
 _panel_open = st.session_state.get("_auth_panel_open", False)
 _cu_rp = _current_user()
 _rp_role_colors = {
@@ -1880,50 +1880,30 @@ _rp_bg, _rp_bd = _rp_role_colors.get(_cu_rp["role"], ("#1a3352", "#4A90D9"))
 _rp_labels = {"user": "User", "compliance_officer": "CO", "admin": "Admin"}
 _rp_label_val = _rp_labels.get(_cu_rp["role"], _cu_rp["role"])
 
-if _panel_open:
-    # Hero shrinks to make room for the panel
-    _hero_col, _panel_col = st.columns([4, 1], gap="small")
-else:
-    # Hero takes full width; tiny column just holds the toggle tab
-    _hero_col, _panel_col = st.columns([5.8, 0.2], gap="small")
-
-with _hero_col:
-    st.markdown(
-        "<div class='rc-hero'>"
-        f"<h1>{meta['title']}</h1>"
-        f"<p>{meta['lede']} Answers come only from these official documents. Where they "
-        "do not settle a question, the assistant says so rather than guessing, and "
-        "every answer shows the sources it relied on.</p>"
-        "<div class='rc-stats'>"
-        + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"]) +
-        "</div></div>", unsafe_allow_html=True)
-
-with _panel_col:
-    if not _panel_open:
-        # Compact toggle tab — role-coloured pill on the right edge
-        st.markdown(
-            f"<div style='display:flex;flex-direction:column;align-items:center;"
-            f"gap:4px;padding-top:1.2rem'>",
-            unsafe_allow_html=True)
-        if st.button("👤", key="panel_open_btn",
-                     help=f"Open account panel  ({_cu_rp['name']} · {_rp_label_val})",
+# ── Toggle button row (right-aligned, outside hero) ────────────────────────
+if not _panel_open:
+    _tb_spacer, _tb_col = st.columns([5, 1], gap="small")
+    with _tb_col:
+        if st.button(f"👤 {_rp_label_val}", key="panel_open_btn",
+                     help=f"Account panel  —  {_cu_rp['name']}",
                      use_container_width=True):
             st.session_state["_auth_panel_open"] = True
             st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
-    else:
-        # Full panel — close button + badge + role chips + login
+else:
+    # Open: spacer + full panel column
+    _tb_spacer, _panel_col = st.columns([2, 2], gap="small")
+    with _panel_col:
         _close_col, _ = st.columns([1, 3])
-        if _close_col.button("✕", key="panel_close_btn", help="Close panel"):
+        if _close_col.button("✕ Close", key="panel_close_btn"):
             st.session_state["_auth_panel_open"] = False
             st.rerun()
 
         st.markdown(
             f"<div style='background:{_rp_bg};border:1px solid {_rp_bd};"
-            f"border-radius:8px;padding:8px 10px;text-align:center;margin-bottom:8px'>"
-            f"<div style='font-size:.58rem;color:#8FA8C4;margin-bottom:2px'>Signed in as</div>"
-            f"<div style='font-size:.7rem;font-weight:700;color:#CFE0F2'>{_cu_rp['name']}</div>"
-            f"<div style='font-size:.6rem;color:{_rp_bd};font-weight:600'>{_rp_label_val}</div>"
+            f"border-radius:8px;padding:10px 12px;text-align:center;margin-bottom:10px'>"
+            f"<div style='font-size:.6rem;color:#8FA8C4;margin-bottom:3px'>Signed in as</div>"
+            f"<div style='font-size:.8rem;font-weight:700;color:#CFE0F2'>{_cu_rp['name']}</div>"
+            f"<div style='font-size:.65rem;color:{_rp_bd};font-weight:600'>{_rp_label_val}</div>"
             f"</div>",
             unsafe_allow_html=True,
         )
@@ -1967,6 +1947,17 @@ with _panel_col:
                     st.session_state["_auth_err"] = "Incorrect email or password."
             if st.session_state.get("_auth_err"):
                 st.error(st.session_state["_auth_err"])
+
+# ── Hero banner — always full width, below the auth toggle row ─────────────
+st.markdown(
+    "<div class='rc-hero'>"
+    f"<h1>{meta['title']}</h1>"
+    f"<p>{meta['lede']} Answers come only from these official documents. Where they "
+    "do not settle a question, the assistant says so rather than guessing, and "
+    "every answer shows the sources it relied on.</p>"
+    "<div class='rc-stats'>"
+    + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"]) +
+    "</div></div>", unsafe_allow_html=True)
 
 if client is None:
     st.warning("Answer generation is not configured. Source search still works.")
