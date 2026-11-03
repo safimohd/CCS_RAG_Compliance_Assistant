@@ -927,6 +927,14 @@ textarea::placeholder { color:#8FA8C4 !important; opacity:1 !important; }
   background:#060F18 !important;
   color:#CFE0F2 !important;
 }
+/* Session buttons — two-line label with small meta text */
+[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button p {
+  white-space: pre-line !important;
+  text-align: left !important;
+  line-height: 1.45 !important;
+  font-size: .78rem !important;
+  color: #CFE0F2 !important;
+}
 
 /* 9. Text — target only Streamlit markdown, not everything */
 [data-testid="stMarkdownContainer"] p,
@@ -1851,19 +1859,41 @@ with st.sidebar:
     with st.expander("💬 Past sessions", expanded=False):
         if _sess_list:
             for _si, _sess in enumerate(_sess_list):
-                _s_title = _sess.get("title", "Conversation")
-                _s_label = (_s_title[:45] + "…") if len(_s_title) > 45 else _s_title
+                _s_title   = _sess.get("title", "Conversation")
+                _s_domain  = _sess.get("domain", "")
+                _s_updated = _sess.get("updated_at", "")
+                _s_q_count = _sess.get("message_count", 0) or 0
                 _is_active = st.session_state.get("_active_session_id") == _sess["id"]
                 _btn_style = "primary" if _is_active else "secondary"
-                # message_count is stored in DB and fetched with the session list
-                _s_q_count = _sess.get("message_count", 0) or 0
-                _s_count_label = f" · {_s_q_count}Q" if _s_q_count > 0 else ""
-                _s_display = f"{_s_label}{_s_count_label}"
+
+                # Parse timestamp to IST for display
+                try:
+                    _ts = _s_updated.rstrip("Z").split("+")[0]
+                    _dt = datetime.fromisoformat(_ts).replace(tzinfo=timezone.utc).astimezone(IST)
+                    _date_part = _dt.strftime("%-d %b")   # e.g. "3 Nov"
+                    _time_part = _dt.strftime("%I:%M %p").lstrip("0")  # e.g. "9:42 AM"
+                except Exception:
+                    _date_part = ""
+                    _time_part = ""
+
+                # Session number (most recent = #1 relative to the list)
+                _sess_num = _si + 1
+
+                # Domain icon
+                _dom_icon = "🏥" if _s_domain == "Healthcare" else "🏗️" if _s_domain == "RERA" else "💬"
+
+                # Two-line label: top = session number + date/time, bottom = topic snippet
+                _topic = (_s_title[:38] + "…") if len(_s_title) > 38 else _s_title
+                _q_label = f"{_s_q_count}Q" if _s_q_count > 0 else "—"
+                _s_display = (
+                    f"Session #{_sess_num}  ·  {_date_part}  ·  {_q_label}\n"
+                    f"{_dom_icon} {_topic}"
+                )
+
                 if st.button(_s_display, key=f"sess_btn_{_si}",
                              use_container_width=True,
                              type=_btn_style,
-                             help=f"{_s_title} — {_s_q_count} question(s) in this session"):
-                    # Load this session's full messages
+                             help=f"{_s_title}  |  {_s_domain}  |  {_date_part} {_time_part}  |  {_s_q_count} question(s)"):
                     _loaded = load_session(_sess["id"])
                     if _loaded:
                         st.session_state["messages"] = _loaded.get("messages", [])
