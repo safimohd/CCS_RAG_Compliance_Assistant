@@ -1417,6 +1417,32 @@ def _current_user() -> dict:
     return st.session_state.get("current_user") or _GUEST
 
 
+def _demo_login(role: str) -> dict | None:
+    """Quick demo login: fetch the first active user with the given role.
+    No password check -- safe for judge/demo use only (service key required).
+    """
+    url = _secret("SUPABASE_URL")
+    key = _secret("SUPABASE_SERVICE_KEY")
+    if not url or not key:
+        return None
+    try:
+        import requests as _req  # noqa: PLC0415
+        resp = _req.get(
+            f"{url}/rest/v1/users",
+            headers={"apikey": key, "Authorization": f"Bearer {key}"},
+            params={"role": f"eq.{role}", "is_active": "eq.true",
+                    "select": "id,name,email,role", "limit": "1"},
+            timeout=5,
+        )
+        if resp.ok and resp.json():
+            row = resp.json()[0]
+            return {"id": row["id"], "name": row["name"],
+                    "email": row["email"], "role": row["role"]}
+        return None
+    except Exception:
+        return None
+
+
 def generate(client, question: str, domain: str, results, effort: str) -> str:
     user_msg = (f"Domain: {domain}\n\nQuestion: {question}\n\n"
                 f"Retrieved sources:\n\n{format_sources(results)}")
@@ -1476,27 +1502,66 @@ with st.sidebar:
         st.session_state["current_user"] = None   # None resolves to Guest
 
     _cu = _current_user()
-    _role_labels = {"user": "User", "compliance_officer": "Compliance Officer", "admin": "Admin"}
+    _role_labels = {
+        "user": "User",
+        "compliance_officer": "Compliance Officer",
+        "admin": "Admin",
+    }
     _role_badge = _role_labels.get(_cu["role"], _cu["role"].title())
+    _role_colors = {
+        "user": ("#1a3352", "#4A90D9"),
+        "compliance_officer": ("#1a3d2a", "#34A853"),
+        "admin": ("#3d1a1a", "#D94A4A"),
+    }
+    _rc_bg, _rc_bd = _role_colors.get(_cu["role"], ("#1a3352", "#4A90D9"))
 
+    # Current user badge
     st.markdown(
-        f"<div style='font-size:.72rem;color:#8FA8C4;margin:.35rem 0 .1rem'>"
-        f"Signed in as <b style='color:#CFE0F2'>{_cu['name']}</b> "
-        f"<span style='background:rgba(255,255,255,.12);border-radius:4px;"
-        f"padding:1px 6px;font-size:.65rem'>{_role_badge}</span></div>",
+        f"<div style='font-size:.72rem;color:#8FA8C4;margin:.5rem 0 .25rem'>"
+        f"Signed in as <b style='color:#CFE0F2'>{_cu['name']}</b></div>"
+        f"<div style='display:inline-block;background:{_rc_bg};border:1px solid {_rc_bd};"
+        f"border-radius:5px;padding:2px 10px;font-size:.65rem;color:{_rc_bd};"
+        f"font-weight:600;margin-bottom:.4rem'>{_role_badge}</div>",
         unsafe_allow_html=True,
     )
 
-    _switch_label = "🔄 Switch Account" if _cu["id"] else "🔐 Sign In"
-    with st.expander(_switch_label, expanded=False):
-        if _cu["id"]:
-            if st.button("Sign out (return to Guest)", use_container_width=True):
-                st.session_state["current_user"] = None
-                st.session_state["_auth_err"] = ""
-                st.session_state.pop("_db_query_history", None)
-                st.session_state.pop("_cached_bookmarks", None)
-                st.rerun()
-            st.divider()
+    # Quick-role chips for demo / judges
+    st.markdown(
+        "<div style='font-size:.62rem;color:#7E99BA;text-transform:uppercase;"
+        "letter-spacing:.08em;font-weight:700;margin:.3rem 0 .2rem'>Switch role</div>",
+        unsafe_allow_html=True,
+    )
+    _qr_c1, _qr_c2, _qr_c3 = st.columns(3)
+
+    def _do_role_switch(role_key: str) -> None:
+        _found = _demo_login(role_key) if role_key != "guest" else None
+        st.session_state["current_user"] = _found
+        st.session_state["_auth_err"] = ""
+        st.session_state.pop("_db_query_history", None)
+        st.session_state.pop("_cached_bookmarks", None)
+        st.rerun()
+
+    if _qr_c1.button("👤 Guest",
+                      key="qr_guest",
+                      use_container_width=True,
+                      type="primary" if not _cu["id"] else "secondary"):
+        _do_role_switch("guest")
+
+    if _qr_c2.button("🎖 CO",
+                      key="qr_co",
+                      use_container_width=True,
+                      help="Compliance Officer",
+                      type="primary" if _cu["role"] == "compliance_officer" else "secondary"):
+        _do_role_switch("compliance_officer")
+
+    if _qr_c3.button("🔑 Admin",
+                      key="qr_admin",
+                      use_container_width=True,
+                      type="primary" if _cu["role"] == "admin" else "secondary"):
+        _do_role_switch("admin")
+
+    # Custom login expander (collapsed by default)
+    with st.expander("🔐 Custom login", expanded=False):
         _login_email = st.text_input("Email", key="_login_email",
                                      placeholder="you@claritai.in")
         _login_pw    = st.text_input("Password", type="password", key="_login_pw")
@@ -1839,12 +1904,14 @@ for msg_idx, msg in enumerate(st.session_state.messages):
                         st.toast("Could not save bookmark. Try again.", icon="⚠️")
 
             _cl_key = f"_show_cl_{msg_idx}"
+            _cl_role = _current_user().get("role", "user")
+            _cl_allowed = _cl_role in ("compliance_officer", "admin")
             _cl_label = "📋 Hide Checklist" if st.session_state.get(_cl_key) else "📋 Checklist"
-            if _cl_col.button(_cl_label, key=f"cl_btn_{msg_idx}",
+            if _cl_allowed and _cl_col.button(_cl_label, key=f"cl_btn_{msg_idx}",
                               help="Convert answer to a compliance checklist"):
                 st.session_state[_cl_key] = not st.session_state.get(_cl_key, False)
 
-            if st.session_state.get(_cl_key):
+            if _cl_allowed and st.session_state.get(_cl_key):
                 _items = _extract_checklist(msg["content"])
                 st.markdown(
                     "<div style='font-size:.78rem;font-weight:600;color:#CFE0F2;"
