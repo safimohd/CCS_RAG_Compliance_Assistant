@@ -908,6 +908,26 @@ textarea::placeholder { color:#8FA8C4 !important; opacity:1 !important; }
   background:#152030 !important;
   border-color:#253A50 !important;
 }
+/* Past sessions expander header — match dark navy button style */
+[data-testid="stSidebar"] [data-testid="stExpander"] summary,
+[data-testid="stSidebar"] [data-testid="stExpander"] > details > summary,
+[data-testid="stSidebar"] details > summary {
+  background:#1A3352 !important;
+  border:1px solid #2E4E6E !important;
+  border-radius:9px !important;
+  color:#D9E4F1 !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary p,
+[data-testid="stSidebar"] [data-testid="stExpander"] summary span,
+[data-testid="stSidebar"] details > summary p,
+[data-testid="stSidebar"] details > summary span {
+  color:#D9E4F1 !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary svg,
+[data-testid="stSidebar"] details > summary svg {
+  fill:#D9E4F1 !important;
+  color:#D9E4F1 !important;
+}
 /* Session buttons inside the Past sessions expander in the sidebar */
 [data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button,
 [data-testid="stSidebar"] [data-testid="stExpander"] button {
