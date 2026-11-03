@@ -786,35 +786,44 @@ section.main { background:transparent !important; }
   border-color:#253A50 !important;
 }
 .stButton > button:hover { background:#1e3248 !important; border-color:#4A90D9 !important; }
-/* Download button — sidebar dark style everywhere */
+/* Download button — dark style in sidebar */
+[data-testid="stSidebar"] .stDownloadButton > button,
 .stDownloadButton > button {
   background:#1A3352 !important; color:#D9E4F1 !important;
   border:1px solid #2E4E6E !important; border-radius:9px !important;
   width:100% !important;
 }
+[data-testid="stSidebar"] .stDownloadButton > button:hover,
 .stDownloadButton > button:hover {
   background:#1e3248 !important; border-color:#4A90D9 !important;
 }
-/* Sidebar expander — every Streamlit DOM layer, light + dark */
+/* Sidebar expander — target every layer Streamlit renders for details/summary */
 [data-testid="stSidebar"] [data-testid="stExpander"],
 [data-testid="stSidebar"] [data-testid="stExpander"] > div,
+[data-testid="stSidebar"] [data-testid="stExpander"] > div > div,
 [data-testid="stSidebar"] [data-testid="stExpander"] details,
 [data-testid="stSidebar"] [data-testid="stExpander"] details > summary,
 [data-testid="stSidebar"] [data-testid="stExpander"] details > div,
+[data-testid="stSidebar"] [data-testid="stExpander"] details > div > div,
 [data-testid="stSidebar"] details,
 [data-testid="stSidebar"] details > summary,
 [data-testid="stSidebar"] details > div,
 [data-testid="stSidebar"] .streamlit-expanderHeader,
-[data-testid="stSidebar"] .streamlit-expanderContent {
+[data-testid="stSidebar"] .streamlit-expanderContent,
+[data-testid="stSidebar"] [data-baseweb="accordion"],
+[data-testid="stSidebar"] [data-baseweb="accordion"] > div {
   background:#0D1826 !important;
   color:#CFE0F2 !important;
   border-color:#1E3248 !important;
 }
 [data-testid="stSidebar"] [data-testid="stExpander"] p,
 [data-testid="stSidebar"] [data-testid="stExpander"] span,
+[data-testid="stSidebar"] [data-testid="stExpander"] label,
 [data-testid="stSidebar"] details p,
-[data-testid="stSidebar"] details span {
+[data-testid="stSidebar"] details span,
+[data-testid="stSidebar"] details label {
   color:#CFE0F2 !important;
+  background:#0D1826 !important;
 }
 
 /* 5. Chat messages */
@@ -1317,7 +1326,7 @@ def fetch_user_sessions(limit: int = 20) -> list[dict]:
             f"{url}/rest/v1/sessions",
             headers={"apikey": svc_key, "Authorization": f"Bearer {svc_key}"},
             params={"user_id": f"eq.{_cu['id']}",
-                    "select": "id,title,domain,updated_at",
+                    "select": "id,title,domain,updated_at,message_count",
                     "order": "updated_at.desc",
                     "limit": str(limit)},
             timeout=5,
@@ -1341,8 +1350,10 @@ def save_session(session_id: str | None, title: str, domain: str,
         import requests as _req  # noqa: PLC0415
         hdrs = {"apikey": svc_key, "Authorization": f"Bearer {svc_key}",
                 "Content-Type": "application/json", "Prefer": "return=representation"}
+        _msg_count = sum(1 for m in messages if m.get("role") == "user")
         payload = {"title": title, "domain": domain,
-                   "messages": messages, "updated_at": "now()"}
+                   "messages": messages, "updated_at": "now()",
+                   "message_count": _msg_count}
         if session_id:
             r = _req.patch(f"{url}/rest/v1/sessions",
                            headers=hdrs,
@@ -1758,14 +1769,18 @@ with st.sidebar:
         if _sess_list:
             for _si, _sess in enumerate(_sess_list):
                 _s_title = _sess.get("title", "Conversation")
-                _s_label = (_s_title[:48] + "…") if len(_s_title) > 48 else _s_title
+                _s_label = (_s_title[:45] + "…") if len(_s_title) > 45 else _s_title
                 _is_active = st.session_state.get("_active_session_id") == _sess["id"]
                 _btn_style = "primary" if _is_active else "secondary"
-                if st.button(_s_label, key=f"sess_btn_{_si}",
+                # message_count is stored in DB and fetched with the session list
+                _s_q_count = _sess.get("message_count", 0) or 0
+                _s_count_label = f" · {_s_q_count}Q" if _s_q_count > 0 else ""
+                _s_display = f"{_s_label}{_s_count_label}"
+                if st.button(_s_display, key=f"sess_btn_{_si}",
                              use_container_width=True,
                              type=_btn_style,
-                             help=_s_title):
-                    # Load this session's messages
+                             help=f"{_s_title} — {_s_q_count} question(s) in this session"):
+                    # Load this session's full messages
                     _loaded = load_session(_sess["id"])
                     if _loaded:
                         st.session_state["messages"] = _loaded.get("messages", [])
@@ -1877,7 +1892,18 @@ if store is None:
 
 client = get_client()
 
-# ── Account popover — floats top-right, hero always full width ────────────────
+# ── Hero banner — always full width ──────────────────────────────────────────
+st.markdown(
+    "<div class='rc-hero'>"
+    f"<h1>{meta['title']}</h1>"
+    f"<p>{meta['lede']} Answers come only from these official documents. Where they "
+    "do not settle a question, the assistant says so rather than guessing, and "
+    "every answer shows the sources it relied on.</p>"
+    "<div class='rc-stats'>"
+    + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"]) +
+    "</div></div>", unsafe_allow_html=True)
+
+# ── Account popover — anchored BELOW hero at the extreme right ────────────────
 _cu_rp = _current_user()
 _rp_role_colors = {
     "user": ("#1a3352", "#4A90D9"),
@@ -1887,14 +1913,15 @@ _rp_role_colors = {
 _rp_bg, _rp_bd = _rp_role_colors.get(_cu_rp["role"], ("#1a3352", "#4A90D9"))
 _rp_labels = {"user": "User", "compliance_officer": "CO", "admin": "Admin"}
 _rp_label_val = _rp_labels.get(_cu_rp["role"], _cu_rp["role"])
+_rp_icon = "🟢" if _cu_rp["id"] else "⚪"
 
-# Popover button sits in a right-aligned column; the popup floats above everything
 _popover_spacer, _popover_btn_col = st.columns([5, 1])
 with _popover_btn_col:
-    with st.popover(f"👤 {_rp_label_val}", use_container_width=True):
+    with st.popover(f"{_rp_icon} {_rp_label_val}", use_container_width=True):
         st.markdown(
             f"<div style='background:{_rp_bg};border:1px solid {_rp_bd};"
             f"border-radius:8px;padding:10px;text-align:center;margin-bottom:10px'>"
+            f"<div style='font-size:1.6rem;margin-bottom:4px'>👤</div>"
             f"<div style='font-size:.6rem;color:#8FA8C4;margin-bottom:2px'>Signed in as</div>"
             f"<div style='font-size:.85rem;font-weight:700;color:#CFE0F2'>{_cu_rp['name']}</div>"
             f"<div style='font-size:.65rem;color:{_rp_bd};font-weight:600'>{_rp_label_val}</div>"
@@ -1938,17 +1965,6 @@ with _popover_btn_col:
                 st.session_state["_auth_err"] = "Incorrect email or password."
         if st.session_state.get("_auth_err"):
             st.error(st.session_state["_auth_err"])
-
-# ── Hero banner — always full width ──────────────────────────────────────────
-st.markdown(
-    "<div class='rc-hero'>"
-    f"<h1>{meta['title']}</h1>"
-    f"<p>{meta['lede']} Answers come only from these official documents. Where they "
-    "do not settle a question, the assistant says so rather than guessing, and "
-    "every answer shows the sources it relied on.</p>"
-    "<div class='rc-stats'>"
-    + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"]) +
-    "</div></div>", unsafe_allow_html=True)
 
 if client is None:
     st.warning("Answer generation is not configured. Source search still works.")
@@ -2340,6 +2356,23 @@ if prompt:
                     st.session_state["_active_session_title"] = _sess_title
                     # Refresh session list so sidebar shows latest
                     st.session_state["_user_sessions"] = fetch_user_sessions(20)
+
+            # Download conversation — available immediately after first answer
+            _dl_msgs = st.session_state.messages
+            if _dl_msgs:
+                _dl_lines = []
+                for _dm in _dl_msgs:
+                    _dl_role = "You" if _dm["role"] == "user" else "Assistant"
+                    _dl_lines.append(f"**{_dl_role}:** {_dm['content']}")
+                    if _dm.get("sources"):
+                        for _dr in _dm["sources"]:
+                            _dl_lines.append(f"  Source: {clean_title(str(_dr['title']), _dr.get('source_file',''))}")
+                    _dl_lines.append("")
+                st.download_button("💾 Save conversation",
+                                   data="\n".join(_dl_lines),
+                                   file_name="compliance_conversation.txt",
+                                   mime="text/plain",
+                                   key=f"dl_conv_{new_msg_idx}")
 
             # Action row: copy + share + feedback buttons
             if not low_confidence and client is not None and daily_usage() < DAILY_LIMIT:
