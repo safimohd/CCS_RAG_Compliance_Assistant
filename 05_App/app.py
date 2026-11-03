@@ -46,6 +46,14 @@ import tarfile
 import urllib.request
 from datetime import date, datetime, timezone, timedelta
 
+# bcrypt is used for password verification. Installed on Streamlit Cloud.
+# Falls back gracefully so a missing package never breaks the app.
+try:
+    import bcrypt as _bcrypt
+    _BCRYPT_OK = True
+except ImportError:
+    _BCRYPT_OK = False
+
 IST = timezone(timedelta(hours=5, minutes=30))
 from pathlib import Path
 
@@ -1137,6 +1145,7 @@ def log_feedback(domain: str, question: str, answer: str,
     key = _secret("SUPABASE_KEY")
     if not url or not key:
         return
+    _cu = _current_user()
     try:
         import requests as _req  # noqa: PLC0415
         _resp = _req.post(
@@ -1146,7 +1155,9 @@ def log_feedback(domain: str, question: str, answer: str,
             json={"domain": domain, "question": question, "answer_snippet": answer[:300],
                   "confidence_score": round(confidence_score, 4),
                   "confidence_label": confidence_label, "feedback_type": feedback_type,
-                  "feedback_reason": reason},
+                  "feedback_reason": reason,
+                  "user_id": _cu.get("id"),
+                  "user_role": _cu.get("role")},
             timeout=5,
         )
         if not _resp.ok:
@@ -1166,6 +1177,7 @@ def log_query(bot: str, question: str, answer: str,
     svc_key = _secret("SUPABASE_SERVICE_KEY")
     if not url or not svc_key:
         return
+    _cu = _current_user()
     try:
         import requests as _req  # noqa: PLC0415
         source_docs = [r.get("title") or r.get("source", "") for r in (results or [])]
@@ -1185,11 +1197,72 @@ def log_query(bot: str, question: str, answer: str,
                 "source_docs": source_docs,
                 "session_id": st.session_state.get("session_id", ""),
                 "flagged_low_conf": flagged,
+                "user_id": _cu.get("id"),
+                "user_role": _cu.get("role"),
             },
             timeout=5,
         )
     except Exception:
         pass  # Never surface logging errors to the user
+
+
+# ── auth ─────────────────────────────────────────────────────────────────────
+_GUEST = {
+    "id": None,
+    "name": "Guest",
+    "email": "guest@claritai.in",
+    "role": "user",
+}
+
+def _auth_lookup(email: str, password: str) -> dict | None:
+    """Check email+password against Supabase users table.
+
+    Returns the user dict on success, None on failure.
+    Silently fails open to guest rather than crashing the app.
+    """
+    url = _secret("SUPABASE_URL")
+    key = _secret("SUPABASE_SERVICE_KEY")
+    if not url or not key:
+        return None
+    try:
+        import requests as _req
+        resp = _req.get(
+            f"{url}/rest/v1/users",
+            headers={"apikey": key, "Authorization": f"Bearer {key}"},
+            params={"email": f"eq.{email.strip().lower()}",
+                    "is_active": "eq.true",
+                    "select": "id,name,email,role,password_hash"},
+            timeout=5,
+        )
+        if not resp.ok or not resp.json():
+            return None
+        row = resp.json()[0]
+        pw_hash = row.get("password_hash", "")
+        if _BCRYPT_OK:
+            ok = _bcrypt.checkpw(password.encode(), pw_hash.encode())
+        else:
+            # Fallback: plain string compare for local dev only
+            ok = (password == pw_hash)
+        if not ok:
+            return None
+        # Record last_login
+        _req.patch(
+            f"{url}/rest/v1/users",
+            headers={"apikey": key, "Authorization": f"Bearer {key}",
+                     "Content-Type": "application/json", "Prefer": "return=minimal"},
+            params={"id": f"eq.{row['id']}"},
+            json={"last_login": datetime.now(timezone.utc).isoformat()},
+            timeout=5,
+        )
+        return {"id": row["id"], "name": row["name"],
+                "email": row["email"], "role": row["role"]}
+    except Exception:
+        return None
+
+
+def _current_user() -> dict:
+    """Always returns a user dict. Defaults to Guest."""
+    return st.session_state.get("current_user") or _GUEST
 
 
 def generate(client, question: str, domain: str, results, effort: str) -> str:
@@ -1243,8 +1316,47 @@ if st.session_state.get("dark_mode"):
 
 with st.sidebar:
     st.markdown(f"<div class='rc-brand'>{DOMAIN_META[_default_domain]['title']}</div>"
-                "<div class='rc-brand-sub'>IIM Bangalore</div>",
+                "<div class='rc-brand-sub'>IIM Bangalore · ClaritAI</div>",
                 unsafe_allow_html=True)
+
+    # ── user identity ─────────────────────────────────────────────────────────
+    if "current_user" not in st.session_state:
+        st.session_state["current_user"] = None   # None resolves to Guest
+
+    _cu = _current_user()
+    _role_labels = {"user": "User", "compliance_officer": "Compliance Officer", "admin": "Admin"}
+    _role_badge = _role_labels.get(_cu["role"], _cu["role"].title())
+
+    st.markdown(
+        f"<div style='font-size:.72rem;color:#8FA8C4;margin:.35rem 0 .1rem'>"
+        f"Signed in as <b style='color:#CFE0F2'>{_cu['name']}</b> "
+        f"<span style='background:rgba(255,255,255,.12);border-radius:4px;"
+        f"padding:1px 6px;font-size:.65rem'>{_role_badge}</span></div>",
+        unsafe_allow_html=True,
+    )
+
+    _switch_label = "🔄 Switch Account" if _cu["id"] else "🔐 Sign In"
+    with st.expander(_switch_label, expanded=False):
+        if _cu["id"]:
+            if st.button("Sign out (return to Guest)", use_container_width=True):
+                st.session_state["current_user"] = None
+                st.session_state["_auth_err"] = ""
+                st.rerun()
+            st.divider()
+        _login_email = st.text_input("Email", key="_login_email",
+                                     placeholder="you@claritai.in")
+        _login_pw    = st.text_input("Password", type="password", key="_login_pw")
+        if st.button("Sign in", use_container_width=True, key="_login_btn"):
+            _found = _auth_lookup(_login_email, _login_pw)
+            if _found:
+                st.session_state["current_user"] = _found
+                st.session_state["_auth_err"] = ""
+                st.rerun()
+            else:
+                st.session_state["_auth_err"] = "Incorrect email or password."
+        if st.session_state.get("_auth_err"):
+            st.error(st.session_state["_auth_err"])
+
     st.divider()
 
     if LOCKED_DOMAIN:
@@ -1359,13 +1471,20 @@ with st.sidebar:
     st.toggle("🌙 Dark mode", key="dark_mode",
               help="Switch between light and dark theme")
 
-    # Admin feedback dashboard (hidden behind a password)
+    # Admin/compliance feedback dashboard — visible to admin and compliance_officer roles,
+    # or via password fallback for sessions not yet logged in.
+    _cu_role = _current_user().get("role", "user")
+    _has_dashboard_access = _cu_role in ("admin", "compliance_officer")
     with st.expander("📊 Feedback analytics"):
-        _admin_pw = st.text_input("Password", type="password",
-                                  key="admin_pw", label_visibility="collapsed",
-                                  placeholder="Admin password")
-        if _admin_pw == _secret("ADMIN_PASSWORD", ""):
-            if _admin_pw:  # Don't show stats if no password is set at all
+        if not _has_dashboard_access:
+            _admin_pw = st.text_input("Password", type="password",
+                                      key="admin_pw", label_visibility="collapsed",
+                                      placeholder="Admin password")
+            _has_dashboard_access = (_admin_pw == _secret("ADMIN_PASSWORD", "") and bool(_admin_pw))
+        else:
+            _admin_pw = "bypass"  # sentinel so the block below runs
+        if _has_dashboard_access:
+            if True:  # was `if _admin_pw:` — keep indentation matching original
                 _sb_url = _secret("SUPABASE_URL")
                 _sb_key = _secret("SUPABASE_KEY")
                 if not _sb_url or not _sb_key:
