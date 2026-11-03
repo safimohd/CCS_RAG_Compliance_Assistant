@@ -1818,7 +1818,7 @@ with st.sidebar:
     _sess_list = st.session_state.get("_user_sessions", []) if _cu_sess.get("id") else []
 
     st.divider()
-    with st.expander("💬 Past sessions", expanded=True):
+    with st.expander("💬 Past sessions", expanded=False):
         if _sess_list:
             for _si, _sess in enumerate(_sess_list):
                 _s_title = _sess.get("title", "Conversation")
