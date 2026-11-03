@@ -1877,8 +1877,7 @@ if store is None:
 
 client = get_client()
 
-# ── Right auth panel — columns approach, hero always visible ─────────────────
-_panel_open = st.session_state.get("_auth_panel_open", False)
+# ── Account popover — floats top-right, hero always full width ────────────────
 _cu_rp = _current_user()
 _rp_role_colors = {
     "user": ("#1a3352", "#4A90D9"),
@@ -1889,92 +1888,67 @@ _rp_bg, _rp_bd = _rp_role_colors.get(_cu_rp["role"], ("#1a3352", "#4A90D9"))
 _rp_labels = {"user": "User", "compliance_officer": "CO", "admin": "Admin"}
 _rp_label_val = _rp_labels.get(_cu_rp["role"], _cu_rp["role"])
 
-if not _panel_open:
-    # Hero full width; tiny toggle button pinned to the right
-    _hero_col, _tog_col = st.columns([6, 1], gap="small")
-    with _hero_col:
+# Popover button sits in a right-aligned column; the popup floats above everything
+_popover_spacer, _popover_btn_col = st.columns([5, 1])
+with _popover_btn_col:
+    with st.popover(f"👤 {_rp_label_val}", use_container_width=True):
         st.markdown(
-            "<div class='rc-hero'>"
-            f"<h1>{meta['title']}</h1>"
-            f"<p>{meta['lede']} Answers come only from these official documents. Where they "
-            "do not settle a question, the assistant says so rather than guessing, and "
-            "every answer shows the sources it relied on.</p>"
-            "<div class='rc-stats'>"
-            + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"]) +
-            "</div></div>", unsafe_allow_html=True)
-    with _tog_col:
-        st.markdown("<div style='padding-top:1.4rem'></div>", unsafe_allow_html=True)
-        if st.button(f"👤\n{_rp_label_val}", key="panel_open_btn",
-                     help=f"Account — {_cu_rp['name']}",
-                     use_container_width=True):
-            st.session_state["_auth_panel_open"] = True
-            st.rerun()
-else:
-    # Hero takes left ~70%; panel card on the right ~30%
-    _hero_col, _panel_col = st.columns([2, 1], gap="medium")
-    with _hero_col:
-        st.markdown(
-            "<div class='rc-hero'>"
-            f"<h1>{meta['title']}</h1>"
-            f"<p>{meta['lede']} Answers come only from these official documents. Where they "
-            "do not settle a question, the assistant says so rather than guessing, and "
-            "every answer shows the sources it relied on.</p>"
-            "<div class='rc-stats'>"
-            + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"]) +
-            "</div></div>", unsafe_allow_html=True)
-    with _panel_col:
-        # Dark card wrapping the whole panel
-        st.markdown(
-            f"<div style='background:#0D1826;border:1px solid #1E3248;"
-            f"border-radius:12px;padding:14px 14px 6px;margin-top:.3rem'>"
             f"<div style='background:{_rp_bg};border:1px solid {_rp_bd};"
             f"border-radius:8px;padding:10px;text-align:center;margin-bottom:10px'>"
-            f"<div style='font-size:.58rem;color:#8FA8C4;margin-bottom:2px'>Signed in as</div>"
-            f"<div style='font-size:.82rem;font-weight:700;color:#CFE0F2'>{_cu_rp['name']}</div>"
-            f"<div style='font-size:.62rem;color:{_rp_bd};font-weight:600'>{_rp_label_val}</div>"
+            f"<div style='font-size:.6rem;color:#8FA8C4;margin-bottom:2px'>Signed in as</div>"
+            f"<div style='font-size:.85rem;font-weight:700;color:#CFE0F2'>{_cu_rp['name']}</div>"
+            f"<div style='font-size:.65rem;color:{_rp_bd};font-weight:600'>{_rp_label_val}</div>"
             f"</div>"
-            f"<div style='font-size:.55rem;color:#7E99BA;text-transform:uppercase;"
-            f"letter-spacing:.07em;font-weight:700;text-align:center;margin-bottom:6px'>"
-            f"Switch role</div></div>",
+            f"<p style='font-size:.6rem;color:#7E99BA;text-transform:uppercase;"
+            f"letter-spacing:.07em;font-weight:700;text-align:center;margin:0 0 6px'>Switch role</p>",
             unsafe_allow_html=True,
         )
-        if st.button("✕ Close", key="panel_close_btn", use_container_width=True):
-            st.session_state["_auth_panel_open"] = False
-            st.rerun()
         if st.button("👤 Guest", key="rp_guest", use_container_width=True,
                      type="primary" if not _cu_rp["id"] else "secondary"):
             _do_role_switch("guest")
-        if st.button("🎖 CO", key="rp_co", use_container_width=True,
-                     help="Compliance Officer",
+        if st.button("🎖 Compliance Officer", key="rp_co", use_container_width=True,
                      type="primary" if _cu_rp["role"] == "compliance_officer" else "secondary"):
             _do_role_switch("compliance_officer")
         if st.button("🔑 Admin", key="rp_admin", use_container_width=True,
                      type="primary" if _cu_rp["role"] == "admin" else "secondary"):
             _do_role_switch("admin")
-        with st.expander("🔐 Login", expanded=False):
-            _rp_email = st.text_input("Email", key="_rp_login_email",
-                                      placeholder="you@claritai.in",
-                                      label_visibility="collapsed")
-            _rp_pw = st.text_input("Password", type="password", key="_rp_login_pw",
-                                   placeholder="Password",
-                                   label_visibility="collapsed")
-            if st.button("Sign in", use_container_width=True, key="_rp_login_btn"):
-                _rp_found = _auth_lookup(_rp_email, _rp_pw)
-                if _rp_found:
-                    st.session_state["current_user"] = _rp_found
-                    st.session_state["_auth_err"] = ""
-                    st.session_state.pop("_db_query_history", None)
-                    st.session_state.pop("_cached_bookmarks", None)
-                    st.session_state.pop("_user_sessions", None)
-                    st.session_state.pop("_active_session_id", None)
-                    st.session_state.pop("_active_session_title", None)
-                    st.session_state["messages"] = []
-                    st.session_state["feedback"] = {}
-                    st.rerun()
-                else:
-                    st.session_state["_auth_err"] = "Incorrect email or password."
-            if st.session_state.get("_auth_err"):
-                st.error(st.session_state["_auth_err"])
+        st.divider()
+        st.markdown("<p style='font-size:.65rem;color:#8FA8C4;margin:0 0 4px'>Sign in with credentials</p>",
+                    unsafe_allow_html=True)
+        _rp_email = st.text_input("Email", key="_rp_login_email",
+                                  placeholder="you@claritai.in",
+                                  label_visibility="collapsed")
+        _rp_pw = st.text_input("Password", type="password", key="_rp_login_pw",
+                               placeholder="Password",
+                               label_visibility="collapsed")
+        if st.button("Sign in", use_container_width=True, key="_rp_login_btn", type="primary"):
+            _rp_found = _auth_lookup(_rp_email, _rp_pw)
+            if _rp_found:
+                st.session_state["current_user"] = _rp_found
+                st.session_state["_auth_err"] = ""
+                st.session_state.pop("_db_query_history", None)
+                st.session_state.pop("_cached_bookmarks", None)
+                st.session_state.pop("_user_sessions", None)
+                st.session_state.pop("_active_session_id", None)
+                st.session_state.pop("_active_session_title", None)
+                st.session_state["messages"] = []
+                st.session_state["feedback"] = {}
+                st.rerun()
+            else:
+                st.session_state["_auth_err"] = "Incorrect email or password."
+        if st.session_state.get("_auth_err"):
+            st.error(st.session_state["_auth_err"])
+
+# ── Hero banner — always full width ──────────────────────────────────────────
+st.markdown(
+    "<div class='rc-hero'>"
+    f"<h1>{meta['title']}</h1>"
+    f"<p>{meta['lede']} Answers come only from these official documents. Where they "
+    "do not settle a question, the assistant says so rather than guessing, and "
+    "every answer shows the sources it relied on.</p>"
+    "<div class='rc-stats'>"
+    + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"]) +
+    "</div></div>", unsafe_allow_html=True)
 
 if client is None:
     st.warning("Answer generation is not configured. Source search still works.")
