@@ -218,6 +218,22 @@ HDRS = {
 }
 TODAY = datetime.date.today()
 
+_IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+
+def to_ist(utc_str: str, fmt: str = "%d %b %Y  %I:%M %p") -> str:
+    """Convert a UTC ISO timestamp string from Supabase to IST display string."""
+    if not utc_str:
+        return ""
+    try:
+        ts = utc_str.rstrip("Z")
+        if "+" in ts:
+            ts = ts[:ts.index("+")]
+        dt_utc = datetime.datetime.fromisoformat(ts).replace(tzinfo=datetime.timezone.utc)
+        dt_ist = dt_utc.astimezone(_IST)
+        return dt_ist.strftime(fmt) + " IST"
+    except Exception:
+        return utc_str[:19].replace("T", " ")
+
 
 # ─── Data fetchers ──────────────────────────────────────────────────────────
 @st.cache_data(ttl=120)
@@ -418,7 +434,7 @@ with tab1:
         daily_hc   = defaultdict(int)
         daily_rera = defaultdict(int)
         for r in rows:
-            day = r["created_at"][:10]
+            day = to_ist(r["created_at"], fmt="%Y-%m-%d").replace(" IST", "")
             if r["bot"] == "Healthcare":
                 daily_hc[day] += 1
             else:
@@ -467,7 +483,7 @@ with tab1:
         if low_conf_rows:
             df_lc = pd.DataFrame([
                 {
-                    "Date":  r["created_at"][:10],
+                    "Date":  to_ist(r["created_at"], fmt="%d %b %Y"),
                     "Bot":   r["bot"],
                     "Query": (r.get("question") or "")[:120] + ("..." if len(r.get("question") or "") > 120 else ""),
                     "Score": round(r.get("confidence") or 0, 3),
@@ -538,7 +554,7 @@ with tab2:
                     "Type":        ("⏳ Expired" if e.get("status") == "expired" else "🚫 Excluded"),
                     "By":          e["excluded_by"],
                     "Email":       e.get("excluded_by_email") or "",
-                    "At (UTC)":    e["excluded_at"][:19].replace("T", " "),
+                    "At (IST)":    to_ist(e["excluded_at"]),
                     "Expires At":  (e.get("expires_at") or "")[:10],
                     "Reason":      e.get("reason") or "",
                 }
@@ -596,7 +612,7 @@ with tab2:
                     if _is_ex:
                         _excl_status = _ex_rec.get("status", "excluded")
                         _excl_by  = _ex_rec.get("excluded_by", "unknown")
-                        _excl_at  = (_ex_rec.get("excluded_at") or "")[:10]
+                        _excl_at  = to_ist(_ex_rec.get("excluded_at") or "", fmt="%d %b %Y")
                         _excl_exp = (_ex_rec.get("expires_at") or "")[:10]
                         _status_icon = "⏳" if _excl_status == "expired" else "🚫"
                         _status_label = "Expired" if _excl_status == "expired" else "Excluded"

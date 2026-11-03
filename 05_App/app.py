@@ -1914,7 +1914,12 @@ with st.sidebar:
                 st.caption("No saved answers yet. Click 🔖 Save on any answer to bookmark it.")
             else:
                 for _bm in _bm_list:
-                    _bm_date = (_bm.get("created_at", "")[:10] or "")
+                    _bm_raw  = _bm.get("created_at", "") or ""
+                    try:
+                        _bm_dt  = datetime.fromisoformat(_bm_raw.rstrip("Z").split("+")[0]).replace(tzinfo=timezone.utc).astimezone(IST)
+                        _bm_date = _bm_dt.strftime("%d %b %Y")
+                    except Exception:
+                        _bm_date = _bm_raw[:10]
                     with st.expander(
                         f"[{_bm.get('domain','').upper()}] {_bm.get('question','')[:55]}...",
                         expanded=False
