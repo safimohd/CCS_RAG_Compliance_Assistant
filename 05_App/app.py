@@ -773,12 +773,45 @@ html, body, #root { background:#0D1B2A !important; }
 .block-container,
 section.main { background:transparent !important; }
 
-/* 3. Sidebar stays its own dark shade */
+/* 3. Sidebar — blanket dark; every element inherits unless overridden below */
 [data-testid="stSidebar"],
 [data-testid="stSidebar"] > div,
-[data-testid="stSidebarContent"] { background:#060F18 !important; }
+[data-testid="stSidebarContent"],
+[data-testid="stSidebar"] * {
+  background:#060F18 !important;
+  color:#CFE0F2 !important;
+  border-color:#1E3248 !important;
+}
+/* Re-apply accent colours that the wildcard above would flatten */
+[data-testid="stSidebar"] .stButton > button {
+  background:#1A3352 !important; color:#D9E4F1 !important;
+  border:1px solid #2E4E6E !important; border-radius:9px !important;
+}
+[data-testid="stSidebar"] .stButton > button:hover {
+  background:#1e3248 !important; border-color:#4A90D9 !important;
+}
+[data-testid="stSidebar"] .stButton > button[kind="primary"],
+[data-testid="stSidebar"] [data-testid="stBaseButton-primary"] {
+  background:#1E3A5F !important; border-color:#4A90D9 !important;
+  color:#EAF4FF !important;
+}
+[data-testid="stSidebar"] .stDownloadButton > button {
+  background:#1A3352 !important; color:#D9E4F1 !important;
+  border:1px solid #2E4E6E !important; border-radius:9px !important;
+  width:100% !important;
+}
+[data-testid="stSidebar"] .stDownloadButton > button:hover {
+  background:#1e3248 !important; border-color:#4A90D9 !important;
+}
+[data-testid="stSidebar"] [data-baseweb="select"],
+[data-testid="stSidebar"] [data-baseweb="select"] > div,
+[data-testid="stSidebar"] [data-baseweb="select"] > div > div,
+[data-testid="stSidebar"] [data-testid="stSelectbox"] > div > div {
+  background:#1A3352 !important; border-color:#2E4E6E !important;
+  color:#D9E4F1 !important;
+}
 
-/* 4. Buttons */
+/* 4. Main-area buttons */
 .stButton > button,
 [data-testid="stBaseButton-secondary"],
 [data-testid="stBaseButton-primary"] {
@@ -786,44 +819,14 @@ section.main { background:transparent !important; }
   border-color:#253A50 !important;
 }
 .stButton > button:hover { background:#1e3248 !important; border-color:#4A90D9 !important; }
-/* Download button — dark style in sidebar */
-[data-testid="stSidebar"] .stDownloadButton > button,
+/* Download button in main area */
 .stDownloadButton > button {
   background:#1A3352 !important; color:#D9E4F1 !important;
   border:1px solid #2E4E6E !important; border-radius:9px !important;
   width:100% !important;
 }
-[data-testid="stSidebar"] .stDownloadButton > button:hover,
 .stDownloadButton > button:hover {
   background:#1e3248 !important; border-color:#4A90D9 !important;
-}
-/* Sidebar expander — target every layer Streamlit renders for details/summary */
-[data-testid="stSidebar"] [data-testid="stExpander"],
-[data-testid="stSidebar"] [data-testid="stExpander"] > div,
-[data-testid="stSidebar"] [data-testid="stExpander"] > div > div,
-[data-testid="stSidebar"] [data-testid="stExpander"] details,
-[data-testid="stSidebar"] [data-testid="stExpander"] details > summary,
-[data-testid="stSidebar"] [data-testid="stExpander"] details > div,
-[data-testid="stSidebar"] [data-testid="stExpander"] details > div > div,
-[data-testid="stSidebar"] details,
-[data-testid="stSidebar"] details > summary,
-[data-testid="stSidebar"] details > div,
-[data-testid="stSidebar"] .streamlit-expanderHeader,
-[data-testid="stSidebar"] .streamlit-expanderContent,
-[data-testid="stSidebar"] [data-baseweb="accordion"],
-[data-testid="stSidebar"] [data-baseweb="accordion"] > div {
-  background:#0D1826 !important;
-  color:#CFE0F2 !important;
-  border-color:#1E3248 !important;
-}
-[data-testid="stSidebar"] [data-testid="stExpander"] p,
-[data-testid="stSidebar"] [data-testid="stExpander"] span,
-[data-testid="stSidebar"] [data-testid="stExpander"] label,
-[data-testid="stSidebar"] details p,
-[data-testid="stSidebar"] details span,
-[data-testid="stSidebar"] details label {
-  color:#CFE0F2 !important;
-  background:#0D1826 !important;
 }
 
 /* 5. Chat messages */
@@ -1610,15 +1613,10 @@ if st.session_state.get("dark_mode"):
     st.markdown(DARK_CSS, unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown(f"<div class='rc-brand'>{DOMAIN_META[_default_domain]['title']}</div>"
-                "<div class='rc-brand-sub'>IIM Bangalore · ClaritAI</div>",
-                unsafe_allow_html=True)
-
-    # ── user identity (sidebar badge only — role switch panel is on the right) ──
+    # ── Account popover — sits at the very top of the sidebar ─────────────────
     if "current_user" not in st.session_state:
-        # Auto-login as the default "user" role account so history shows immediately
         _auto = _demo_login("user")
-        st.session_state["current_user"] = _auto  # falls back to Guest if DB unavailable
+        st.session_state["current_user"] = _auto
 
     _cu = _current_user()
     _role_labels = {
@@ -1633,30 +1631,85 @@ with st.sidebar:
         "admin": ("#3d1a1a", "#D94A4A"),
     }
     _rc_bg, _rc_bd = _role_colors.get(_cu["role"], ("#1a3352", "#4A90D9"))
+    _sb_icon = "🟢" if _cu["id"] else "⚪"
+    _sb_label = _role_labels.get(_cu["role"], "Guest")
 
-    # Compact badge — name + role chip only, no switch UI here
-    st.markdown(
-        f"<div style='font-size:.72rem;color:#8FA8C4;margin:.5rem 0 .25rem'>"
-        f"Signed in as <b style='color:#CFE0F2'>{_cu['name']}</b></div>"
-        f"<div style='display:inline-block;background:{_rc_bg};border:1px solid {_rc_bd};"
-        f"border-radius:5px;padding:2px 10px;font-size:.65rem;color:{_rc_bd};"
-        f"font-weight:600;margin-bottom:.6rem'>{_role_badge}</div>",
-        unsafe_allow_html=True,
-    )
+    with st.popover(f"👤  {_cu['name']}  ·  {_sb_icon} {_sb_label}",
+                    use_container_width=True):
+        st.markdown(
+            f"<div style='background:{_rc_bg};border:1px solid {_rc_bd};"
+            f"border-radius:8px;padding:10px;text-align:center;margin-bottom:10px'>"
+            f"<div style='font-size:1.6rem;margin-bottom:4px'>👤</div>"
+            f"<div style='font-size:.6rem;color:#8FA8C4;margin-bottom:2px'>Signed in as</div>"
+            f"<div style='font-size:.85rem;font-weight:700;color:#CFE0F2'>{_cu['name']}</div>"
+            f"<div style='font-size:.65rem;color:{_rc_bd};font-weight:600'>{_sb_label}</div>"
+            f"</div>"
+            f"<p style='font-size:.6rem;color:#7E99BA;text-transform:uppercase;"
+            f"letter-spacing:.07em;font-weight:700;text-align:center;margin:0 0 6px'>"
+            f"Switch role</p>",
+            unsafe_allow_html=True,
+        )
+        # _do_role_switch is defined just below — forward reference is fine
+        # because the button callbacks run on next rerun after _do_role_switch is defined
+        if st.button("👤 Guest", key="sb_rp_guest", use_container_width=True,
+                     type="primary" if not _cu["id"] else "secondary"):
+            st.session_state["_pending_role_switch"] = "guest"
+            st.rerun()
+        if st.button("🎖 Compliance Officer", key="sb_rp_co", use_container_width=True,
+                     type="primary" if _cu["role"] == "compliance_officer" else "secondary"):
+            st.session_state["_pending_role_switch"] = "compliance_officer"
+            st.rerun()
+        if st.button("🔑 Admin", key="sb_rp_admin", use_container_width=True,
+                     type="primary" if _cu["role"] == "admin" else "secondary"):
+            st.session_state["_pending_role_switch"] = "admin"
+            st.rerun()
+        st.divider()
+        st.markdown("<p style='font-size:.65rem;color:#8FA8C4;margin:0 0 4px'>"
+                    "Sign in with credentials</p>", unsafe_allow_html=True)
+        _sb_email = st.text_input("Email", key="_sb_login_email",
+                                  placeholder="you@claritai.in",
+                                  label_visibility="collapsed")
+        _sb_pw = st.text_input("Password", type="password", key="_sb_login_pw",
+                               placeholder="Password",
+                               label_visibility="collapsed")
+        if st.button("Sign in", use_container_width=True, key="_sb_login_btn", type="primary"):
+            _sb_found = _auth_lookup(_sb_email, _sb_pw)
+            if _sb_found:
+                st.session_state["current_user"] = _sb_found
+                st.session_state["_auth_err"] = ""
+                for _k in ("_db_query_history", "_cached_bookmarks", "_user_sessions",
+                           "_active_session_id", "_active_session_title"):
+                    st.session_state.pop(_k, None)
+                st.session_state["messages"] = []
+                st.session_state["feedback"] = {}
+                st.rerun()
+            else:
+                st.session_state["_auth_err"] = "Incorrect email or password."
+        if st.session_state.get("_auth_err"):
+            st.error(st.session_state["_auth_err"])
 
-    # _do_role_switch helper defined here so it's available to the right panel below
+    st.markdown(f"<div class='rc-brand' style='margin-top:.6rem'>"
+                f"{DOMAIN_META[_default_domain]['title']}</div>"
+                "<div class='rc-brand-sub'>IIM Bangalore · ClaritAI</div>",
+                unsafe_allow_html=True)
+
+    # _do_role_switch helper
     def _do_role_switch(role_key: str) -> None:
         _found = _demo_login(role_key) if role_key != "guest" else None
         st.session_state["current_user"] = _found
         st.session_state["_auth_err"] = ""
-        st.session_state.pop("_db_query_history", None)
-        st.session_state.pop("_cached_bookmarks", None)
-        st.session_state.pop("_user_sessions", None)
-        st.session_state.pop("_active_session_id", None)
-        st.session_state.pop("_active_session_title", None)
+        for _k in ("_db_query_history", "_cached_bookmarks", "_user_sessions",
+                   "_active_session_id", "_active_session_title"):
+            st.session_state.pop(_k, None)
         st.session_state["messages"] = []
         st.session_state["feedback"] = {}
         st.rerun()
+
+    # Handle role switch triggered from within the popover (buttons inside popovers
+    # fire a rerun before the sidebar scope closes, so we process it here)
+    if st.session_state.get("_pending_role_switch"):
+        _pending = st.session_state.pop("_pending_role_switch")
+        _do_role_switch(_pending)
 
     st.divider()
 
@@ -1903,68 +1956,6 @@ st.markdown(
     + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"]) +
     "</div></div>", unsafe_allow_html=True)
 
-# ── Account popover — anchored BELOW hero at the extreme right ────────────────
-_cu_rp = _current_user()
-_rp_role_colors = {
-    "user": ("#1a3352", "#4A90D9"),
-    "compliance_officer": ("#1a3d2a", "#34A853"),
-    "admin": ("#3d1a1a", "#D94A4A"),
-}
-_rp_bg, _rp_bd = _rp_role_colors.get(_cu_rp["role"], ("#1a3352", "#4A90D9"))
-_rp_labels = {"user": "User", "compliance_officer": "CO", "admin": "Admin"}
-_rp_label_val = _rp_labels.get(_cu_rp["role"], _cu_rp["role"])
-_rp_icon = "🟢" if _cu_rp["id"] else "⚪"
-
-_popover_spacer, _popover_btn_col = st.columns([5, 1])
-with _popover_btn_col:
-    with st.popover(f"{_rp_icon} {_rp_label_val}", use_container_width=True):
-        st.markdown(
-            f"<div style='background:{_rp_bg};border:1px solid {_rp_bd};"
-            f"border-radius:8px;padding:10px;text-align:center;margin-bottom:10px'>"
-            f"<div style='font-size:1.6rem;margin-bottom:4px'>👤</div>"
-            f"<div style='font-size:.6rem;color:#8FA8C4;margin-bottom:2px'>Signed in as</div>"
-            f"<div style='font-size:.85rem;font-weight:700;color:#CFE0F2'>{_cu_rp['name']}</div>"
-            f"<div style='font-size:.65rem;color:{_rp_bd};font-weight:600'>{_rp_label_val}</div>"
-            f"</div>"
-            f"<p style='font-size:.6rem;color:#7E99BA;text-transform:uppercase;"
-            f"letter-spacing:.07em;font-weight:700;text-align:center;margin:0 0 6px'>Switch role</p>",
-            unsafe_allow_html=True,
-        )
-        if st.button("👤 Guest", key="rp_guest", use_container_width=True,
-                     type="primary" if not _cu_rp["id"] else "secondary"):
-            _do_role_switch("guest")
-        if st.button("🎖 Compliance Officer", key="rp_co", use_container_width=True,
-                     type="primary" if _cu_rp["role"] == "compliance_officer" else "secondary"):
-            _do_role_switch("compliance_officer")
-        if st.button("🔑 Admin", key="rp_admin", use_container_width=True,
-                     type="primary" if _cu_rp["role"] == "admin" else "secondary"):
-            _do_role_switch("admin")
-        st.divider()
-        st.markdown("<p style='font-size:.65rem;color:#8FA8C4;margin:0 0 4px'>Sign in with credentials</p>",
-                    unsafe_allow_html=True)
-        _rp_email = st.text_input("Email", key="_rp_login_email",
-                                  placeholder="you@claritai.in",
-                                  label_visibility="collapsed")
-        _rp_pw = st.text_input("Password", type="password", key="_rp_login_pw",
-                               placeholder="Password",
-                               label_visibility="collapsed")
-        if st.button("Sign in", use_container_width=True, key="_rp_login_btn", type="primary"):
-            _rp_found = _auth_lookup(_rp_email, _rp_pw)
-            if _rp_found:
-                st.session_state["current_user"] = _rp_found
-                st.session_state["_auth_err"] = ""
-                st.session_state.pop("_db_query_history", None)
-                st.session_state.pop("_cached_bookmarks", None)
-                st.session_state.pop("_user_sessions", None)
-                st.session_state.pop("_active_session_id", None)
-                st.session_state.pop("_active_session_title", None)
-                st.session_state["messages"] = []
-                st.session_state["feedback"] = {}
-                st.rerun()
-            else:
-                st.session_state["_auth_err"] = "Incorrect email or password."
-        if st.session_state.get("_auth_err"):
-            st.error(st.session_state["_auth_err"])
 
 if client is None:
     st.warning("Answer generation is not configured. Source search still works.")
