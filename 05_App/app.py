@@ -1166,6 +1166,101 @@ def log_feedback(domain: str, question: str, answer: str,
         st.session_state["_fb_err"] = str(_log_err)
 
 
+def log_bookmark(domain: str, question: str, answer: str, sources: list) -> bool:
+    """Save a Q&A pair to the bookmarks table. Returns True on success."""
+    _cu = _current_user()
+    if not _cu.get("id"):
+        return False
+    url = _secret("SUPABASE_URL")
+    svc_key = _secret("SUPABASE_SERVICE_KEY")
+    if not url or not svc_key:
+        return False
+    try:
+        import requests as _req  # noqa: PLC0415
+        import json as _json
+        _resp = _req.post(
+            f"{url}/rest/v1/bookmarks",
+            headers={"apikey": svc_key, "Authorization": f"Bearer {svc_key}",
+                     "Content-Type": "application/json", "Prefer": "return=minimal"},
+            json={"user_id": _cu["id"], "domain": domain,
+                  "question": question, "answer": answer,
+                  "sources": sources},
+            timeout=5,
+        )
+        return _resp.ok
+    except Exception:
+        return False
+
+
+def fetch_bookmarks() -> list:
+    """Fetch the current user's bookmarks from Supabase, newest first."""
+    _cu = _current_user()
+    if not _cu.get("id"):
+        return []
+    url = _secret("SUPABASE_URL")
+    svc_key = _secret("SUPABASE_SERVICE_KEY")
+    if not url or not svc_key:
+        return []
+    try:
+        import requests as _req  # noqa: PLC0415
+        _resp = _req.get(
+            f"{url}/rest/v1/bookmarks",
+            headers={"apikey": svc_key, "Authorization": f"Bearer {svc_key}"},
+            params={"user_id": f"eq.{_cu['id']}",
+                    "select": "id,domain,question,answer,sources,created_at",
+                    "order": "created_at.desc",
+                    "limit": "20"},
+            timeout=5,
+        )
+        return _resp.json() if _resp.ok else []
+    except Exception:
+        return []
+
+
+def delete_bookmark(bookmark_id: str) -> bool:
+    """Delete one bookmark by id. Returns True on success."""
+    url = _secret("SUPABASE_URL")
+    svc_key = _secret("SUPABASE_SERVICE_KEY")
+    if not url or not svc_key:
+        return False
+    try:
+        import requests as _req  # noqa: PLC0415
+        _resp = _req.delete(
+            f"{url}/rest/v1/bookmarks",
+            headers={"apikey": svc_key, "Authorization": f"Bearer {svc_key}",
+                     "Prefer": "return=minimal"},
+            params={"id": f"eq.{bookmark_id}"},
+            timeout=5,
+        )
+        return _resp.ok
+    except Exception:
+        return False
+
+
+def _extract_checklist(answer_text: str) -> list[str]:
+    """Extract action items from an answer. Returns a list of checklist strings."""
+    import re
+    lines = answer_text.split("\n")
+    checklist = []
+    for line in lines:
+        line = line.strip()
+        # Pick up numbered items, bullets, or lines with imperative verbs
+        if re.match(r"^(\d+[\.\)]|\*|-|•)\s+", line):
+            cleaned = re.sub(r"^(\d+[\.\)]|\*|-|•)\s+", "", line).strip()
+            if len(cleaned) > 10:
+                checklist.append(cleaned)
+    # If structured items weren't found, split by sentence and filter actionable ones
+    if not checklist:
+        action_verbs = ("ensure", "verify", "submit", "obtain", "register", "apply",
+                        "file", "provide", "maintain", "update", "check", "confirm",
+                        "notify", "appoint", "prepare", "comply", "disclose", "report")
+        for sent in re.split(r"(?<=[.!?])\s+", answer_text):
+            sent = sent.strip()
+            if len(sent) > 20 and any(sent.lower().startswith(v) for v in action_verbs):
+                checklist.append(sent)
+    return checklist[:15]
+
+
 def log_query(bot: str, question: str, answer: str,
               confidence: float, results, flagged: bool) -> None:
     """Log every answered query to the Supabase queries table.
@@ -1518,6 +1613,37 @@ with st.sidebar:
             else:
                 st.caption("Enter admin password above to view analytics.")
 
+    # Saved Answers section -- only for signed-in users
+    _cu_sidebar = _current_user()
+    if _cu_sidebar.get("id"):
+        st.divider()
+        with st.expander("🔖 Saved Answers", expanded=False):
+            if st.button("🔄 Refresh", key="bm_refresh", use_container_width=True):
+                st.session_state.pop("_cached_bookmarks", None)
+            _bm_list = st.session_state.get("_cached_bookmarks")
+            if _bm_list is None:
+                _bm_list = fetch_bookmarks()
+                st.session_state["_cached_bookmarks"] = _bm_list
+            if not _bm_list:
+                st.caption("No saved answers yet. Click 🔖 Save on any answer to bookmark it.")
+            else:
+                for _bm in _bm_list:
+                    _bm_date = (_bm.get("created_at", "")[:10] or "")
+                    with st.expander(
+                        f"[{_bm.get('domain','').upper()}] {_bm.get('question','')[:55]}...",
+                        expanded=False
+                    ):
+                        st.markdown(f"**Q:** {_bm.get('question','')}")
+                        st.markdown(_bm.get("answer", "")[:600] + ("…" if len(_bm.get("answer","")) > 600 else ""))
+                        if _bm_date:
+                            st.caption(f"Saved on {_bm_date}")
+                        if st.button("🗑️ Delete", key=f"bm_del_{_bm['id']}",
+                                     use_container_width=True):
+                            if delete_bookmark(_bm["id"]):
+                                st.session_state.pop("_cached_bookmarks", None)
+                                st.toast("Bookmark deleted.", icon="🗑️")
+                                st.rerun()
+
     st.divider()
     st.markdown(
         "<div style='font-size:.72rem;color:#8896A5;line-height:1.5'>"
@@ -1617,6 +1743,43 @@ for msg_idx, msg in enumerate(st.session_state.messages):
                     break
             render_share_button(_prev_q, msg["content"],
                                 msg.get("sources", []), f"hist_{msg_idx}")
+
+            # Bookmark + Checklist action row
+            _bk_col, _cl_col, _ = st.columns([1, 1, 6])
+            _bk_saved_key = f"_bm_saved_{msg_idx}"
+            if _bk_col.button(
+                "🔖 Save" if not st.session_state.get(_bk_saved_key) else "✅ Saved",
+                key=f"bm_btn_{msg_idx}",
+                help="Save this answer to your bookmarks",
+                disabled=st.session_state.get(_bk_saved_key, False),
+            ):
+                _cu_now = _current_user()
+                if not _cu_now.get("id"):
+                    st.toast("Sign in to save bookmarks.", icon="🔐")
+                else:
+                    _ok = log_bookmark(domain, _prev_q, msg["content"],
+                                       msg.get("sources", []))
+                    if _ok:
+                        st.session_state[_bk_saved_key] = True
+                        st.toast("Answer saved to bookmarks!", icon="🔖")
+                        st.rerun()
+                    else:
+                        st.toast("Could not save bookmark. Try again.", icon="⚠️")
+
+            if _cl_col.button("📋 Checklist", key=f"cl_btn_{msg_idx}",
+                              help="Convert answer to a compliance checklist"):
+                st.session_state[f"_show_cl_{msg_idx}"] = not st.session_state.get(
+                    f"_show_cl_{msg_idx}", False)
+
+            if st.session_state.get(f"_show_cl_{msg_idx}"):
+                _items = _extract_checklist(msg["content"])
+                with st.expander("📋 Compliance Action Checklist", expanded=True):
+                    if _items:
+                        for _ci, _item in enumerate(_items, 1):
+                            st.checkbox(f"{_ci}. {_item}", key=f"cl_check_{msg_idx}_{_ci}")
+                    else:
+                        st.caption("No specific action items found in this answer. "
+                                   "Try asking a more targeted compliance question.")
 
         # Timestamp -- shown for any assistant message that has one
         if msg["role"] == "assistant":
