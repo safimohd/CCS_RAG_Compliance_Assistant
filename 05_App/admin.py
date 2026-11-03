@@ -247,6 +247,47 @@ def fetch_documents():
     return r.json()
 
 
+@st.cache_data(ttl=30)
+def fetch_exclusions():
+    r = requests.get(
+        f"{SUPABASE_URL}/rest/v1/doc_exclusions"
+        f"?select=bot,doc_id,excluded_by,excluded_by_email,excluded_at,reason"
+        f"&order=excluded_at.desc",
+        headers=HDRS, timeout=15,
+    )
+    if r.status_code != 200:
+        return []
+    return r.json()
+
+
+def exclude_doc(bot: str, doc_id: str, user_name: str, user_email: str, reason: str = ""):
+    import json as _json
+    payload = {
+        "bot": bot,
+        "doc_id": doc_id,
+        "excluded_by": user_name,
+        "excluded_by_email": user_email,
+        "reason": reason or None,
+    }
+    r = requests.post(
+        f"{SUPABASE_URL}/rest/v1/doc_exclusions",
+        headers={**HDRS, "Prefer": "resolution=merge-duplicates"},
+        data=_json.dumps(payload),
+        timeout=10,
+    )
+    return r.status_code in (200, 201)
+
+
+def reinstate_doc(bot: str, doc_id: str):
+    r = requests.delete(
+        f"{SUPABASE_URL}/rest/v1/doc_exclusions"
+        f"?bot=eq.{bot}&doc_id=eq.{doc_id}",
+        headers=HDRS,
+        timeout=10,
+    )
+    return r.status_code in (200, 204)
+
+
 # ─── Header ─────────────────────────────────────────────────────────────────
 is_dark = st.session_state.dark_mode
 hdr_bg   = "linear-gradient(135deg, #0f1e38 0%, #0a1322 100%)" if is_dark else "linear-gradient(135deg, #1e3a6e 0%, #0f1f40 100%)"
@@ -438,34 +479,66 @@ with tab1:
 
 # ─── Tab 2: Documents ───────────────────────────────────────────────────────
 with tab2:
-    col_bot, col_status, col_ref2 = st.columns([2, 2, 1])
+    import pandas as pd
+
+    col_bot, col_status, col_excl_filter, col_ref2 = st.columns([2, 2, 2, 1])
     with col_ref2:
         st.write("")
         if st.button("Refresh", key="refresh_docs"):
             st.cache_data.clear()
             st.rerun()
 
-    docs = fetch_documents()
+    docs       = fetch_documents()
+    exclusions = fetch_exclusions()
+    excl_keys  = {(e["bot"], e["doc_id"]): e for e in exclusions}
 
     with col_bot:
         bot_filter = st.selectbox("Bot", ["All", "Healthcare", "RERA"])
     with col_status:
         status_filter = st.selectbox("Status", ["All", "current", "archived", "pending"])
+    with col_excl_filter:
+        excl_filter = st.selectbox("RAG Access", ["All", "Active", "Excluded"])
 
     if bot_filter != "All":
         docs = [d for d in docs if d["bot"] == bot_filter]
     if status_filter != "All":
         docs = [d for d in docs if d["status"] == status_filter]
+    if excl_filter == "Active":
+        docs = [d for d in docs if (d["bot"], d["doc_id"]) not in excl_keys]
+    elif excl_filter == "Excluded":
+        docs = [d for d in docs if (d["bot"], d["doc_id"]) in excl_keys]
 
     label_c = "#6b7f9a" if is_dark else "#6b7a99"
-    st.markdown(f"""
-    <p style='color:{label_c};font-size:11px;font-weight:700;text-transform:uppercase;
-              letter-spacing:0.08em;margin:4px 0 12px;'>{len(docs)} documents shown</p>
-    """, unsafe_allow_html=True)
+    n_excl   = sum(1 for d in docs if (d["bot"], d["doc_id"]) in excl_keys)
 
-    if docs:
-        import pandas as pd
+    st.markdown(
+        f"<p style='color:{label_c};font-size:11px;font-weight:700;text-transform:uppercase;"
+        f"letter-spacing:0.08em;margin:4px 0 4px;'>"
+        f"{len(docs)} documents shown"
+        + (f" &nbsp;·&nbsp; <span style='color:#ef4444'>{n_excl} excluded from RAG</span>" if n_excl else "")
+        + "</p>",
+        unsafe_allow_html=True,
+    )
 
+    # ── Exclusion log (admin only) ───────────────────────────────────────────
+    if st.session_state.get("is_admin") and exclusions:
+        with st.expander(f"📋 Exclusion log ({len(exclusions)} entries)", expanded=False):
+            df_log = pd.DataFrame([
+                {
+                    "Bot":      e["bot"],
+                    "Doc ID":   e["doc_id"],
+                    "Excluded by": e["excluded_by"],
+                    "Email":    e.get("excluded_by_email") or "",
+                    "At (UTC)": e["excluded_at"][:19].replace("T", " "),
+                    "Reason":   e.get("reason") or "",
+                }
+                for e in exclusions
+            ])
+            st.dataframe(df_log, use_container_width=True, hide_index=True)
+
+    if not docs:
+        st.info("No documents match the selected filters.")
+    else:
         def days_label(d):
             exp = d.get("expected_update_date")
             if not exp:
@@ -477,20 +550,92 @@ with tab2:
                 return f"Due in {delta}d"
             return f"{delta}d"
 
-        df_docs = pd.DataFrame([
-            {
-                "Bot":         d["bot"],
-                "Doc ID":      d["doc_id"],
-                "Title":       d["title"][:80],
-                "Status":      d["status"],
-                "Review Date": d.get("expected_update_date") or "",
-                "Days Left":   days_label(d),
-            }
-            for d in docs
-        ])
-        st.dataframe(df_docs, use_container_width=True, hide_index=True)
-    else:
-        st.info("No documents match the selected filters.")
+        # ── Per-row table with exclude/reinstate toggle (admin only) ────────
+        if st.session_state.get("is_admin"):
+            _admin_name  = st.session_state.get("admin_username", "Admin")
+            _admin_email = st.secrets.get("ADMIN_EMAIL", "")
+
+            # Column headers
+            hdr = st.columns([1, 1.6, 4.5, 1.2, 1.2, 1.2, 1.6])
+            for _h, _t in zip(hdr, ["Bot", "Doc ID", "Title", "Status", "Review", "Days", "RAG Access"]):
+                _h.markdown(
+                    f"<p style='font-size:11px;font-weight:700;color:{label_c};"
+                    f"text-transform:uppercase;letter-spacing:.07em;margin:0 0 4px'>{_t}</p>",
+                    unsafe_allow_html=True,
+                )
+            st.markdown("<hr style='margin:0 0 6px;border-color:#1e2d45'>", unsafe_allow_html=True)
+
+            for _di, _d in enumerate(docs):
+                _key    = (_d["bot"], _d["doc_id"])
+                _is_ex  = _key in excl_keys
+                _ex_rec = excl_keys.get(_key, {})
+                _cols   = st.columns([1, 1.6, 4.5, 1.2, 1.2, 1.2, 1.6])
+
+                _cols[0].write(_d["bot"])
+                _cols[1].write(_d["doc_id"])
+                _title_full = _d["title"]
+                _cols[2].markdown(
+                    f"<span title='{_title_full}'>{_title_full[:60]}{'…' if len(_title_full)>60 else ''}</span>",
+                    unsafe_allow_html=True,
+                )
+                _cols[3].write(_d["status"])
+                _cols[4].write(_d.get("expected_update_date") or "")
+                _cols[5].write(days_label(_d))
+
+                with _cols[6]:
+                    if _is_ex:
+                        _excl_by  = _ex_rec.get("excluded_by", "unknown")
+                        _excl_at  = (_ex_rec.get("excluded_at") or "")[:10]
+                        st.markdown(
+                            f"<span style='color:#ef4444;font-size:.75rem;font-weight:600'>"
+                            f"🚫 Excluded</span><br>"
+                            f"<span style='color:{label_c};font-size:.65rem'>"
+                            f"by {_excl_by} · {_excl_at}</span>",
+                            unsafe_allow_html=True,
+                        )
+                        if st.button("Reinstate", key=f"reinstate_{_di}",
+                                     use_container_width=True):
+                            reinstate_doc(_d["bot"], _d["doc_id"])
+                            st.cache_data.clear()
+                            st.rerun()
+                    else:
+                        if st.button("🚫 Exclude", key=f"excl_{_di}",
+                                     use_container_width=True):
+                            st.session_state[f"_excl_confirm_{_di}"] = True
+
+                        if st.session_state.get(f"_excl_confirm_{_di}"):
+                            _reason = st.text_input(
+                                "Reason (optional)",
+                                key=f"_excl_reason_{_di}",
+                                placeholder="e.g. superseded by newer version",
+                                label_visibility="collapsed",
+                            )
+                            _c1, _c2 = st.columns(2)
+                            if _c1.button("Confirm", key=f"_excl_ok_{_di}", type="primary"):
+                                exclude_doc(_d["bot"], _d["doc_id"],
+                                            _admin_name, _admin_email, _reason)
+                                st.session_state.pop(f"_excl_confirm_{_di}", None)
+                                st.cache_data.clear()
+                                st.rerun()
+                            if _c2.button("Cancel", key=f"_excl_cancel_{_di}"):
+                                st.session_state.pop(f"_excl_confirm_{_di}", None)
+                                st.rerun()
+
+        else:
+            # Viewer: plain dataframe, show excluded status in a column
+            df_docs = pd.DataFrame([
+                {
+                    "Bot":        d["bot"],
+                    "Doc ID":     d["doc_id"],
+                    "Title":      d["title"][:80],
+                    "Status":     d["status"],
+                    "Review Date":d.get("expected_update_date") or "",
+                    "Days Left":  days_label(d),
+                    "RAG Access": "🚫 Excluded" if (d["bot"], d["doc_id"]) in excl_keys else "✅ Active",
+                }
+                for d in docs
+            ])
+            st.dataframe(df_docs, use_container_width=True, hide_index=True)
 
 
 # ─── Tab 3: Bots ────────────────────────────────────────────────────────────

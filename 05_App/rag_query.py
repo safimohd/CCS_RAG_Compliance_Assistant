@@ -36,6 +36,7 @@ import os
 import re
 import sys
 import textwrap
+import time
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -279,6 +280,9 @@ def retrieve(store, question: str, domain: str, k: int = TOP_K,
     if include_drafts: allowed.add("D")
     if include_review: allowed.add("E")
 
+    # Strip admin-excluded documents before retrieval
+    _excluded_ids = fetch_excluded_doc_ids(domain)
+
     # Every filter goes INTO the query. The tier filter used to run on the
     # results, after CANDIDATE_K chunks had already been fetched - and 38% of
     # Healthcare chunks and 29% of RERA chunks are in excluded tiers (D draft,
@@ -304,6 +308,9 @@ def retrieve(store, question: str, domain: str, k: int = TOP_K,
     for doc, raw in hits:
         tier = doc.metadata.get("tier", "E")
         if tier not in allowed:
+            continue
+        # Skip admin-excluded documents
+        if _excluded_ids and doc.metadata.get("doc_id") in _excluded_ids:
             continue
         score = to_cosine(raw, space)
         # Weight a NON-NEGATIVE relevance, never a raw cosine. Multiplying a
@@ -356,6 +363,46 @@ def load_env():
             continue
         k, v = line.split("=", 1)
         os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+
+# Cache so we don't hit Supabase on every chunk retrieval
+_excl_cache: dict = {"ts": 0.0, "keys": set()}
+_EXCL_TTL = 60  # seconds
+
+
+def fetch_excluded_doc_ids(domain: str) -> set[str]:
+    """Return set of doc_id values currently excluded for this domain.
+
+    Results are cached for 60 s to avoid a Supabase round-trip on every query.
+    Falls back to an empty set if the table can't be reached.
+    """
+    global _excl_cache
+    now = time.monotonic()
+    if now - _excl_cache["ts"] < _EXCL_TTL:
+        return _excl_cache["keys"]
+
+    try:
+        import urllib.request, json as _json, urllib.parse
+        load_env()
+        url = os.getenv("SUPABASE_URL", "").rstrip("/")
+        key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY", "")
+        if not url or not key:
+            return set()
+        req_url = (
+            f"{url}/rest/v1/doc_exclusions"
+            f"?select=doc_id&bot=eq.{urllib.parse.quote(domain)}"
+        )
+        req = urllib.request.Request(
+            req_url,
+            headers={"apikey": key, "Authorization": f"Bearer {key}"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            rows = _json.loads(resp.read())
+        excluded = {r["doc_id"] for r in rows}
+        _excl_cache = {"ts": now, "keys": excluded}
+        return excluded
+    except Exception:
+        return _excl_cache.get("keys", set())
 
 
 def generate(question: str, results, domain: str) -> str:
