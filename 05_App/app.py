@@ -787,11 +787,25 @@ section.main { background:transparent !important; }
   border-color:#1E3248 !important;
 }
 /* Re-apply accent colours that the wildcard above would flatten */
-[data-testid="stSidebar"] .stButton > button {
+/* All button variants in sidebar including popover trigger */
+[data-testid="stSidebar"] .stButton > button,
+[data-testid="stSidebar"] [data-testid="stPopoverButton"],
+[data-testid="stSidebar"] [data-testid="stPopoverButton"] > button,
+[data-testid="stSidebar"] [data-testid="stBaseButton-secondary"],
+[data-testid="stSidebar"] [data-testid="baseButton-secondary"],
+[data-testid="stSidebar"] button[kind="secondary"],
+[data-testid="stSidebar"] .stPopover > button,
+[data-testid="stSidebar"] .stPopover button,
+[data-testid="stSidebar"] [class*="stPopover"] button,
+[data-testid="stSidebar"] [class*="popover"] button {
   background:#1A3352 !important; color:#D9E4F1 !important;
   border:1px solid #2E4E6E !important; border-radius:9px !important;
 }
-[data-testid="stSidebar"] .stButton > button:hover {
+[data-testid="stSidebar"] .stButton > button:hover,
+[data-testid="stSidebar"] [data-testid="stPopoverButton"]:hover,
+[data-testid="stSidebar"] [data-testid="stPopoverButton"] > button:hover,
+[data-testid="stSidebar"] .stPopover button:hover,
+[data-testid="stSidebar"] [class*="stPopover"] button:hover {
   background:#1e3248 !important; border-color:#4A90D9 !important;
 }
 [data-testid="stSidebar"] .stButton > button[kind="primary"],
