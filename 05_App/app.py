@@ -895,9 +895,38 @@ textarea {
 [data-testid="stChatInput"] textarea::placeholder,
 textarea::placeholder { color:#8FA8C4 !important; opacity:1 !important; }
 
-/* 8. Expanders */
+/* 8. Expanders — all layers including nested content */
+[data-testid="stExpander"],
 [data-testid="stExpander"] summary,
-[data-testid="stExpander"] > div { background:#152030 !important; border-color:#253A50 !important; }
+[data-testid="stExpander"] > div,
+[data-testid="stExpander"] details,
+[data-testid="stExpander"] details > div,
+[data-testid="stExpander"] [data-testid="stExpanderDetails"],
+[data-testid="stExpander"] [data-testid="stVerticalBlock"],
+[data-testid="stExpander"] [data-testid="stVerticalBlockBorderWrapper"],
+[data-testid="stExpander"] .streamlit-expanderContent {
+  background:#152030 !important;
+  border-color:#253A50 !important;
+}
+/* Session buttons inside the Past sessions expander in the sidebar */
+[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button,
+[data-testid="stSidebar"] [data-testid="stExpander"] button {
+  background:#1A3352 !important;
+  color:#CFE0F2 !important;
+  border:1px solid #2E4E6E !important;
+  text-align:left !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button:hover,
+[data-testid="stSidebar"] [data-testid="stExpander"] button:hover {
+  background:#1e3a5a !important;
+  border-color:#4A90D9 !important;
+}
+/* Any remaining white/light backgrounds anywhere in the sidebar */
+[data-testid="stSidebar"] [data-testid="stExpanderDetails"],
+[data-testid="stSidebar"] [data-testid="stExpander"] *:not(svg):not(path) {
+  background:#060F18 !important;
+  color:#CFE0F2 !important;
+}
 
 /* 9. Text — target only Streamlit markdown, not everything */
 [data-testid="stMarkdownContainer"] p,
