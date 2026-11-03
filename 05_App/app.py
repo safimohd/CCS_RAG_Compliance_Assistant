@@ -1810,23 +1810,6 @@ with st.sidebar:
         st.session_state.pop("_user_sessions", None)
         st.rerun()
 
-    # Export conversation button
-    if st.session_state.get("messages"):
-        lines = []
-        for m in st.session_state.messages:
-            role = "You" if m["role"] == "user" else "Assistant"
-            lines.append(f"**{role}:** {m['content']}")
-            if m.get("sources"):
-                for r in m["sources"]:
-                    lines.append(f"  Source: {clean_title(str(r['title']), r.get('source_file',''))}")
-            lines.append("")
-        export_text = "\n".join(lines)
-        st.download_button("Download conversation",
-                           data=export_text,
-                           file_name="compliance_conversation.txt",
-                           mime="text/plain",
-                           use_container_width=True)
-
     # ── Sessions (Claude-style conversation history) ──────────────────────────
     _cu_sess = _current_user()
     # Fetch on first load or after a role switch clears the cache
@@ -2365,23 +2348,6 @@ if prompt:
                     st.session_state["_active_session_title"] = _sess_title
                     # Refresh session list so sidebar shows latest
                     st.session_state["_user_sessions"] = fetch_user_sessions(20)
-
-            # Download conversation — available immediately after first answer
-            _dl_msgs = st.session_state.messages
-            if _dl_msgs:
-                _dl_lines = []
-                for _dm in _dl_msgs:
-                    _dl_role = "You" if _dm["role"] == "user" else "Assistant"
-                    _dl_lines.append(f"**{_dl_role}:** {_dm['content']}")
-                    if _dm.get("sources"):
-                        for _dr in _dm["sources"]:
-                            _dl_lines.append(f"  Source: {clean_title(str(_dr['title']), _dr.get('source_file',''))}")
-                    _dl_lines.append("")
-                st.download_button("💾 Save conversation",
-                                   data="\n".join(_dl_lines),
-                                   file_name="compliance_conversation.txt",
-                                   mime="text/plain",
-                                   key=f"dl_conv_{new_msg_idx}")
 
             # Action row: copy + share + feedback buttons
             if not low_confidence and client is not None and daily_usage() < DAILY_LIMIT:

@@ -252,7 +252,7 @@ def fetch_documents():
 def fetch_exclusions():
     r = requests.get(
         f"{SUPABASE_URL}/rest/v1/doc_exclusions"
-        f"?select=bot,doc_id,excluded_by,excluded_by_email,excluded_at,reason"
+        f"?select=bot,doc_id,excluded_by,excluded_by_email,excluded_at,reason,status,expires_at"
         f"&order=excluded_at.desc",
         headers=HDRS, timeout=15,
     )
@@ -261,7 +261,8 @@ def fetch_exclusions():
     return r.json()
 
 
-def exclude_doc(bot: str, doc_id: str, user_name: str, user_email: str, reason: str = ""):
+def exclude_doc(bot: str, doc_id: str, user_name: str, user_email: str,
+                reason: str = "", status: str = "excluded", expires_at=None):
     import json as _json
     payload = {
         "bot": bot,
@@ -269,11 +270,13 @@ def exclude_doc(bot: str, doc_id: str, user_name: str, user_email: str, reason: 
         "excluded_by": user_name,
         "excluded_by_email": user_email,
         "reason": reason or None,
+        "status": status,
+        "expires_at": expires_at,
     }
     r = requests.post(
         f"{SUPABASE_URL}/rest/v1/doc_exclusions",
         headers={**HDRS, "Prefer": "resolution=merge-duplicates"},
-        data=_json.dumps(payload),
+        data=_json.dumps(payload, default=str),
         timeout=10,
     )
     return r.status_code in (200, 201)
@@ -498,7 +501,7 @@ with tab2:
     with col_status:
         status_filter = st.selectbox("Status", ["All", "current", "archived", "pending"])
     with col_excl_filter:
-        excl_filter = st.selectbox("RAG Access", ["All", "Active", "Excluded"])
+        excl_filter = st.selectbox("RAG Access", ["All", "Active", "Excluded", "Expired"])
 
     if bot_filter != "All":
         docs = [d for d in docs if d["bot"] == bot_filter]
@@ -507,7 +510,11 @@ with tab2:
     if excl_filter == "Active":
         docs = [d for d in docs if (d["bot"], d["doc_id"]) not in excl_keys]
     elif excl_filter == "Excluded":
-        docs = [d for d in docs if (d["bot"], d["doc_id"]) in excl_keys]
+        docs = [d for d in docs if (d["bot"], d["doc_id"]) in excl_keys
+                and excl_keys[(d["bot"], d["doc_id"])].get("status") == "excluded"]
+    elif excl_filter == "Expired":
+        docs = [d for d in docs if (d["bot"], d["doc_id"]) in excl_keys
+                and excl_keys[(d["bot"], d["doc_id"])].get("status") == "expired"]
 
     label_c = "#6b7f9a" if is_dark else "#6b7a99"
     n_excl   = sum(1 for d in docs if (d["bot"], d["doc_id"]) in excl_keys)
@@ -516,7 +523,7 @@ with tab2:
         f"<p style='color:{label_c};font-size:11px;font-weight:700;text-transform:uppercase;"
         f"letter-spacing:0.08em;margin:4px 0 4px;'>"
         f"{len(docs)} documents shown"
-        + (f" &nbsp;·&nbsp; <span style='color:#ef4444'>{n_excl} excluded from RAG</span>" if n_excl else "")
+        + (f" &nbsp;·&nbsp; <span style='color:#ef4444'>{n_excl} removed from RAG</span>" if n_excl else "")
         + "</p>",
         unsafe_allow_html=True,
     )
@@ -526,12 +533,14 @@ with tab2:
         with st.expander(f"📋 Exclusion log ({len(exclusions)} entries)", expanded=False):
             df_log = pd.DataFrame([
                 {
-                    "Bot":      e["bot"],
-                    "Doc ID":   e["doc_id"],
-                    "Excluded by": e["excluded_by"],
-                    "Email":    e.get("excluded_by_email") or "",
-                    "At (UTC)": e["excluded_at"][:19].replace("T", " "),
-                    "Reason":   e.get("reason") or "",
+                    "Bot":         e["bot"],
+                    "Doc ID":      e["doc_id"],
+                    "Type":        ("⏳ Expired" if e.get("status") == "expired" else "🚫 Excluded"),
+                    "By":          e["excluded_by"],
+                    "Email":       e.get("excluded_by_email") or "",
+                    "At (UTC)":    e["excluded_at"][:19].replace("T", " "),
+                    "Expires At":  (e.get("expires_at") or "")[:10],
+                    "Reason":      e.get("reason") or "",
                 }
                 for e in exclusions
             ])
@@ -585,13 +594,18 @@ with tab2:
 
                 with _cols[6]:
                     if _is_ex:
+                        _excl_status = _ex_rec.get("status", "excluded")
                         _excl_by  = _ex_rec.get("excluded_by", "unknown")
                         _excl_at  = (_ex_rec.get("excluded_at") or "")[:10]
+                        _excl_exp = (_ex_rec.get("expires_at") or "")[:10]
+                        _status_icon = "⏳" if _excl_status == "expired" else "🚫"
+                        _status_label = "Expired" if _excl_status == "expired" else "Excluded"
+                        _exp_line = f"<br><span style='color:{label_c};font-size:.62rem'>expires {_excl_exp}</span>" if _excl_exp else ""
                         st.markdown(
                             f"<span style='color:#ef4444;font-size:.75rem;font-weight:600'>"
-                            f"🚫 Excluded</span><br>"
+                            f"{_status_icon} {_status_label}</span><br>"
                             f"<span style='color:{label_c};font-size:.65rem'>"
-                            f"by {_excl_by} · {_excl_at}</span>",
+                            f"by {_excl_by} · {_excl_at}</span>{_exp_line}",
                             unsafe_allow_html=True,
                         )
                         if st.button("Reinstate", key=f"reinstate_{_di}",
@@ -600,21 +614,39 @@ with tab2:
                             st.cache_data.clear()
                             st.rerun()
                     else:
-                        if st.button("🚫 Exclude", key=f"excl_{_di}",
-                                     use_container_width=True):
-                            st.session_state[f"_excl_confirm_{_di}"] = True
+                        # Two action buttons: Exclude (permanent) and Mark Expired (time-bound)
+                        _btn_ex, _btn_exp = st.columns(2)
+                        if _btn_ex.button("🚫", key=f"excl_{_di}", help="Exclude from RAG",
+                                          use_container_width=True):
+                            st.session_state[f"_excl_confirm_{_di}"] = "excluded"
+                        if _btn_exp.button("⏳", key=f"exp_{_di}", help="Mark as Expired",
+                                           use_container_width=True):
+                            st.session_state[f"_excl_confirm_{_di}"] = "expired"
 
-                        if st.session_state.get(f"_excl_confirm_{_di}"):
+                        _pending_action = st.session_state.get(f"_excl_confirm_{_di}")
+                        if _pending_action:
+                            _action_label = "Exclude" if _pending_action == "excluded" else "Mark Expired"
+                            st.caption(f"Action: {_action_label}")
                             _reason = st.text_input(
                                 "Reason (optional)",
                                 key=f"_excl_reason_{_di}",
                                 placeholder="e.g. superseded by newer version",
                                 label_visibility="collapsed",
                             )
+                            _exp_date = None
+                            if _pending_action == "expired":
+                                _exp_date_val = st.date_input(
+                                    "Expiry date",
+                                    key=f"_excl_expiry_{_di}",
+                                    label_visibility="collapsed",
+                                    help="Document will stop being used in RAG from this date onward",
+                                )
+                                _exp_date = _exp_date_val.isoformat() if _exp_date_val else None
                             _c1, _c2 = st.columns(2)
                             if _c1.button("Confirm", key=f"_excl_ok_{_di}", type="primary"):
                                 exclude_doc(_d["bot"], _d["doc_id"],
-                                            _admin_name, _admin_email, _reason)
+                                            _admin_name, _admin_email, _reason,
+                                            status=_pending_action, expires_at=_exp_date)
                                 st.session_state.pop(f"_excl_confirm_{_di}", None)
                                 st.cache_data.clear()
                                 st.rerun()
@@ -632,7 +664,11 @@ with tab2:
                     "Status":     d["status"],
                     "Review Date":d.get("expected_update_date") or "",
                     "Days Left":  days_label(d),
-                    "RAG Access": "🚫 Excluded" if (d["bot"], d["doc_id"]) in excl_keys else "✅ Active",
+                    "RAG Access": (
+                        ("⏳ Expired" if excl_keys.get((d["bot"], d["doc_id"]), {}).get("status") == "expired"
+                         else "🚫 Excluded")
+                        if (d["bot"], d["doc_id"]) in excl_keys else "✅ Active"
+                    ),
                 }
                 for d in docs
             ])
@@ -703,7 +739,6 @@ with tab3:
         """, unsafe_allow_html=True)
 
     st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-    st.info("Update the bot URLs in 05_App/admin.py → Tab 3 once deployment links are finalized.")
 
 
 # ─── Tab 4: KB Coverage ─────────────────────────────────────────────────────

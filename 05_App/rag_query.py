@@ -371,8 +371,9 @@ _EXCL_TTL = 60  # seconds
 
 
 def fetch_excluded_doc_ids(domain: str) -> set[str]:
-    """Return set of doc_id values currently excluded for this domain.
+    """Return set of doc_id values currently inactive for this domain.
 
+    Covers both 'excluded' (indefinite) and 'expired' (where expires_at has passed).
     Results are cached for 60 s to avoid a Supabase round-trip on every query.
     Falls back to an empty set if the table can't be reached.
     """
@@ -383,6 +384,7 @@ def fetch_excluded_doc_ids(domain: str) -> set[str]:
 
     try:
         import urllib.request, json as _json, urllib.parse
+        from datetime import datetime, timezone
         load_env()
         url = os.getenv("SUPABASE_URL", "").rstrip("/")
         key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY", "")
@@ -390,7 +392,7 @@ def fetch_excluded_doc_ids(domain: str) -> set[str]:
             return set()
         req_url = (
             f"{url}/rest/v1/doc_exclusions"
-            f"?select=doc_id&bot=eq.{urllib.parse.quote(domain)}"
+            f"?select=doc_id,status,expires_at&bot=eq.{urllib.parse.quote(domain)}"
         )
         req = urllib.request.Request(
             req_url,
@@ -398,7 +400,26 @@ def fetch_excluded_doc_ids(domain: str) -> set[str]:
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
             rows = _json.loads(resp.read())
-        excluded = {r["doc_id"] for r in rows}
+
+        utc_now = datetime.now(timezone.utc)
+        excluded = set()
+        for r in rows:
+            status = r.get("status", "excluded")
+            if status == "excluded":
+                excluded.add(r["doc_id"])
+            elif status == "expired":
+                # Only block the doc if its expiry date has passed (or no date set)
+                exp_str = r.get("expires_at")
+                if not exp_str:
+                    excluded.add(r["doc_id"])
+                else:
+                    try:
+                        exp_dt = datetime.fromisoformat(exp_str.replace("Z", "+00:00"))
+                        if utc_now >= exp_dt:
+                            excluded.add(r["doc_id"])
+                    except ValueError:
+                        excluded.add(r["doc_id"])
+
         _excl_cache = {"ts": now, "keys": excluded}
         return excluded
     except Exception:
