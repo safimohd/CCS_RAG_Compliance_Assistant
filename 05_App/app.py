@@ -1867,10 +1867,27 @@ if store is None:
 
 client = get_client()
 
-# ── Main layout: hero (left/center) + auth panel (right) ─────────────────────
-_main_col, _auth_col = st.columns([5, 1], gap="small")
+# ── Right slide-out auth panel ────────────────────────────────────────────────
+# A narrow toggle tab sits at the right edge. Clicking it opens/closes a panel.
+_panel_open = st.session_state.get("_auth_panel_open", False)
+_cu_rp = _current_user()
+_rp_role_colors = {
+    "user": ("#1a3352", "#4A90D9"),
+    "compliance_officer": ("#1a3d2a", "#34A853"),
+    "admin": ("#3d1a1a", "#D94A4A"),
+}
+_rp_bg, _rp_bd = _rp_role_colors.get(_cu_rp["role"], ("#1a3352", "#4A90D9"))
+_rp_labels = {"user": "User", "compliance_officer": "CO", "admin": "Admin"}
+_rp_label_val = _rp_labels.get(_cu_rp["role"], _cu_rp["role"])
 
-with _main_col:
+if _panel_open:
+    # Hero shrinks to make room for the panel
+    _hero_col, _panel_col = st.columns([4, 1], gap="small")
+else:
+    # Hero takes full width; tiny column just holds the toggle tab
+    _hero_col, _panel_col = st.columns([5.8, 0.2], gap="small")
+
+with _hero_col:
     st.markdown(
         "<div class='rc-hero'>"
         f"<h1>{meta['title']}</h1>"
@@ -1881,67 +1898,75 @@ with _main_col:
         + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"]) +
         "</div></div>", unsafe_allow_html=True)
 
-with _auth_col:
-    # Right-side role switcher panel for demo / judges
-    _cu_rp = _current_user()
-    _rp_role_colors = {
-        "user": ("#1a3352", "#4A90D9"),
-        "compliance_officer": ("#1a3d2a", "#34A853"),
-        "admin": ("#3d1a1a", "#D94A4A"),
-    }
-    _rp_bg, _rp_bd = _rp_role_colors.get(_cu_rp["role"], ("#1a3352", "#4A90D9"))
-    # Role label helper
-    _rp_labels = {"user": "User", "compliance_officer": "CO", "admin": "Admin"}
-    _rp_label_val = _rp_labels.get(_cu_rp["role"], _cu_rp["role"])
-    st.markdown(
-        f"<div style='background:{_rp_bg};border:1px solid {_rp_bd};border-radius:8px;"
-        f"padding:8px 10px;text-align:center;margin-bottom:8px'>"
-        f"<div style='font-size:.6rem;color:#8FA8C4;margin-bottom:2px'>Signed in as</div>"
-        f"<div style='font-size:.72rem;font-weight:700;color:#CFE0F2'>{_cu_rp['name']}</div>"
-        f"<div style='font-size:.62rem;color:{_rp_bd};font-weight:600'>{_rp_label_val}</div>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        "<div style='font-size:.58rem;color:#7E99BA;text-transform:uppercase;"
-        "letter-spacing:.07em;font-weight:700;margin:.4rem 0 .3rem;text-align:center'>"
-        "Switch role</div>",
-        unsafe_allow_html=True,
-    )
-    if st.button("👤 Guest", key="rp_guest", use_container_width=True,
-                 type="primary" if not _cu_rp["id"] else "secondary"):
-        _do_role_switch("guest")
-    if st.button("🎖 CO", key="rp_co", use_container_width=True,
-                 help="Compliance Officer",
-                 type="primary" if _cu_rp["role"] == "compliance_officer" else "secondary"):
-        _do_role_switch("compliance_officer")
-    if st.button("🔑 Admin", key="rp_admin", use_container_width=True,
-                 type="primary" if _cu_rp["role"] == "admin" else "secondary"):
-        _do_role_switch("admin")
-    with st.expander("🔐 Login", expanded=False):
-        _rp_email = st.text_input("Email", key="_rp_login_email",
-                                  placeholder="you@claritai.in",
-                                  label_visibility="collapsed")
-        _rp_pw = st.text_input("Password", type="password", key="_rp_login_pw",
-                               placeholder="Password",
-                               label_visibility="collapsed")
-        if st.button("Sign in", use_container_width=True, key="_rp_login_btn"):
-            _rp_found = _auth_lookup(_rp_email, _rp_pw)
-            if _rp_found:
-                st.session_state["current_user"] = _rp_found
-                st.session_state["_auth_err"] = ""
-                st.session_state.pop("_db_query_history", None)
-                st.session_state.pop("_cached_bookmarks", None)
-                st.session_state.pop("_user_sessions", None)
-                st.session_state.pop("_active_session_id", None)
-                st.session_state.pop("_active_session_title", None)
-                st.session_state["messages"] = []
-                st.session_state["feedback"] = {}
-                st.rerun()
-            else:
-                st.session_state["_auth_err"] = "Incorrect email or password."
-        if st.session_state.get("_auth_err"):
-            st.error(st.session_state["_auth_err"])
+with _panel_col:
+    if not _panel_open:
+        # Compact toggle tab — role-coloured pill on the right edge
+        st.markdown(
+            f"<div style='display:flex;flex-direction:column;align-items:center;"
+            f"gap:4px;padding-top:1.2rem'>",
+            unsafe_allow_html=True)
+        if st.button("👤", key="panel_open_btn",
+                     help=f"Open account panel  ({_cu_rp['name']} · {_rp_label_val})",
+                     use_container_width=True):
+            st.session_state["_auth_panel_open"] = True
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        # Full panel — close button + badge + role chips + login
+        _close_col, _ = st.columns([1, 3])
+        if _close_col.button("✕", key="panel_close_btn", help="Close panel"):
+            st.session_state["_auth_panel_open"] = False
+            st.rerun()
+
+        st.markdown(
+            f"<div style='background:{_rp_bg};border:1px solid {_rp_bd};"
+            f"border-radius:8px;padding:8px 10px;text-align:center;margin-bottom:8px'>"
+            f"<div style='font-size:.58rem;color:#8FA8C4;margin-bottom:2px'>Signed in as</div>"
+            f"<div style='font-size:.7rem;font-weight:700;color:#CFE0F2'>{_cu_rp['name']}</div>"
+            f"<div style='font-size:.6rem;color:{_rp_bd};font-weight:600'>{_rp_label_val}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            "<div style='font-size:.56rem;color:#7E99BA;text-transform:uppercase;"
+            "letter-spacing:.07em;font-weight:700;margin:.3rem 0 .2rem;text-align:center'>"
+            "Switch role</div>",
+            unsafe_allow_html=True,
+        )
+        if st.button("👤 Guest", key="rp_guest", use_container_width=True,
+                     type="primary" if not _cu_rp["id"] else "secondary"):
+            _do_role_switch("guest")
+        if st.button("🎖 CO", key="rp_co", use_container_width=True,
+                     help="Compliance Officer",
+                     type="primary" if _cu_rp["role"] == "compliance_officer" else "secondary"):
+            _do_role_switch("compliance_officer")
+        if st.button("🔑 Admin", key="rp_admin", use_container_width=True,
+                     type="primary" if _cu_rp["role"] == "admin" else "secondary"):
+            _do_role_switch("admin")
+        with st.expander("🔐 Login", expanded=False):
+            _rp_email = st.text_input("Email", key="_rp_login_email",
+                                      placeholder="you@claritai.in",
+                                      label_visibility="collapsed")
+            _rp_pw = st.text_input("Password", type="password", key="_rp_login_pw",
+                                   placeholder="Password",
+                                   label_visibility="collapsed")
+            if st.button("Sign in", use_container_width=True, key="_rp_login_btn"):
+                _rp_found = _auth_lookup(_rp_email, _rp_pw)
+                if _rp_found:
+                    st.session_state["current_user"] = _rp_found
+                    st.session_state["_auth_err"] = ""
+                    st.session_state.pop("_db_query_history", None)
+                    st.session_state.pop("_cached_bookmarks", None)
+                    st.session_state.pop("_user_sessions", None)
+                    st.session_state.pop("_active_session_id", None)
+                    st.session_state.pop("_active_session_title", None)
+                    st.session_state["messages"] = []
+                    st.session_state["feedback"] = {}
+                    st.rerun()
+                else:
+                    st.session_state["_auth_err"] = "Incorrect email or password."
+            if st.session_state.get("_auth_err"):
+                st.error(st.session_state["_auth_err"])
 
 if client is None:
     st.warning("Answer generation is not configured. Source search still works.")
