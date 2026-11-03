@@ -1497,7 +1497,7 @@ with st.sidebar:
                 "<div class='rc-brand-sub'>IIM Bangalore · ClaritAI</div>",
                 unsafe_allow_html=True)
 
-    # ── user identity ─────────────────────────────────────────────────────────
+    # ── user identity (sidebar badge only — role switch panel is on the right) ──
     if "current_user" not in st.session_state:
         st.session_state["current_user"] = None   # None resolves to Guest
 
@@ -1515,24 +1515,17 @@ with st.sidebar:
     }
     _rc_bg, _rc_bd = _role_colors.get(_cu["role"], ("#1a3352", "#4A90D9"))
 
-    # Current user badge
+    # Compact badge — name + role chip only, no switch UI here
     st.markdown(
         f"<div style='font-size:.72rem;color:#8FA8C4;margin:.5rem 0 .25rem'>"
         f"Signed in as <b style='color:#CFE0F2'>{_cu['name']}</b></div>"
         f"<div style='display:inline-block;background:{_rc_bg};border:1px solid {_rc_bd};"
         f"border-radius:5px;padding:2px 10px;font-size:.65rem;color:{_rc_bd};"
-        f"font-weight:600;margin-bottom:.4rem'>{_role_badge}</div>",
+        f"font-weight:600;margin-bottom:.6rem'>{_role_badge}</div>",
         unsafe_allow_html=True,
     )
 
-    # Quick-role chips for demo / judges
-    st.markdown(
-        "<div style='font-size:.62rem;color:#7E99BA;text-transform:uppercase;"
-        "letter-spacing:.08em;font-weight:700;margin:.3rem 0 .2rem'>Switch role</div>",
-        unsafe_allow_html=True,
-    )
-    _qr_c1, _qr_c2, _qr_c3 = st.columns(3)
-
+    # _do_role_switch helper defined here so it's available to the right panel below
     def _do_role_switch(role_key: str) -> None:
         _found = _demo_login(role_key) if role_key != "guest" else None
         st.session_state["current_user"] = _found
@@ -1540,43 +1533,6 @@ with st.sidebar:
         st.session_state.pop("_db_query_history", None)
         st.session_state.pop("_cached_bookmarks", None)
         st.rerun()
-
-    if _qr_c1.button("👤 Guest",
-                      key="qr_guest",
-                      use_container_width=True,
-                      type="primary" if not _cu["id"] else "secondary"):
-        _do_role_switch("guest")
-
-    if _qr_c2.button("🎖 CO",
-                      key="qr_co",
-                      use_container_width=True,
-                      help="Compliance Officer",
-                      type="primary" if _cu["role"] == "compliance_officer" else "secondary"):
-        _do_role_switch("compliance_officer")
-
-    if _qr_c3.button("🔑 Admin",
-                      key="qr_admin",
-                      use_container_width=True,
-                      type="primary" if _cu["role"] == "admin" else "secondary"):
-        _do_role_switch("admin")
-
-    # Custom login expander (collapsed by default)
-    with st.expander("🔐 Custom login", expanded=False):
-        _login_email = st.text_input("Email", key="_login_email",
-                                     placeholder="you@claritai.in")
-        _login_pw    = st.text_input("Password", type="password", key="_login_pw")
-        if st.button("Sign in", use_container_width=True, key="_login_btn"):
-            _found = _auth_lookup(_login_email, _login_pw)
-            if _found:
-                st.session_state["current_user"] = _found
-                st.session_state["_auth_err"] = ""
-                st.session_state.pop("_db_query_history", None)
-                st.session_state.pop("_cached_bookmarks", None)
-                st.rerun()
-            else:
-                st.session_state["_auth_err"] = "Incorrect email or password."
-        if st.session_state.get("_auth_err"):
-            st.error(st.session_state["_auth_err"])
 
     st.divider()
 
@@ -1687,17 +1643,22 @@ with st.sidebar:
         if _q not in _seen_qs:
             _seen_qs.add(_q)
             _history.append(_q)
-    if _history:
-        st.divider()
-        st.markdown("<div class='rc-side-h'>Query history</div>",
-                    unsafe_allow_html=True)
-        for _hi, _hq in enumerate(_history[:12]):
-            _label = (_hq[:55] + "…") if len(_hq) > 55 else _hq
-            if st.button(_label, key=f"hist_btn_{_hi}",
-                         use_container_width=True,
-                         help=_hq if len(_hq) > 55 else ""):
-                st.session_state["pending_q"] = _hq
-                st.rerun()
+    # Query history — always visible as a collapsible expander from first load
+    st.divider()
+    with st.expander("🕐 Query history", expanded=False):
+        if _history:
+            for _hi, _hq in enumerate(_history[:12]):
+                _label = (_hq[:52] + "…") if len(_hq) > 52 else _hq
+                if st.button(_label, key=f"hist_btn_{_hi}",
+                             use_container_width=True,
+                             help=_hq if len(_hq) > 52 else ""):
+                    st.session_state["pending_q"] = _hq
+                    st.rerun()
+        else:
+            if _cu_qh.get("id"):
+                st.caption("No past queries yet — your history will appear here.")
+            else:
+                st.caption("Sign in to see your query history across sessions.")
 
     st.divider()
     st.toggle("🌙 Dark mode", key="dark_mode",
@@ -1797,15 +1758,76 @@ if store is None:
 
 client = get_client()
 
-st.markdown(
-    "<div class='rc-hero'>"
-    f"<h1>{meta['title']}</h1>"
-    f"<p>{meta['lede']} Answers come only from these official documents. Where they "
-    "do not settle a question, the assistant says so rather than guessing, and "
-    "every answer shows the sources it relied on.</p>"
-    "<div class='rc-stats'>"
-    + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"]) +
-    "</div></div>", unsafe_allow_html=True)
+# ── Main layout: hero (left/center) + auth panel (right) ─────────────────────
+_main_col, _auth_col = st.columns([5, 1], gap="small")
+
+with _main_col:
+    st.markdown(
+        "<div class='rc-hero'>"
+        f"<h1>{meta['title']}</h1>"
+        f"<p>{meta['lede']} Answers come only from these official documents. Where they "
+        "do not settle a question, the assistant says so rather than guessing, and "
+        "every answer shows the sources it relied on.</p>"
+        "<div class='rc-stats'>"
+        + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"]) +
+        "</div></div>", unsafe_allow_html=True)
+
+with _auth_col:
+    # Right-side role switcher panel for demo / judges
+    _cu_rp = _current_user()
+    _rp_role_colors = {
+        "user": ("#1a3352", "#4A90D9"),
+        "compliance_officer": ("#1a3d2a", "#34A853"),
+        "admin": ("#3d1a1a", "#D94A4A"),
+    }
+    _rp_bg, _rp_bd = _rp_role_colors.get(_cu_rp["role"], ("#1a3352", "#4A90D9"))
+    # Role label helper
+    _rp_labels = {"user": "User", "compliance_officer": "CO", "admin": "Admin"}
+    _rp_label_val = _rp_labels.get(_cu_rp["role"], _cu_rp["role"])
+    st.markdown(
+        f"<div style='background:{_rp_bg};border:1px solid {_rp_bd};border-radius:8px;"
+        f"padding:8px 10px;text-align:center;margin-bottom:8px'>"
+        f"<div style='font-size:.6rem;color:#8FA8C4;margin-bottom:2px'>Signed in as</div>"
+        f"<div style='font-size:.72rem;font-weight:700;color:#CFE0F2'>{_cu_rp['name']}</div>"
+        f"<div style='font-size:.62rem;color:{_rp_bd};font-weight:600'>{_rp_label_val}</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<div style='font-size:.58rem;color:#7E99BA;text-transform:uppercase;"
+        "letter-spacing:.07em;font-weight:700;margin:.4rem 0 .3rem;text-align:center'>"
+        "Switch role</div>",
+        unsafe_allow_html=True,
+    )
+    if st.button("👤 Guest", key="rp_guest", use_container_width=True,
+                 type="primary" if not _cu_rp["id"] else "secondary"):
+        _do_role_switch("guest")
+    if st.button("🎖 CO", key="rp_co", use_container_width=True,
+                 help="Compliance Officer",
+                 type="primary" if _cu_rp["role"] == "compliance_officer" else "secondary"):
+        _do_role_switch("compliance_officer")
+    if st.button("🔑 Admin", key="rp_admin", use_container_width=True,
+                 type="primary" if _cu_rp["role"] == "admin" else "secondary"):
+        _do_role_switch("admin")
+    with st.expander("🔐 Login", expanded=False):
+        _rp_email = st.text_input("Email", key="_rp_login_email",
+                                  placeholder="you@claritai.in",
+                                  label_visibility="collapsed")
+        _rp_pw = st.text_input("Password", type="password", key="_rp_login_pw",
+                               placeholder="Password",
+                               label_visibility="collapsed")
+        if st.button("Sign in", use_container_width=True, key="_rp_login_btn"):
+            _rp_found = _auth_lookup(_rp_email, _rp_pw)
+            if _rp_found:
+                st.session_state["current_user"] = _rp_found
+                st.session_state["_auth_err"] = ""
+                st.session_state.pop("_db_query_history", None)
+                st.session_state.pop("_cached_bookmarks", None)
+                st.rerun()
+            else:
+                st.session_state["_auth_err"] = "Incorrect email or password."
+        if st.session_state.get("_auth_err"):
+            st.error(st.session_state["_auth_err"])
 
 if client is None:
     st.warning("Answer generation is not configured. Source search still works.")
