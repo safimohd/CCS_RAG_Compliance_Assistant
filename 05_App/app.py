@@ -1867,8 +1867,7 @@ if store is None:
 
 client = get_client()
 
-# ── Right slide-out auth panel ────────────────────────────────────────────────
-# Auth panel row sits ABOVE the hero so the hero is always full width.
+# ── Right auth panel (fixed overlay via CSS + Streamlit columns) ─────────────
 _panel_open = st.session_state.get("_auth_panel_open", False)
 _cu_rp = _current_user()
 _rp_role_colors = {
@@ -1880,39 +1879,124 @@ _rp_bg, _rp_bd = _rp_role_colors.get(_cu_rp["role"], ("#1a3352", "#4A90D9"))
 _rp_labels = {"user": "User", "compliance_officer": "CO", "admin": "Admin"}
 _rp_label_val = _rp_labels.get(_cu_rp["role"], _cu_rp["role"])
 
-# ── Toggle button row (right-aligned, outside hero) ────────────────────────
+# CSS: fixed toggle tab on right edge + slide-in panel
+_panel_css = f"""
+<style>
+/* Fixed account toggle tab — always visible on right edge */
+.auth-toggle-wrap {{
+    position: fixed;
+    top: 72px;
+    right: 0;
+    z-index: 1200;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+}}
+.auth-toggle-tab {{
+    background: {_rp_bg};
+    border: 1px solid {_rp_bd};
+    border-right: none;
+    border-radius: 8px 0 0 8px;
+    padding: 8px 10px 8px 12px;
+    color: {_rp_bd};
+    font-size: .72rem;
+    font-weight: 700;
+    cursor: pointer;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    letter-spacing: .05em;
+    user-select: none;
+    box-shadow: -2px 2px 8px rgba(0,0,0,.3);
+    line-height: 1.4;
+}}
+/* Fixed slide-in panel */
+.auth-panel-fixed {{
+    position: fixed;
+    top: 60px;
+    right: 0;
+    width: 240px;
+    max-height: calc(100vh - 80px);
+    overflow-y: auto;
+    background: #0D1826;
+    border: 1px solid #1E3248;
+    border-right: none;
+    border-radius: 12px 0 0 12px;
+    padding: 14px 14px 18px;
+    z-index: 1200;
+    box-shadow: -4px 0 24px rgba(0,0,0,.45);
+}}
+.auth-panel-fixed .user-badge {{
+    background: {_rp_bg};
+    border: 1px solid {_rp_bd};
+    border-radius: 8px;
+    padding: 10px;
+    text-align: center;
+    margin-bottom: 10px;
+}}
+.auth-panel-fixed .user-badge .label {{
+    font-size: .58rem;
+    color: #8FA8C4;
+    margin-bottom: 3px;
+}}
+.auth-panel-fixed .user-badge .name {{
+    font-size: .82rem;
+    font-weight: 700;
+    color: #CFE0F2;
+}}
+.auth-panel-fixed .user-badge .role {{
+    font-size: .62rem;
+    color: {_rp_bd};
+    font-weight: 600;
+    margin-top: 2px;
+}}
+.auth-panel-fixed .section-label {{
+    font-size: .55rem;
+    color: #7E99BA;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    font-weight: 700;
+    text-align: center;
+    margin: 8px 0 6px;
+}}
+</style>
+"""
+st.markdown(_panel_css, unsafe_allow_html=True)
+
 if not _panel_open:
-    _tb_spacer, _tb_col = st.columns([5, 1], gap="small")
-    with _tb_col:
-        if st.button(f"👤 {_rp_label_val}", key="panel_open_btn",
-                     help=f"Account panel  —  {_cu_rp['name']}",
+    # Show the vertical tab on the right edge — clicking triggers rerun via a Streamlit button
+    # We position the button column to be out of layout view and use CSS to fix its position
+    st.markdown(
+        f"<div class='auth-toggle-wrap'>"
+        f"<div class='auth-toggle-tab'>👤&nbsp;{_rp_label_val}</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    # Invisible spacer column trick: a real Streamlit button in the top-right corner
+    _sp, _btn_col = st.columns([11, 1])
+    with _btn_col:
+        if st.button("👤", key="panel_open_btn", help=f"Open account panel — {_cu_rp['name']}",
                      use_container_width=True):
             st.session_state["_auth_panel_open"] = True
             st.rerun()
 else:
-    # Open: spacer + full panel column
-    _tb_spacer, _panel_col = st.columns([2, 2], gap="small")
+    # Render the fixed panel as HTML (display only)
+    st.markdown(
+        f"<div class='auth-panel-fixed'>"
+        f"<div class='user-badge'>"
+        f"<div class='label'>Signed in as</div>"
+        f"<div class='name'>{_cu_rp['name']}</div>"
+        f"<div class='role'>{_rp_label_val}</div>"
+        f"</div>"
+        f"<div class='section-label'>Switch role</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+    # Real interactive buttons in a right-aligned column (positioned under the fixed panel area)
+    _sp, _panel_col = st.columns([3, 1])
     with _panel_col:
-        _close_col, _ = st.columns([1, 3])
-        if _close_col.button("✕ Close", key="panel_close_btn"):
+        if st.button("✕ Close", key="panel_close_btn", use_container_width=True):
             st.session_state["_auth_panel_open"] = False
             st.rerun()
-
-        st.markdown(
-            f"<div style='background:{_rp_bg};border:1px solid {_rp_bd};"
-            f"border-radius:8px;padding:10px 12px;text-align:center;margin-bottom:10px'>"
-            f"<div style='font-size:.6rem;color:#8FA8C4;margin-bottom:3px'>Signed in as</div>"
-            f"<div style='font-size:.8rem;font-weight:700;color:#CFE0F2'>{_cu_rp['name']}</div>"
-            f"<div style='font-size:.65rem;color:{_rp_bd};font-weight:600'>{_rp_label_val}</div>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            "<div style='font-size:.56rem;color:#7E99BA;text-transform:uppercase;"
-            "letter-spacing:.07em;font-weight:700;margin:.3rem 0 .2rem;text-align:center'>"
-            "Switch role</div>",
-            unsafe_allow_html=True,
-        )
         if st.button("👤 Guest", key="rp_guest", use_container_width=True,
                      type="primary" if not _cu_rp["id"] else "secondary"):
             _do_role_switch("guest")
@@ -1948,7 +2032,7 @@ else:
             if st.session_state.get("_auth_err"):
                 st.error(st.session_state["_auth_err"])
 
-# ── Hero banner — always full width, below the auth toggle row ─────────────
+# ── Hero banner — always full width ────────────────────────────────────────
 st.markdown(
     "<div class='rc-hero'>"
     f"<h1>{meta['title']}</h1>"
