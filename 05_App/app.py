@@ -1885,10 +1885,7 @@ with st.sidebar:
                 # Two-line label: top = session number + date/time, bottom = topic snippet
                 _topic = (_s_title[:38] + "…") if len(_s_title) > 38 else _s_title
                 _q_label = f"{_s_q_count}Q" if _s_q_count > 0 else "—"
-                _s_display = (
-                    f"Session #{_sess_num}  ·  {_date_part}  ·  {_q_label}\n"
-                    f"{_dom_icon} {_topic}"
-                )
+                _s_display = f"Session #{_sess_num}  ·  {_date_part}  ·  {_q_label}  {_dom_icon}"
 
                 if st.button(_s_display, key=f"sess_btn_{_si}",
                              use_container_width=True,
