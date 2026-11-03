@@ -192,6 +192,7 @@ if not st.session_state.authenticated:
                 if uname == ADMIN_USERNAME and pwd == ADMIN_SECRET:
                     st.session_state.authenticated = True
                     st.session_state.is_admin = True
+                    st.session_state.admin_username = uname
                     st.rerun()
                 else:
                     st.error("Invalid username or password.")
