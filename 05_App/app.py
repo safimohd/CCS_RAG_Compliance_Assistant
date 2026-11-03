@@ -801,6 +801,23 @@ section.main { background:transparent !important; }
   background:#1A3352 !important; color:#D9E4F1 !important;
   border:1px solid #2E4E6E !important; border-radius:9px !important;
 }
+/* Popover trigger wrapper divs — the white pill container around "Demo User · User" */
+[data-testid="stSidebar"] .stPopover,
+[data-testid="stSidebar"] [data-testid="stPopover"],
+[data-testid="stSidebar"] [class*="stPopover"],
+[data-testid="stSidebar"] [data-testid="stPopoverButton"] > div,
+[data-testid="stSidebar"] [data-testid="stPopover"] > div,
+[data-testid="stSidebar"] div:has(> [data-testid="stPopoverButton"]) {
+  background:#1A3352 !important;
+  border:1px solid #2E4E6E !important;
+  border-radius:9px !important;
+}
+[data-testid="stSidebar"] [data-testid="stPopoverButton"] p,
+[data-testid="stSidebar"] [data-testid="stPopoverButton"] span,
+[data-testid="stSidebar"] [class*="stPopover"] p,
+[data-testid="stSidebar"] [class*="stPopover"] span {
+  color:#D9E4F1 !important;
+}
 [data-testid="stSidebar"] .stButton > button:hover,
 [data-testid="stSidebar"] [data-testid="stPopoverButton"]:hover,
 [data-testid="stSidebar"] [data-testid="stPopoverButton"] > button:hover,
