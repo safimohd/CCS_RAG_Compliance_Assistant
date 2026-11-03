@@ -795,16 +795,26 @@ section.main { background:transparent !important; }
 .stDownloadButton > button:hover {
   background:#1e3248 !important; border-color:#4A90D9 !important;
 }
-/* Sidebar expander header and interior — keep dark */
+/* Sidebar expander — every Streamlit DOM layer, light + dark */
 [data-testid="stSidebar"] [data-testid="stExpander"],
-[data-testid="stSidebar"] [data-testid="stExpander"] summary,
+[data-testid="stSidebar"] [data-testid="stExpander"] > div,
+[data-testid="stSidebar"] [data-testid="stExpander"] details,
+[data-testid="stSidebar"] [data-testid="stExpander"] details > summary,
+[data-testid="stSidebar"] [data-testid="stExpander"] details > div,
 [data-testid="stSidebar"] details,
-[data-testid="stSidebar"] details summary {
-  background:#0D1826 !important; color:#CFE0F2 !important;
+[data-testid="stSidebar"] details > summary,
+[data-testid="stSidebar"] details > div,
+[data-testid="stSidebar"] .streamlit-expanderHeader,
+[data-testid="stSidebar"] .streamlit-expanderContent {
+  background:#0D1826 !important;
+  color:#CFE0F2 !important;
   border-color:#1E3248 !important;
 }
-[data-testid="stSidebar"] [data-testid="stExpander"] > div {
-  background:#0A1520 !important;
+[data-testid="stSidebar"] [data-testid="stExpander"] p,
+[data-testid="stSidebar"] [data-testid="stExpander"] span,
+[data-testid="stSidebar"] details p,
+[data-testid="stSidebar"] details span {
+  color:#CFE0F2 !important;
 }
 
 /* 5. Chat messages */
@@ -1867,7 +1877,7 @@ if store is None:
 
 client = get_client()
 
-# ── Right auth panel (fixed overlay via CSS + Streamlit columns) ─────────────
+# ── Right auth panel — columns approach, hero always visible ─────────────────
 _panel_open = st.session_state.get("_auth_panel_open", False)
 _cu_rp = _current_user()
 _rp_role_colors = {
@@ -1879,121 +1889,55 @@ _rp_bg, _rp_bd = _rp_role_colors.get(_cu_rp["role"], ("#1a3352", "#4A90D9"))
 _rp_labels = {"user": "User", "compliance_officer": "CO", "admin": "Admin"}
 _rp_label_val = _rp_labels.get(_cu_rp["role"], _cu_rp["role"])
 
-# CSS: fixed toggle tab on right edge + slide-in panel
-_panel_css = f"""
-<style>
-/* Fixed account toggle tab — always visible on right edge */
-.auth-toggle-wrap {{
-    position: fixed;
-    top: 72px;
-    right: 0;
-    z-index: 1200;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-}}
-.auth-toggle-tab {{
-    background: {_rp_bg};
-    border: 1px solid {_rp_bd};
-    border-right: none;
-    border-radius: 8px 0 0 8px;
-    padding: 8px 10px 8px 12px;
-    color: {_rp_bd};
-    font-size: .72rem;
-    font-weight: 700;
-    cursor: pointer;
-    writing-mode: vertical-rl;
-    text-orientation: mixed;
-    letter-spacing: .05em;
-    user-select: none;
-    box-shadow: -2px 2px 8px rgba(0,0,0,.3);
-    line-height: 1.4;
-}}
-/* Fixed slide-in panel */
-.auth-panel-fixed {{
-    position: fixed;
-    top: 60px;
-    right: 0;
-    width: 240px;
-    max-height: calc(100vh - 80px);
-    overflow-y: auto;
-    background: #0D1826;
-    border: 1px solid #1E3248;
-    border-right: none;
-    border-radius: 12px 0 0 12px;
-    padding: 14px 14px 18px;
-    z-index: 1200;
-    box-shadow: -4px 0 24px rgba(0,0,0,.45);
-}}
-.auth-panel-fixed .user-badge {{
-    background: {_rp_bg};
-    border: 1px solid {_rp_bd};
-    border-radius: 8px;
-    padding: 10px;
-    text-align: center;
-    margin-bottom: 10px;
-}}
-.auth-panel-fixed .user-badge .label {{
-    font-size: .58rem;
-    color: #8FA8C4;
-    margin-bottom: 3px;
-}}
-.auth-panel-fixed .user-badge .name {{
-    font-size: .82rem;
-    font-weight: 700;
-    color: #CFE0F2;
-}}
-.auth-panel-fixed .user-badge .role {{
-    font-size: .62rem;
-    color: {_rp_bd};
-    font-weight: 600;
-    margin-top: 2px;
-}}
-.auth-panel-fixed .section-label {{
-    font-size: .55rem;
-    color: #7E99BA;
-    text-transform: uppercase;
-    letter-spacing: .07em;
-    font-weight: 700;
-    text-align: center;
-    margin: 8px 0 6px;
-}}
-</style>
-"""
-st.markdown(_panel_css, unsafe_allow_html=True)
-
 if not _panel_open:
-    # Show the vertical tab on the right edge — clicking triggers rerun via a Streamlit button
-    # We position the button column to be out of layout view and use CSS to fix its position
-    st.markdown(
-        f"<div class='auth-toggle-wrap'>"
-        f"<div class='auth-toggle-tab'>👤&nbsp;{_rp_label_val}</div>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-    # Invisible spacer column trick: a real Streamlit button in the top-right corner
-    _sp, _btn_col = st.columns([11, 1])
-    with _btn_col:
-        if st.button("👤", key="panel_open_btn", help=f"Open account panel — {_cu_rp['name']}",
+    # Hero full width; tiny toggle button pinned to the right
+    _hero_col, _tog_col = st.columns([6, 1], gap="small")
+    with _hero_col:
+        st.markdown(
+            "<div class='rc-hero'>"
+            f"<h1>{meta['title']}</h1>"
+            f"<p>{meta['lede']} Answers come only from these official documents. Where they "
+            "do not settle a question, the assistant says so rather than guessing, and "
+            "every answer shows the sources it relied on.</p>"
+            "<div class='rc-stats'>"
+            + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"]) +
+            "</div></div>", unsafe_allow_html=True)
+    with _tog_col:
+        st.markdown("<div style='padding-top:1.4rem'></div>", unsafe_allow_html=True)
+        if st.button(f"👤\n{_rp_label_val}", key="panel_open_btn",
+                     help=f"Account — {_cu_rp['name']}",
                      use_container_width=True):
             st.session_state["_auth_panel_open"] = True
             st.rerun()
 else:
-    # Render the fixed panel as HTML (display only)
-    st.markdown(
-        f"<div class='auth-panel-fixed'>"
-        f"<div class='user-badge'>"
-        f"<div class='label'>Signed in as</div>"
-        f"<div class='name'>{_cu_rp['name']}</div>"
-        f"<div class='role'>{_rp_label_val}</div>"
-        f"</div>"
-        f"<div class='section-label'>Switch role</div>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-    # Real interactive buttons in a right-aligned column (positioned under the fixed panel area)
-    _sp, _panel_col = st.columns([3, 1])
+    # Hero takes left ~70%; panel card on the right ~30%
+    _hero_col, _panel_col = st.columns([2, 1], gap="medium")
+    with _hero_col:
+        st.markdown(
+            "<div class='rc-hero'>"
+            f"<h1>{meta['title']}</h1>"
+            f"<p>{meta['lede']} Answers come only from these official documents. Where they "
+            "do not settle a question, the assistant says so rather than guessing, and "
+            "every answer shows the sources it relied on.</p>"
+            "<div class='rc-stats'>"
+            + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"]) +
+            "</div></div>", unsafe_allow_html=True)
     with _panel_col:
+        # Dark card wrapping the whole panel
+        st.markdown(
+            f"<div style='background:#0D1826;border:1px solid #1E3248;"
+            f"border-radius:12px;padding:14px 14px 6px;margin-top:.3rem'>"
+            f"<div style='background:{_rp_bg};border:1px solid {_rp_bd};"
+            f"border-radius:8px;padding:10px;text-align:center;margin-bottom:10px'>"
+            f"<div style='font-size:.58rem;color:#8FA8C4;margin-bottom:2px'>Signed in as</div>"
+            f"<div style='font-size:.82rem;font-weight:700;color:#CFE0F2'>{_cu_rp['name']}</div>"
+            f"<div style='font-size:.62rem;color:{_rp_bd};font-weight:600'>{_rp_label_val}</div>"
+            f"</div>"
+            f"<div style='font-size:.55rem;color:#7E99BA;text-transform:uppercase;"
+            f"letter-spacing:.07em;font-weight:700;text-align:center;margin-bottom:6px'>"
+            f"Switch role</div></div>",
+            unsafe_allow_html=True,
+        )
         if st.button("✕ Close", key="panel_close_btn", use_container_width=True):
             st.session_state["_auth_panel_open"] = False
             st.rerun()
@@ -2031,17 +1975,6 @@ else:
                     st.session_state["_auth_err"] = "Incorrect email or password."
             if st.session_state.get("_auth_err"):
                 st.error(st.session_state["_auth_err"])
-
-# ── Hero banner — always full width ────────────────────────────────────────
-st.markdown(
-    "<div class='rc-hero'>"
-    f"<h1>{meta['title']}</h1>"
-    f"<p>{meta['lede']} Answers come only from these official documents. Where they "
-    "do not settle a question, the assistant says so rather than guessing, and "
-    "every answer shows the sources it relied on.</p>"
-    "<div class='rc-stats'>"
-    + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"]) +
-    "</div></div>", unsafe_allow_html=True)
 
 if client is None:
     st.warning("Answer generation is not configured. Source search still works.")
