@@ -927,16 +927,23 @@ textarea::placeholder { color:#8FA8C4 !important; opacity:1 !important; }
   background:#060F18 !important;
   color:#CFE0F2 !important;
 }
-/* Session buttons — dark readable text on white/light background */
-[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button,
-[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button p,
-[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button span {
-  white-space: pre-line !important;
-  text-align: left !important;
-  line-height: 1.45 !important;
+/* Session buttons — always dark navy, readable text */
+[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button {
+  background: #1A3352 !important;
+  border: 1px solid #2E4E6E !important;
   font-size: .78rem !important;
-  color: #0E2439 !important;
   font-weight: 600 !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button p,
+[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button span,
+[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button div {
+  color: #D9E4F1 !important;
+  font-size: .78rem !important;
+  font-weight: 600 !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button:hover {
+  background: #1e3a5a !important;
+  border-color: #4A90D9 !important;
 }
 
 /* 9. Text — target only Streamlit markdown, not everything */
@@ -1867,7 +1874,7 @@ with st.sidebar:
                 _s_updated = _sess.get("updated_at", "")
                 _s_q_count = _sess.get("message_count", 0) or 0
                 _is_active = st.session_state.get("_active_session_id") == _sess["id"]
-                _btn_style = "primary" if _is_active else "secondary"
+                _btn_style = "primary"   # always dark navy; active state shown via border in CSS
 
                 # Parse timestamp to IST for display
                 try:
@@ -1885,15 +1892,12 @@ with st.sidebar:
                 # Domain icon
                 _dom_icon = "🏥" if _s_domain == "Healthcare" else "🏗️" if _s_domain == "RERA" else "💬"
 
-                # Two-line label: top = session number + date/time, bottom = topic snippet
-                _topic = (_s_title[:38] + "…") if len(_s_title) > 38 else _s_title
                 _q_label = f"{_s_q_count}Q" if _s_q_count > 0 else "—"
                 _s_display = f"Session #{_sess_num}  ·  {_date_part}  ·  {_q_label}  {_dom_icon}"
 
                 if st.button(_s_display, key=f"sess_btn_{_si}",
                              use_container_width=True,
-                             type=_btn_style,
-                             help=f"{_s_title}  |  {_s_domain}  |  {_date_part} {_time_part}  |  {_s_q_count} question(s)"):
+                             type=_btn_style):
                     _loaded = load_session(_sess["id"])
                     if _loaded:
                         st.session_state["messages"] = _loaded.get("messages", [])
