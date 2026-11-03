@@ -786,14 +786,25 @@ section.main { background:transparent !important; }
   border-color:#253A50 !important;
 }
 .stButton > button:hover { background:#1e3248 !important; border-color:#4A90D9 !important; }
-/* Download button — match sidebar dark style */
-[data-testid="stSidebar"] .stDownloadButton > button {
+/* Download button — sidebar dark style everywhere */
+.stDownloadButton > button {
   background:#1A3352 !important; color:#D9E4F1 !important;
   border:1px solid #2E4E6E !important; border-radius:9px !important;
   width:100% !important;
 }
-[data-testid="stSidebar"] .stDownloadButton > button:hover {
+.stDownloadButton > button:hover {
   background:#1e3248 !important; border-color:#4A90D9 !important;
+}
+/* Sidebar expander header and interior — keep dark */
+[data-testid="stSidebar"] [data-testid="stExpander"],
+[data-testid="stSidebar"] [data-testid="stExpander"] summary,
+[data-testid="stSidebar"] details,
+[data-testid="stSidebar"] details summary {
+  background:#0D1826 !important; color:#CFE0F2 !important;
+  border-color:#1E3248 !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] > div {
+  background:#0A1520 !important;
 }
 
 /* 5. Chat messages */
@@ -1281,6 +1292,91 @@ def fetch_user_query_history(limit: int = 20) -> list[str]:
         return []
 
 
+def fetch_user_sessions(limit: int = 20) -> list[dict]:
+    """Fetch the user's recent conversation sessions from Supabase, newest first."""
+    _cu = _current_user()
+    if not _cu.get("id"):
+        return []
+    url = _secret("SUPABASE_URL")
+    svc_key = _secret("SUPABASE_SERVICE_KEY")
+    if not url or not svc_key:
+        return []
+    try:
+        import requests as _req  # noqa: PLC0415
+        _resp = _req.get(
+            f"{url}/rest/v1/sessions",
+            headers={"apikey": svc_key, "Authorization": f"Bearer {svc_key}"},
+            params={"user_id": f"eq.{_cu['id']}",
+                    "select": "id,title,domain,updated_at",
+                    "order": "updated_at.desc",
+                    "limit": str(limit)},
+            timeout=5,
+        )
+        return _resp.json() if _resp.ok else []
+    except Exception:
+        return []
+
+
+def save_session(session_id: str | None, title: str, domain: str,
+                 messages: list) -> str | None:
+    """Create or update a conversation session. Returns the session id."""
+    _cu = _current_user()
+    if not _cu.get("id"):
+        return None
+    url = _secret("SUPABASE_URL")
+    svc_key = _secret("SUPABASE_SERVICE_KEY")
+    if not url or not svc_key:
+        return None
+    try:
+        import requests as _req  # noqa: PLC0415
+        hdrs = {"apikey": svc_key, "Authorization": f"Bearer {svc_key}",
+                "Content-Type": "application/json", "Prefer": "return=representation"}
+        payload = {"title": title, "domain": domain,
+                   "messages": messages, "updated_at": "now()"}
+        if session_id:
+            r = _req.patch(f"{url}/rest/v1/sessions",
+                           headers=hdrs,
+                           params={"id": f"eq.{session_id}",
+                                   "user_id": f"eq.{_cu['id']}"},
+                           json=payload, timeout=5)
+            if r.ok and r.json():
+                return r.json()[0]["id"]
+            return session_id
+        else:
+            payload["user_id"] = _cu["id"]
+            r = _req.post(f"{url}/rest/v1/sessions",
+                          headers=hdrs, json=payload, timeout=5)
+            if r.ok and r.json():
+                return r.json()[0]["id"]
+            return None
+    except Exception:
+        return None
+
+
+def load_session(session_id: str) -> dict | None:
+    """Load full messages for a session."""
+    _cu = _current_user()
+    if not _cu.get("id"):
+        return None
+    url = _secret("SUPABASE_URL")
+    svc_key = _secret("SUPABASE_SERVICE_KEY")
+    if not url or not svc_key:
+        return None
+    try:
+        import requests as _req  # noqa: PLC0415
+        r = _req.get(f"{url}/rest/v1/sessions",
+                     headers={"apikey": svc_key, "Authorization": f"Bearer {svc_key}"},
+                     params={"id": f"eq.{session_id}",
+                             "user_id": f"eq.{_cu['id']}",
+                             "select": "id,title,domain,messages"},
+                     timeout=5)
+        if r.ok and r.json():
+            return r.json()[0]
+        return None
+    except Exception:
+        return None
+
+
 def _extract_checklist(answer_text: str) -> list[str]:
     """Extract action items from an answer. Returns a list of checklist strings."""
     import re
@@ -1499,7 +1595,9 @@ with st.sidebar:
 
     # ── user identity (sidebar badge only — role switch panel is on the right) ──
     if "current_user" not in st.session_state:
-        st.session_state["current_user"] = None   # None resolves to Guest
+        # Auto-login as the default "user" role account so history shows immediately
+        _auto = _demo_login("user")
+        st.session_state["current_user"] = _auto  # falls back to Guest if DB unavailable
 
     _cu = _current_user()
     _role_labels = {
@@ -1532,6 +1630,11 @@ with st.sidebar:
         st.session_state["_auth_err"] = ""
         st.session_state.pop("_db_query_history", None)
         st.session_state.pop("_cached_bookmarks", None)
+        st.session_state.pop("_user_sessions", None)
+        st.session_state.pop("_active_session_id", None)
+        st.session_state.pop("_active_session_title", None)
+        st.session_state["messages"] = []
+        st.session_state["feedback"] = {}
         st.rerun()
 
     st.divider()
@@ -1609,6 +1712,10 @@ with st.sidebar:
     if st.button("Start a new conversation"):
         st.session_state.messages = []
         st.session_state.feedback = {}
+        st.session_state.pop("_active_session_id", None)
+        st.session_state.pop("_active_session_title", None)
+        # Refresh session list to show the just-saved session at top
+        st.session_state.pop("_user_sessions", None)
         st.rerun()
 
     # Export conversation button
@@ -1628,37 +1735,39 @@ with st.sidebar:
                            mime="text/plain",
                            use_container_width=True)
 
-    # Query history -- combine current session + Supabase history for signed-in users.
-    # For guests: session questions only. For signed-in users: fetch from DB on first load.
-    _session_qs = [m["content"] for m in st.session_state.get("messages", [])
-                   if m["role"] == "user"]
-    _cu_qh = _current_user()
-    if _cu_qh.get("id") and "_db_query_history" not in st.session_state:
-        st.session_state["_db_query_history"] = fetch_user_query_history(20)
-    _db_qs = st.session_state.get("_db_query_history", []) if _cu_qh.get("id") else []
-    # Merge: session questions first (most recent), then DB history, deduplicated
-    _seen_qs: set = set()
-    _history: list = []
-    for _q in list(reversed(_session_qs)) + _db_qs:
-        if _q not in _seen_qs:
-            _seen_qs.add(_q)
-            _history.append(_q)
-    # Query history — always visible as a collapsible expander from first load
+    # ── Sessions (Claude-style conversation history) ──────────────────────────
+    _cu_sess = _current_user()
+    # Fetch on first load or after a role switch clears the cache
+    if _cu_sess.get("id") and "_user_sessions" not in st.session_state:
+        st.session_state["_user_sessions"] = fetch_user_sessions(20)
+
+    _sess_list = st.session_state.get("_user_sessions", []) if _cu_sess.get("id") else []
+
     st.divider()
-    with st.expander("🕐 Query history", expanded=False):
-        if _history:
-            for _hi, _hq in enumerate(_history[:12]):
-                _label = (_hq[:52] + "…") if len(_hq) > 52 else _hq
-                if st.button(_label, key=f"hist_btn_{_hi}",
+    with st.expander("💬 Past sessions", expanded=True):
+        if _sess_list:
+            for _si, _sess in enumerate(_sess_list):
+                _s_title = _sess.get("title", "Conversation")
+                _s_label = (_s_title[:48] + "…") if len(_s_title) > 48 else _s_title
+                _is_active = st.session_state.get("_active_session_id") == _sess["id"]
+                _btn_style = "primary" if _is_active else "secondary"
+                if st.button(_s_label, key=f"sess_btn_{_si}",
                              use_container_width=True,
-                             help=_hq if len(_hq) > 52 else ""):
-                    st.session_state["pending_q"] = _hq
+                             type=_btn_style,
+                             help=_s_title):
+                    # Load this session's messages
+                    _loaded = load_session(_sess["id"])
+                    if _loaded:
+                        st.session_state["messages"] = _loaded.get("messages", [])
+                        st.session_state["feedback"] = {}
+                        st.session_state["_active_session_id"] = _sess["id"]
+                        st.session_state["_active_session_title"] = _loaded.get("title", "")
                     st.rerun()
         else:
-            if _cu_qh.get("id"):
-                st.caption("No past queries yet — your history will appear here.")
+            if _cu_sess.get("id"):
+                st.caption("Your conversations will appear here.")
             else:
-                st.caption("Sign in to see your query history across sessions.")
+                st.caption("Sign in to save and resume sessions.")
 
     st.divider()
     st.toggle("🌙 Dark mode", key="dark_mode",
@@ -1823,6 +1932,11 @@ with _auth_col:
                 st.session_state["_auth_err"] = ""
                 st.session_state.pop("_db_query_history", None)
                 st.session_state.pop("_cached_bookmarks", None)
+                st.session_state.pop("_user_sessions", None)
+                st.session_state.pop("_active_session_id", None)
+                st.session_state.pop("_active_session_title", None)
+                st.session_state["messages"] = []
+                st.session_state["feedback"] = {}
                 st.rerun()
             else:
                 st.session_state["_auth_err"] = "Incorrect email or password."
@@ -2154,8 +2268,6 @@ if prompt:
                 cache_put(key, {"answer": answer, "question": prompt,
                                 "domain": domain})
                 log_query(domain, prompt, answer, best_sim, results, low_confidence)
-                # Bust the sidebar query-history cache so the new question appears
-                st.session_state.pop("_db_query_history", None)
                 st.caption(
                     "⚠️ This answer is AI-generated from regulatory documents. "
                     "Always verify with the official source before acting on it."
@@ -2206,6 +2318,21 @@ if prompt:
                  "rated": not low_confidence, "followups": followups,
                  "conf_label": _conf_label, "conf_score": best_sim,
                  "timestamp": datetime.now(tz=IST).strftime("%b %d, %Y  %I:%M %p IST")})
+
+            # Auto-save this conversation as a session for signed-in users
+            _sess_cu = _current_user()
+            if _sess_cu.get("id"):
+                _sess_msgs = st.session_state.messages
+                # Title = first user question (trimmed)
+                _first_q = next((m["content"] for m in _sess_msgs if m["role"] == "user"), "Conversation")
+                _sess_title = (_first_q[:80] + "…") if len(_first_q) > 80 else _first_q
+                _existing_sid = st.session_state.get("_active_session_id")
+                _new_sid = save_session(_existing_sid, _sess_title, domain, _sess_msgs)
+                if _new_sid:
+                    st.session_state["_active_session_id"] = _new_sid
+                    st.session_state["_active_session_title"] = _sess_title
+                    # Refresh session list so sidebar shows latest
+                    st.session_state["_user_sessions"] = fetch_user_sessions(20)
 
             # Action row: copy + share + feedback buttons
             if not low_confidence and client is not None and daily_usage() < DAILY_LIMIT:
