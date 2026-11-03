@@ -927,13 +927,16 @@ textarea::placeholder { color:#8FA8C4 !important; opacity:1 !important; }
   background:#060F18 !important;
   color:#CFE0F2 !important;
 }
-/* Session buttons — two-line label with small meta text */
-[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button p {
+/* Session buttons — dark readable text on white/light background */
+[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button,
+[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button p,
+[data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button span {
   white-space: pre-line !important;
   text-align: left !important;
   line-height: 1.45 !important;
   font-size: .78rem !important;
-  color: #CFE0F2 !important;
+  color: #0E2439 !important;
+  font-weight: 600 !important;
 }
 
 /* 9. Text — target only Streamlit markdown, not everything */
