@@ -786,6 +786,15 @@ section.main { background:transparent !important; }
   border-color:#253A50 !important;
 }
 .stButton > button:hover { background:#1e3248 !important; border-color:#4A90D9 !important; }
+/* Download button — match sidebar dark style */
+[data-testid="stSidebar"] .stDownloadButton > button {
+  background:#1A3352 !important; color:#D9E4F1 !important;
+  border:1px solid #2E4E6E !important; border-radius:9px !important;
+  width:100% !important;
+}
+[data-testid="stSidebar"] .stDownloadButton > button:hover {
+  background:#1e3248 !important; border-color:#4A90D9 !important;
+}
 
 /* 5. Chat messages */
 [data-testid="stChatMessage"] { background:#152030 !important; border-color:#253A50 !important; }
@@ -1237,6 +1246,41 @@ def delete_bookmark(bookmark_id: str) -> bool:
         return False
 
 
+def fetch_user_query_history(limit: int = 20) -> list[str]:
+    """Fetch recent questions asked by the current user from Supabase queries table."""
+    _cu = _current_user()
+    if not _cu.get("id"):
+        return []
+    url = _secret("SUPABASE_URL")
+    svc_key = _secret("SUPABASE_SERVICE_KEY")
+    if not url or not svc_key:
+        return []
+    try:
+        import requests as _req  # noqa: PLC0415
+        _resp = _req.get(
+            f"{url}/rest/v1/queries",
+            headers={"apikey": svc_key, "Authorization": f"Bearer {svc_key}"},
+            params={"user_id": f"eq.{_cu['id']}",
+                    "select": "question,created_at",
+                    "order": "created_at.desc",
+                    "limit": str(limit)},
+            timeout=5,
+        )
+        if _resp.ok:
+            rows = _resp.json()
+            # Deduplicate while preserving order
+            seen, out = set(), []
+            for r in rows:
+                q = r.get("question", "").strip()
+                if q and q not in seen:
+                    seen.add(q)
+                    out.append(q)
+            return out
+        return []
+    except Exception:
+        return []
+
+
 def _extract_checklist(answer_text: str) -> list[str]:
     """Extract action items from an answer. Returns a list of checklist strings."""
     import re
@@ -1245,20 +1289,33 @@ def _extract_checklist(answer_text: str) -> list[str]:
     for line in lines:
         line = line.strip()
         # Pick up numbered items, bullets, or lines with imperative verbs
-        if re.match(r"^(\d+[\.\)]|\*|-|•)\s+", line):
-            cleaned = re.sub(r"^(\d+[\.\)]|\*|-|•)\s+", "", line).strip()
+        if re.match(r"^(\d+[\.\)]|\*|-|•|–)\s+", line):
+            cleaned = re.sub(r"^(\d+[\.\)]|\*|-|•|–)\s+", "", line).strip()
             if len(cleaned) > 10:
                 checklist.append(cleaned)
-    # If structured items weren't found, split by sentence and filter actionable ones
+    # If structured items weren't found, split on sentence boundaries
     if not checklist:
-        action_verbs = ("ensure", "verify", "submit", "obtain", "register", "apply",
-                        "file", "provide", "maintain", "update", "check", "confirm",
-                        "notify", "appoint", "prepare", "comply", "disclose", "report")
+        action_verbs = (
+            "ensure", "verify", "submit", "obtain", "register", "apply",
+            "file", "provide", "maintain", "update", "check", "confirm",
+            "notify", "appoint", "prepare", "comply", "disclose", "report",
+            "review", "assess", "implement", "establish", "document", "conduct",
+            "monitor", "obtain", "test", "train", "avoid", "consult",
+        )
         for sent in re.split(r"(?<=[.!?])\s+", answer_text):
             sent = sent.strip()
             if len(sent) > 20 and any(sent.lower().startswith(v) for v in action_verbs):
                 checklist.append(sent)
-    return checklist[:15]
+    # Last resort: extract sentences containing "must", "shall", "required to"
+    if not checklist:
+        obligation_re = re.compile(
+            r"[^.!?]*\b(must|shall|required to|obligated to|need to|has to)\b[^.!?]*[.!?]",
+            re.IGNORECASE)
+        for m in obligation_re.finditer(answer_text):
+            item = m.group(0).strip()
+            if len(item) > 20:
+                checklist.append(item)
+    return checklist[:12]
 
 
 def log_query(bot: str, question: str, answer: str,
@@ -1436,6 +1493,8 @@ with st.sidebar:
             if st.button("Sign out (return to Guest)", use_container_width=True):
                 st.session_state["current_user"] = None
                 st.session_state["_auth_err"] = ""
+                st.session_state.pop("_db_query_history", None)
+                st.session_state.pop("_cached_bookmarks", None)
                 st.rerun()
             st.divider()
         _login_email = st.text_input("Email", key="_login_email",
@@ -1446,6 +1505,8 @@ with st.sidebar:
             if _found:
                 st.session_state["current_user"] = _found
                 st.session_state["_auth_err"] = ""
+                st.session_state.pop("_db_query_history", None)
+                st.session_state.pop("_cached_bookmarks", None)
                 st.rerun()
             else:
                 st.session_state["_auth_err"] = "Incorrect email or password."
@@ -1546,19 +1607,30 @@ with st.sidebar:
                            mime="text/plain",
                            use_container_width=True)
 
-    # Query history -- last 8 user questions this session, most recent first.
-    # Lets users re-ask a previous question in one click without retyping.
-    _history = [m["content"] for m in st.session_state.get("messages", [])
-                if m["role"] == "user"]
+    # Query history -- combine current session + Supabase history for signed-in users.
+    # For guests: session questions only. For signed-in users: fetch from DB on first load.
+    _session_qs = [m["content"] for m in st.session_state.get("messages", [])
+                   if m["role"] == "user"]
+    _cu_qh = _current_user()
+    if _cu_qh.get("id") and "_db_query_history" not in st.session_state:
+        st.session_state["_db_query_history"] = fetch_user_query_history(20)
+    _db_qs = st.session_state.get("_db_query_history", []) if _cu_qh.get("id") else []
+    # Merge: session questions first (most recent), then DB history, deduplicated
+    _seen_qs: set = set()
+    _history: list = []
+    for _q in list(reversed(_session_qs)) + _db_qs:
+        if _q not in _seen_qs:
+            _seen_qs.add(_q)
+            _history.append(_q)
     if _history:
         st.divider()
         st.markdown("<div class='rc-side-h'>Query history</div>",
                     unsafe_allow_html=True)
-        for _hi, _hq in enumerate(reversed(_history[-8:])):
-            _label = (_hq[:60] + "…") if len(_hq) > 60 else _hq
+        for _hi, _hq in enumerate(_history[:12]):
+            _label = (_hq[:55] + "…") if len(_hq) > 55 else _hq
             if st.button(_label, key=f"hist_btn_{_hi}",
                          use_container_width=True,
-                         help=_hq if len(_hq) > 60 else ""):
+                         help=_hq if len(_hq) > 55 else ""):
                 st.session_state["pending_q"] = _hq
                 st.rerun()
 
@@ -1766,20 +1838,26 @@ for msg_idx, msg in enumerate(st.session_state.messages):
                     else:
                         st.toast("Could not save bookmark. Try again.", icon="⚠️")
 
-            if _cl_col.button("📋 Checklist", key=f"cl_btn_{msg_idx}",
+            _cl_key = f"_show_cl_{msg_idx}"
+            _cl_label = "📋 Hide Checklist" if st.session_state.get(_cl_key) else "📋 Checklist"
+            if _cl_col.button(_cl_label, key=f"cl_btn_{msg_idx}",
                               help="Convert answer to a compliance checklist"):
-                st.session_state[f"_show_cl_{msg_idx}"] = not st.session_state.get(
-                    f"_show_cl_{msg_idx}", False)
+                st.session_state[_cl_key] = not st.session_state.get(_cl_key, False)
 
-            if st.session_state.get(f"_show_cl_{msg_idx}"):
+            if st.session_state.get(_cl_key):
                 _items = _extract_checklist(msg["content"])
-                with st.expander("📋 Compliance Action Checklist", expanded=True):
-                    if _items:
-                        for _ci, _item in enumerate(_items, 1):
-                            st.checkbox(f"{_ci}. {_item}", key=f"cl_check_{msg_idx}_{_ci}")
-                    else:
-                        st.caption("No specific action items found in this answer. "
-                                   "Try asking a more targeted compliance question.")
+                st.markdown(
+                    "<div style='font-size:.78rem;font-weight:600;color:#CFE0F2;"
+                    "margin:.5rem 0 .3rem'>📋 Compliance Action Checklist</div>",
+                    unsafe_allow_html=True)
+                if _items:
+                    for _ci, _item in enumerate(_items, 1):
+                        st.checkbox(f"{_ci}. {_item}", key=f"cl_check_{msg_idx}_{_ci}")
+                else:
+                    st.info("No specific action items found in this answer. "
+                            "Try asking a more targeted compliance question, "
+                            "for example: 'What steps must a telemedicine platform follow?'",
+                            icon="ℹ️")
 
         # Timestamp -- shown for any assistant message that has one
         if msg["role"] == "assistant":
@@ -1987,6 +2065,8 @@ if prompt:
                 cache_put(key, {"answer": answer, "question": prompt,
                                 "domain": domain})
                 log_query(domain, prompt, answer, best_sim, results, low_confidence)
+                # Bust the sidebar query-history cache so the new question appears
+                st.session_state.pop("_db_query_history", None)
                 st.caption(
                     "⚠️ This answer is AI-generated from regulatory documents. "
                     "Always verify with the official source before acting on it."
