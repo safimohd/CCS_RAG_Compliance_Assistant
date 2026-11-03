@@ -634,15 +634,19 @@ html, body, [class*="css"] { font-family:'Inter',-apple-system,'Segoe UI',sans-s
 
 .rc-hero{
   background:linear-gradient(135deg,#102D4D 0%,#1B4F8C 55%,#2E6FB7 100%);
-  border-radius:14px; padding:1.5rem 1.7rem 1.3rem; color:#fff;
-  box-shadow:0 10px 28px -14px rgba(16,45,77,.55); margin-bottom:1.1rem;
+  border-radius:0; padding:2rem 2rem 1.6rem;
+  margin-left:calc(-1 * var(--block-padding, 1rem));
+  margin-right:calc(-1 * var(--block-padding, 1rem));
+  margin-top:-1.1rem; color:#fff;
+  box-shadow:0 8px 24px -10px rgba(16,45,77,.5); margin-bottom:1.4rem;
 }
 .rc-hero h1{
   font-family:'Source Serif 4',Georgia,serif; font-weight:700;
   font-size:1.7rem; line-height:1.18; margin:0 0 .35rem; letter-spacing:-.015em;
+  text-align:center;
 }
-.rc-hero p{ margin:0; font-size:.86rem; line-height:1.55; color:#CFE0F2; max-width:72ch; }
-.rc-stats{ display:flex; flex-wrap:wrap; gap:.45rem; margin-top:.95rem; }
+.rc-hero p{ margin:0 auto; font-size:.86rem; line-height:1.55; color:#CFE0F2; max-width:72ch; text-align:center; }
+.rc-stats{ display:flex; flex-wrap:wrap; gap:.45rem; margin-top:.95rem; justify-content:center; }
 .rc-stat{
   background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.2);
   border-radius:999px; padding:.22rem .7rem; font-size:.71rem; font-weight:500; color:#EAF2FB;
@@ -743,7 +747,7 @@ html, body, [class*="css"] { font-family:'Inter',-apple-system,'Segoe UI',sans-s
   .rc-stats{ gap:.3rem; }
   .rc-stat{ font-size:.65rem; padding:.18rem .5rem; }
   .block-container{ padding-left:.6rem !important; padding-right:.6rem !important; }
-  .rc-hero{ padding:1rem 1rem .9rem; }
+  .rc-hero{ padding:1.2rem 1rem 1rem; border-radius:0; }
   .rc-hero h1{ font-size:1.3rem; }
   .rc-scope{ font-size:.74rem; }
   [data-testid="stHorizontalBlock"] > div{ min-width:0 !important; }
