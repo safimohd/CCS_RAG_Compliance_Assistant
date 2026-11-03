@@ -181,6 +181,26 @@ RERA_ROLES = {
     ],
 }
 
+# Jurisdiction filter for RERA. Scopes to Central RERA Act or Karnataka
+# State RERA documents independently of the stakeholder role filter.
+# Empty list means no jurisdiction constraint -- full corpus is searched.
+RERA_JURISDICTIONS = {
+    "All documents": [],
+    "Central RERA Act only": [
+        "real estate (regulation and development) act",
+        "real estate regulation and development",
+        "model real estate",
+        "central act",
+        "grievance redressal cell",
+    ],
+    "Karnataka State RERA only": [
+        "karnataka",
+        "k-rera",
+        "k-reat",
+        "ಕರ್ನಾಟಕ",
+    ],
+}
+
 HEALTHCARE_FACILITIES = {
     "Any establishment": [],
     "Hospital — Level 2": ["hospital(level 2", "hospital (level 2"],
@@ -702,6 +722,14 @@ html, body, [class*="css"] { font-family:'Inter',-apple-system,'Segoe UI',sans-s
   font-size:.72rem; color:#1a7f4b; font-weight:600; margin-left:.3rem;
   padding:2px 6px; background:#e6f4ec; border-radius:6px; vertical-align:middle;
 }
+.rc-hist-item{
+  display:block; width:100%; text-align:left; padding:.28rem .55rem;
+  font-size:.73rem; color:#CFE0F2; background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.1); border-radius:6px; margin-bottom:.25rem;
+  cursor:pointer; line-height:1.35; white-space:nowrap; overflow:hidden;
+  text-overflow:ellipsis;
+}
+.rc-hist-item:hover{ background:rgba(255,255,255,.12); border-color:rgba(255,255,255,.25); }
 /* Mobile: chips wrap cleanly and don't overflow */
 @media (max-width: 640px) {
   .rc-stats{ gap:.3rem; }
@@ -1247,8 +1275,13 @@ with st.sidebar:
                             help="Narrows the search to documents most relevant "
                                  "to your role. The foundational Act and Karnataka "
                                  "Rules always appear alongside role-specific circulars.")
+        jurisdiction = st.selectbox(
+            "Jurisdiction", list(RERA_JURISDICTIONS),
+            help="Filter by Central RERA Act documents or Karnataka State RERA "
+                 "documents. 'All documents' searches the full corpus.")
         scope_needles = RERA_ROLES[role]
-        scope_label = role
+        jurisdiction_needles = RERA_JURISDICTIONS[jurisdiction]
+        scope_label = role if jurisdiction == "All documents" else f"{role} · {jurisdiction}"
         examples = (RERA_ROLE_EXAMPLES.get(role) or EXAMPLES["RERA"])
     else:
         facility = st.selectbox("Type of establishment", list(HEALTHCARE_FACILITIES),
@@ -1256,12 +1289,14 @@ with st.sidebar:
                                      "type of facility. Choosing one returns the "
                                      "standards that apply to it.")
         scope_needles = HEALTHCARE_FACILITIES[facility]
+        jurisdiction_needles: list = []   # no jurisdiction split for Healthcare
         scope_label = facility
         examples = ([t.format(n=FACILITY_NOUN[facility]) for t in FACILITY_TEMPLATES]
                     if scope_needles else EXAMPLES["Healthcare"])
 
     n_scoped, n_general = scope_count(domain, scope_needles)
-    caption = scope_caption(n_scoped, "all" if not scope_needles else "some",
+    _any_filter = bool(scope_needles or jurisdiction_needles)
+    caption = scope_caption(n_scoped, "all" if not _any_filter else "some",
                             n_general)
     if caption:
         st.caption(caption)
@@ -1303,6 +1338,22 @@ with st.sidebar:
                            file_name="compliance_conversation.txt",
                            mime="text/plain",
                            use_container_width=True)
+
+    # Query history -- last 8 user questions this session, most recent first.
+    # Lets users re-ask a previous question in one click without retyping.
+    _history = [m["content"] for m in st.session_state.get("messages", [])
+                if m["role"] == "user"]
+    if _history:
+        st.divider()
+        st.markdown("<div class='rc-side-h'>Query history</div>",
+                    unsafe_allow_html=True)
+        for _hi, _hq in enumerate(reversed(_history[-8:])):
+            _label = (_hq[:60] + "…") if len(_hq) > 60 else _hq
+            if st.button(_label, key=f"hist_btn_{_hi}",
+                         use_container_width=True,
+                         help=_hq if len(_hq) > 60 else ""):
+                st.session_state["pending_q"] = _hq
+                st.rerun()
 
     st.divider()
     st.toggle("🌙 Dark mode", key="dark_mode",
@@ -1378,7 +1429,7 @@ if client is None:
     st.warning("Answer generation is not configured. Source search still works.")
 
 _scope_tail = ""
-if n_scoped is not None and scope_needles:
+if n_scoped is not None and _any_filter:
     if n_scoped:
         _scope_tail = (f" — {n_scoped} document" + ("" if n_scoped == 1 else "s")
                        + " specific to this, plus the general rules")
@@ -1537,7 +1588,20 @@ if prompt:
         else:
             specific, general = [], []
         scope_titles = sorted(set(specific) | set(general))
-        scope_empty = bool(scope_needles) and not scope_titles
+
+        # Apply jurisdiction filter on top of role filter. If a jurisdiction
+        # is selected, keep only titles that match its needles. When the role
+        # filter is empty (all stakeholders), jurisdiction alone drives the list.
+        if jurisdiction_needles:
+            universe = scope_universe(domain)
+            jur_set = {t for t in universe
+                       if any(n in t.lower() for n in jurisdiction_needles)}
+            if scope_titles:
+                scope_titles = sorted(t for t in scope_titles if t in jur_set)
+            else:
+                scope_titles = sorted(jur_set)
+
+        scope_empty = bool(scope_needles or jurisdiction_needles) and not scope_titles
 
         if specific == [] and general and scope_needles:
             st.info(f"No document is specific to **{scope_label}**. Answering "
