@@ -2354,11 +2354,11 @@ if prompt:
                     # Refresh session list so sidebar shows latest
                     st.session_state["_user_sessions"] = fetch_user_sessions(20)
 
-            # Action row: copy + share + feedback buttons
+            # Action row: copy + share + feedback + bookmark buttons
             if not low_confidence and client is not None and daily_usage() < DAILY_LIMIT:
                 render_copy_button(answer, f"new_{new_msg_idx}")
                 render_share_button(prompt, answer, results, f"new_{new_msg_idx}")
-                fb_cols = st.columns([1, 1, 8])
+                fb_cols = st.columns([1, 1, 1, 7])
                 if fb_cols[0].button("👍", key=f"fb_up_{new_msg_idx}",
                                      type="secondary", help="This answer was helpful"):
                     st.session_state.feedback[new_msg_idx] = "up"
@@ -2371,6 +2371,25 @@ if prompt:
                     st.session_state.setdefault("_fb_thanks", set()).add(new_msg_idx)
                     log_feedback(domain, prompt, answer, _conf_label, best_sim, "down")
                     st.rerun()
+                # Save bookmark — available immediately after answer is generated
+                _new_bk_key = f"_bm_saved_{new_msg_idx}"
+                if fb_cols[2].button(
+                    "🔖 Save" if not st.session_state.get(_new_bk_key) else "✅ Saved",
+                    key=f"bm_btn_new_{new_msg_idx}",
+                    help="Save this answer to your benchmarks",
+                    disabled=st.session_state.get(_new_bk_key, False),
+                ):
+                    _cu_now = _current_user()
+                    if not _cu_now.get("id"):
+                        st.toast("Sign in to save benchmarks.", icon="🔐")
+                    else:
+                        _ok = log_bookmark(domain, prompt, answer, results)
+                        if _ok:
+                            st.session_state[_new_bk_key] = True
+                            st.toast("Answer saved to benchmarks!", icon="🔖")
+                            st.rerun()
+                        else:
+                            st.toast("Could not save benchmark. Try again.", icon="⚠️")
 
             # Surface any feedback-logging error as a warning
             if st.session_state.get("_fb_err"):
