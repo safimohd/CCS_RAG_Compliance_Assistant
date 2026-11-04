@@ -1987,7 +1987,8 @@ with st.sidebar:
 
             _dqa_hist = st.session_state.get("_dqa_history_sidebar", {})
             if _dqa_hist:
-                with st.expander("📄 Document Q&A", expanded=False):
+                _dqa_expander_open = bool(st.session_state.get("_active_dqa_file"))
+                with st.expander("📄 Document Q&A", expanded=_dqa_expander_open):
                     for _dqa_si, (_dfname, _drows) in enumerate(_dqa_hist.items()):
                         # Date from the most-recent row for this file
                         try:
@@ -2012,6 +2013,8 @@ with st.sidebar:
                                 {"q": r["question"], "a": r["answer"], "followups": r.get("followups") or []}
                                 for r in _drows   # already newest-first from the query
                             ]
+                            # Signal to auto-switch to the Document Q&A tab on next render
+                            st.session_state["_switch_to_docqa"] = True
                             st.rerun()
 
     st.divider()
@@ -2131,6 +2134,29 @@ st.markdown(
 
 # ── RERA extra tabs (K-RERA Lookup + Investment Signals + Document Q&A) ───────
 if domain == "RERA":
+    # Auto-switch to Document Q&A tab when a sidebar session was clicked
+    if st.session_state.pop("_switch_to_docqa", False):
+        import streamlit.components.v1 as _stc
+        _stc.html("""
+        <script>
+        (function() {
+          function clickDocQaTab() {
+            var tabs = window.parent.document.querySelectorAll('button[data-baseweb="tab"]');
+            for (var i = 0; i < tabs.length; i++) {
+              if (tabs[i].innerText.indexOf('Document Q') !== -1) {
+                tabs[i].click();
+                return true;
+              }
+            }
+            return false;
+          }
+          if (!clickDocQaTab()) {
+            setTimeout(clickDocQaTab, 300);
+          }
+        })();
+        </script>
+        """, height=0)
+
     _tab_chat, _tab_lookup, _tab_invest, _tab_docqa = st.tabs([
         "💬 Compliance Chat",
         "🔍 K-RERA Project Lookup",
