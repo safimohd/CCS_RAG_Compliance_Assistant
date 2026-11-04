@@ -1954,7 +1954,7 @@ with st.sidebar:
     if LOCKED_DOMAIN == "RERA":
         _dqa_sid = st.session_state.get("dq_session_id", "")
         if _dqa_sid:
-            # Fetch Q&A history for this browser session, grouped by filename
+            # Fetch all Q&A rows for this browser session, newest first
             if "_dqa_history_sidebar" not in st.session_state:
                 try:
                     import requests as _rq_dqa
@@ -1964,11 +1964,11 @@ with st.sidebar:
                         _hr = _rq_dqa.get(
                             f"{_sb_url_h}/rest/v1/document_qa_history",
                             headers={"apikey": _sb_key_h, "Authorization": f"Bearer {_sb_key_h}"},
-                            params={"session_id": f"eq.{_dqa_sid}", "order": "created_at.desc", "limit": "100"},
+                            params={"session_id": f"eq.{_dqa_sid}", "order": "created_at.desc", "limit": "200"},
                             timeout=5,
                         )
                         _hrows = _hr.json() if _hr.ok else []
-                        # Group by filename
+                        # Group by filename — each unique file = one "Document Q&A session"
                         _dqa_by_file: dict = {}
                         for _row in _hrows:
                             _fn = _row.get("filename") or "Unknown file"
@@ -1981,18 +1981,32 @@ with st.sidebar:
 
             _dqa_hist = st.session_state.get("_dqa_history_sidebar", {})
             if _dqa_hist:
-                with st.expander("📄 Document Q&A history", expanded=False):
-                    for _dfname, _drows in _dqa_hist.items():
-                        st.markdown(f"**{_dfname}** · {len(_drows)} question{'s' if len(_drows) != 1 else ''}")
-                        for _drow in _drows[:5]:   # show up to 5 per file
-                            try:
-                                _dts = _drow.get("created_at", "").rstrip("Z").split("+")[0]
-                                _ddt = datetime.fromisoformat(_dts).replace(tzinfo=timezone.utc).astimezone(IST)
-                                _d_time = _ddt.strftime("%-d %b %I:%M %p").lstrip("0")
-                            except Exception:
-                                _d_time = ""
-                            _dq_preview = (_drow.get("question") or "")[:60]
-                            st.caption(f"{'🔴' if 'COMPLIANCE CONCERN' in (_drow.get('answer') or '') else '🟢'} {_dq_preview}…  ·  {_d_time}")
+                with st.expander("📄 Document Q&A", expanded=False):
+                    for _dqa_si, (_dfname, _drows) in enumerate(_dqa_hist.items()):
+                        # Date from the most-recent row for this file
+                        try:
+                            _dts = _drows[0].get("created_at", "").rstrip("Z").split("+")[0]
+                            _ddt = datetime.fromisoformat(_dts).replace(tzinfo=timezone.utc).astimezone(IST)
+                            _dqa_date = _ddt.strftime("%-d %b")
+                        except Exception:
+                            _dqa_date = ""
+                        _dqa_qcount = len(_drows)
+                        _dqa_label = f"Session #{_dqa_si + 1}  ·  {_dqa_date}  ·  {_dqa_qcount}Q  📄"
+                        _is_dqa_active = st.session_state.get("_active_dqa_file") == _dfname
+                        if st.button(
+                            _dqa_label,
+                            key=f"dqa_sess_{_dqa_si}",
+                            use_container_width=True,
+                            type="primary",
+                            help=_dfname,
+                        ):
+                            # Load this file's Q&A history into the Document Q&A tab
+                            st.session_state["_active_dqa_file"] = _dfname
+                            st.session_state["dq_history"] = [
+                                {"q": r["question"], "a": r["answer"], "followups": r.get("followups") or []}
+                                for r in _drows   # already newest-first from the query
+                            ]
+                            st.rerun()
 
     st.divider()
     st.toggle("🌙 Dark mode", key="dark_mode",
