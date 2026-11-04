@@ -1,102 +1,69 @@
-name: K-RERA Scraper
+name: K-RERA Enrichment Scraper
 
-# Run whenever YOU want — click "Run workflow" in the GitHub Actions tab.
-# No 2am cron. No surprises. You control when it runs.
+# Manual trigger only — go to Actions tab, pick this workflow, click "Run workflow".
 on:
   workflow_dispatch:
     inputs:
+      limit:
+        description: "Max rows to enrich (0 = all un-enriched rows)"
+        required: false
+        default: "0"
+        type: string
       dry_run:
-        description: "Dry run (fetch + parse, skip Supabase write)"
+        description: "Dry run — parse pages but skip Supabase writes"
         required: false
         default: "false"
         type: choice
         options: ["false", "true"]
+      re_enrich_days:
+        description: "Re-enrich rows older than N days (0 = only new rows)"
+        required: false
+        default: "0"
+        type: string
 
 jobs:
-  scrape:
+  enrich:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 300   # 5 h cap — enough for 10k rows at ~1.5 s/row
 
     steps:
-      # -------------------------------------------------------
-      # 1. Checkout repo
-      # -------------------------------------------------------
       - name: Checkout
         uses: actions/checkout@v4
 
-      # -------------------------------------------------------
-      # 2. Python setup
-      # -------------------------------------------------------
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
 
-      - name: Install dependencies
+      - name: Install scraper dependencies
         run: |
-          pip install --quiet -r scraper/requirements_scraper.txt
+          pip install --quiet \
+            requests \
+            beautifulsoup4 \
+            python-dotenv
 
-      # -------------------------------------------------------
-      # 3. Run scraper
-      # -------------------------------------------------------
-      - name: Run K-RERA scraper
+      - name: Run K-RERA enrichment scraper
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          NTFY_TOPIC:   ${{ secrets.NTFY_TOPIC }}
-          DRY_RUN:      ${{ github.event.inputs.dry_run }}
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
-          if [ "$DRY_RUN" = "true" ]; then
-            echo "DRY RUN — skipping Supabase write"
-            python - <<'EOF'
-          import os, sys
-          os.environ["SUPABASE_URL"] = "http://localhost"
-          os.environ["SUPABASE_KEY"] = "dry_run_key"
-          import importlib.util, pathlib
-          spec = importlib.util.spec_from_file_location("scraper", "scraper/rera_scraper.py")
-          mod  = importlib.util.module_from_spec(spec)
-          # Monkey-patch the upsert so it just logs
-          import rera_scraper as dummy  # noqa
-          EOF
-            python -c "
-          import os, re, requests, logging
-          logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
-          log = logging.getLogger()
-          HEADERS = {'User-Agent': 'Mozilla/5.0 (compatible; GH-Actions-DryRun)'}
-          r = requests.get('https://rera.karnataka.gov.in/viewAllProjects', headers=HEADERS, timeout=60)
-          r.raise_for_status()
-          log.info('Page size: %d bytes', len(r.text))
-          ack = re.findall(r\"applicationNameList\.push\('([^']+)'\)\", r.text)
-          log.info('ACK entries found: %d', len(ack))
-          log.info('Sample: %s', ack[:3])
-          "
-          else
-            python scraper/rera_scraper.py
+          ARGS=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
           fi
+          if [ "${{ github.event.inputs.limit }}" != "0" ]; then
+            ARGS="$ARGS --limit ${{ github.event.inputs.limit }}"
+          fi
+          if [ "${{ github.event.inputs.re_enrich_days }}" != "0" ]; then
+            ARGS="$ARGS --re-enrich-days ${{ github.event.inputs.re_enrich_days }}"
+          fi
+          echo "Running: python 05_App/scrape_krera.py $ARGS"
+          python 05_App/scrape_krera.py $ARGS
 
-      # -------------------------------------------------------
-      # 4. Notify on FAILURE (ntfy.sh push to your phone)
-      #    GitHub also sends you an email automatically.
-      # -------------------------------------------------------
-      - name: Notify failure via ntfy.sh
-        if: failure()
+      - name: Summary
+        if: always()
         run: |
-          curl -s \
-            -H "Title: K-RERA scraper FAILED" \
-            -H "Priority: urgent" \
-            -H "Tags: rotating_light" \
-            -d "Workflow run #${{ github.run_number }} failed. Check: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            "https://ntfy.sh/${{ secrets.NTFY_TOPIC }}"
-
-      # -------------------------------------------------------
-      # 5. Notify on SUCCESS (optional, comment out if noisy)
-      # -------------------------------------------------------
-      - name: Notify success via ntfy.sh
-        if: success()
-        run: |
-          curl -s \
-            -H "Title: K-RERA scraper done" \
-            -H "Priority: low" \
-            -H "Tags: white_check_mark" \
-            -d "Scrape complete. Run #${{ github.run_number }}" \
-            "https://ntfy.sh/${{ secrets.NTFY_TOPIC }}"
+          echo "### K-RERA Enrichment Scraper" >> $GITHUB_STEP_SUMMARY
+          echo "Run \`${{ github.run_number }}\` finished with status: **${{ job.status }}**" >> $GITHUB_STEP_SUMMARY
+          echo "Inputs: limit=${{ github.event.inputs.limit }}, dry_run=${{ github.event.inputs.dry_run }}, re_enrich_days=${{ github.event.inputs.re_enrich_days }}" >> $GITHUB_STEP_SUMMARY
