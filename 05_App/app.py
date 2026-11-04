@@ -2395,12 +2395,10 @@ if domain == "RERA":
                     if _dq_cols[_dq_i].button(_dq_sq, key=f"dq_sq_{_dq_i}", use_container_width=True):
                         st.session_state["dq_question"] = _dq_sq
 
-                _dq_question = st.text_input(
-                    "Type your question",
-                    value=st.session_state.get("dq_question", ""),
-                    placeholder="e.g. Does this agreement comply with RERA possession norms?",
+                _dq_question = st.chat_input(
+                    "Ask a question about your document…",
                     key="dq_text_input",
-                )
+                ) or st.session_state.pop("dq_question", None)
 
                 if _dq_question:
                     # Avoid re-running the same question already at the top of history
