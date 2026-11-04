@@ -1,0 +1,51 @@
+name: Scrape Market Rates
+
+# Manual trigger only — go to Actions tab, pick this workflow, click "Run workflow".
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run — fetch and print, skip Supabase writes"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --quiet requests beautifulsoup4 python-dotenv
+
+      - name: Run scraper
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          ARGS=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="--dry-run"
+          fi
+          echo "Running: python 05_App/scrape_market_rates.py $ARGS"
+          python 05_App/scrape_market_rates.py $ARGS
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Market Rates Scraper" >> $GITHUB_STEP_SUMMARY
+          echo "Run \`${{ github.run_number }}\` finished: **${{ job.status }}**" >> $GITHUB_STEP_SUMMARY
+          echo "Sources: BankBazaar (gold), Yahoo Finance (Nifty 50), Paisabazaar (FD)" >> $GITHUB_STEP_SUMMARY
+          echo "dry_run=${{ github.event.inputs.dry_run }}" >> $GITHUB_STEP_SUMMARY
