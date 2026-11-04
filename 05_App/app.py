@@ -2320,15 +2320,77 @@ if domain == "RERA":
                     _r.raise_for_status()
                     return _r.json()["choices"][0]["message"]["content"]
 
-                # Cache chunks + embeddings in session_state so they survive tab switches
+                # ── Persistent session ID (stable for the lifetime of this browser session)
+                if "dq_session_id" not in st.session_state:
+                    import uuid as _uuid
+                    st.session_state["dq_session_id"] = str(_uuid.uuid4())
+                _dq_sid = st.session_state["dq_session_id"]
+
+                # ── Supabase helpers for Document Q&A history ──────────────────
+                def _dq_sb_save(session_id, filename, question, answer, followups):
+                    """Persist one Q&A turn to document_qa_history."""
+                    try:
+                        import requests as _rq
+                        _sb_url = _secret("SUPABASE_URL")
+                        _sb_key = _secret("SUPABASE_SERVICE_KEY") or _secret("SUPABASE_KEY")
+                        if not _sb_url or not _sb_key:
+                            return
+                        _rq.post(
+                            f"{_sb_url}/rest/v1/document_qa_history",
+                            headers={
+                                "apikey": _sb_key,
+                                "Authorization": f"Bearer {_sb_key}",
+                                "Content-Type": "application/json",
+                                "Prefer": "return=minimal",
+                            },
+                            json={
+                                "session_id": session_id,
+                                "filename": filename,
+                                "question": question,
+                                "answer": answer,
+                                "followups": followups,
+                            },
+                            timeout=10,
+                        )
+                    except Exception:
+                        pass  # history persistence is best-effort
+
+                def _dq_sb_load(session_id, filename):
+                    """Load prior Q&A turns for this session + file from Supabase."""
+                    try:
+                        import requests as _rq
+                        _sb_url = _secret("SUPABASE_URL")
+                        _sb_key = _secret("SUPABASE_SERVICE_KEY") or _secret("SUPABASE_KEY")
+                        if not _sb_url or not _sb_key:
+                            return []
+                        _resp = _rq.get(
+                            f"{_sb_url}/rest/v1/document_qa_history",
+                            headers={
+                                "apikey": _sb_key,
+                                "Authorization": f"Bearer {_sb_key}",
+                            },
+                            params={
+                                "session_id": f"eq.{session_id}",
+                                "filename": f"eq.{filename}",
+                                "order": "created_at.desc",
+                                "limit": "50",
+                            },
+                            timeout=10,
+                        )
+                        rows = _resp.json() if _resp.ok else []
+                        return [{"q": r["question"], "a": r["answer"], "followups": r.get("followups") or []} for r in rows]
+                    except Exception:
+                        return []
+
+                # ── Cache chunks + embeddings in session_state so they survive tab switches
                 _dq_cache_key   = f"dq_vecs_{_dq_uploaded.name}_{len(_dq_raw)}"
                 _dq_chunks_key  = f"dq_chunks_{_dq_uploaded.name}_{len(_dq_raw)}"
                 _dq_fname_key   = "dq_current_file"
 
-                # If a new file was uploaded, clear the Q&A history
+                # If a new file was uploaded, clear in-memory history and reload from Supabase
                 if st.session_state.get(_dq_fname_key) != _dq_uploaded.name:
                     st.session_state[_dq_fname_key] = _dq_uploaded.name
-                    st.session_state["dq_history"] = []
+                    st.session_state["dq_history"] = _dq_sb_load(_dq_sid, _dq_uploaded.name)
                     st.session_state.pop("dq_question", None)
 
                 if _dq_chunks_key not in st.session_state:
@@ -2415,12 +2477,15 @@ if domain == "RERA":
                             except Exception:
                                 _dq_rera_ctx  = "RERA corpus not available in this session."
                             _dq_ans = _dq_ask(_dq_ctx, _dq_rera_ctx, _dq_question, _dq_pgs)
+                        _dq_followups = get_contextual_followups("RERA", _dq_question, _dq_ans)
                         # Prepend to history (newest first internally)
                         st.session_state["dq_history"].insert(0, {
                             "q": _dq_question,
                             "a": _dq_ans,
-                            "followups": get_contextual_followups("RERA", _dq_question, _dq_ans),
+                            "followups": _dq_followups,
                         })
+                        # Persist to Supabase (best-effort, non-blocking)
+                        _dq_sb_save(_dq_sid, _dq_uploaded.name, _dq_question, _dq_ans, _dq_followups)
                         # Clear input ready for next question
                         st.session_state.pop("dq_question", None)
                         st.rerun()
