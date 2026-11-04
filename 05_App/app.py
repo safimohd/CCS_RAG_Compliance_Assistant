@@ -2320,19 +2320,36 @@ if domain == "RERA":
                     _r.raise_for_status()
                     return _r.json()["choices"][0]["message"]["content"]
 
-                with st.spinner("Reading and indexing your document…"):
-                    _dq_chunks = _dq_extract_chunks(_dq_raw)
-                    if not _dq_chunks:
-                        st.error("Could not extract text — this PDF may be a scanned image. Try a text-based PDF.")
-                        st.stop()
-                    _dq_cache_key = f"dq_vecs_{_dq_uploaded.name}_{len(_dq_raw)}"
-                    if _dq_cache_key not in st.session_state:
-                        st.session_state[_dq_cache_key] = _dq_embed([c["text"] for c in _dq_chunks])
+                # Cache chunks + embeddings in session_state so they survive tab switches
+                _dq_cache_key   = f"dq_vecs_{_dq_uploaded.name}_{len(_dq_raw)}"
+                _dq_chunks_key  = f"dq_chunks_{_dq_uploaded.name}_{len(_dq_raw)}"
+                _dq_fname_key   = "dq_current_file"
 
-                _dq_vecs = st.session_state[_dq_cache_key]
+                # If a new file was uploaded, clear the Q&A history
+                if st.session_state.get(_dq_fname_key) != _dq_uploaded.name:
+                    st.session_state[_dq_fname_key] = _dq_uploaded.name
+                    st.session_state["dq_history"] = []
+                    st.session_state.pop("dq_question", None)
+
+                if _dq_chunks_key not in st.session_state:
+                    with st.spinner("Reading and indexing your document…"):
+                        _chunks_tmp = _dq_extract_chunks(_dq_raw)
+                        if not _chunks_tmp:
+                            st.error("Could not extract text — this PDF may be a scanned image. Try a text-based PDF.")
+                            st.stop()
+                        st.session_state[_dq_chunks_key] = _chunks_tmp
+                        st.session_state[_dq_cache_key]  = _dq_embed([c["text"] for c in _chunks_tmp])
+
+                _dq_chunks = st.session_state[_dq_chunks_key]
+                _dq_vecs   = st.session_state[_dq_cache_key]
+
+                if "dq_history" not in st.session_state:
+                    st.session_state["dq_history"] = []
+
                 st.success(f"Indexed {len(_dq_chunks)} sections from **{_dq_uploaded.name}**")
                 st.caption("Questions are answered using your document AND Karnataka RERA regulations combined.")
 
+                # Quick-check suggestion buttons
                 _dq_suggestions = [
                     "Is the RERA registration number mentioned?",
                     "What is the promised possession date?",
@@ -2358,48 +2375,55 @@ if domain == "RERA":
                 )
 
                 if _dq_question:
-                    with st.spinner("Searching document and RERA regulations…"):
-                        _dq_q_vec  = _dq_embed([_dq_question])[0]
-                        # Top chunks from uploaded document
-                        _dq_top    = _dq_top_k(_dq_q_vec, _dq_vecs, k=4)
-                        _dq_ctx    = "\n\n---\n\n".join(_dq_chunks[_i]["text"] for _i in _dq_top)
-                        _dq_pgs    = [str(_dq_chunks[_i]["page"]) for _i in _dq_top]
-                        # Top chunks from RERA RAG corpus (reuse existing retriever)
-                        try:
-                            _dq_rera_hits = retriever.invoke(_dq_question)
-                            _dq_rera_ctx  = "\n\n---\n\n".join(d.page_content for d in _dq_rera_hits[:3])
-                        except Exception:
-                            _dq_rera_ctx  = "RERA corpus not available in this session."
-                        _dq_ans = _dq_ask(_dq_ctx, _dq_rera_ctx, _dq_question, _dq_pgs)
+                    # Avoid re-running the same question already at the top of history
+                    _dq_last_q = st.session_state["dq_history"][0]["q"] if st.session_state["dq_history"] else ""
+                    if _dq_question != _dq_last_q:
+                        with st.spinner("Searching document and RERA regulations…"):
+                            _dq_q_vec  = _dq_embed([_dq_question])[0]
+                            _dq_top    = _dq_top_k(_dq_q_vec, _dq_vecs, k=4)
+                            _dq_ctx    = "\n\n---\n\n".join(_dq_chunks[_i]["text"] for _i in _dq_top)
+                            _dq_pgs    = [str(_dq_chunks[_i]["page"]) for _i in _dq_top]
+                            try:
+                                _dq_rera_hits = retriever.invoke(_dq_question)
+                                _dq_rera_ctx  = "\n\n---\n\n".join(d.page_content for d in _dq_rera_hits[:3])
+                            except Exception:
+                                _dq_rera_ctx  = "RERA corpus not available in this session."
+                            _dq_ans = _dq_ask(_dq_ctx, _dq_rera_ctx, _dq_question, _dq_pgs)
+                        # Prepend to history (newest first)
+                        st.session_state["dq_history"].insert(0, {
+                            "q": _dq_question,
+                            "a": _dq_ans,
+                            "followups": get_contextual_followups("RERA", _dq_question, _dq_ans),
+                        })
+                        # Clear input ready for next question
+                        st.session_state.pop("dq_question", None)
+                        st.rerun()
 
-                    # Highlight compliance concerns
-                    if "COMPLIANCE CONCERN" in _dq_ans:
-                        st.warning("One or more compliance concerns found in your document. See details below.")
-                    st.markdown("### Analysis")
-                    st.markdown(_dq_ans)
-                    st.caption("Sources: your uploaded document + Karnataka RERA regulatory corpus.")
+                # Render full session history
+                for _hi, _hentry in enumerate(st.session_state.get("dq_history", [])):
+                    with st.chat_message("user"):
+                        st.markdown(_hentry["q"])
+                    with st.chat_message("assistant"):
+                        if "COMPLIANCE CONCERN" in _hentry["a"]:
+                            st.warning("One or more compliance concerns found in your document. See details below.")
+                        st.markdown("### Analysis")
+                        st.markdown(_hentry["a"])
+                        st.caption("Sources: your uploaded document + Karnataka RERA regulatory corpus.")
 
-                    # Follow-up suggestions
-                    _dq_followups = get_contextual_followups("RERA", _dq_question, _dq_ans)
-                    if _dq_followups:
-                        st.markdown("---")
-                        st.markdown("**Dig deeper — suggested follow-ups:**")
-                        _fq_cols = st.columns(len(_dq_followups))
-                        for _fi, _fq in enumerate(_dq_followups):
-                            if _fq_cols[_fi].button(_fq, key=f"dq_followup_{_fi}_{hash(_dq_question)}"):
-                                st.session_state["_dq_pending"] = _fq
-                                st.rerun()
+                        # Follow-up suggestions per history entry
+                        if _hentry.get("followups"):
+                            st.markdown("---")
+                            st.markdown("**Dig deeper — suggested follow-ups:**")
+                            _fq_cols = st.columns(len(_hentry["followups"]))
+                            for _fi, _fq in enumerate(_hentry["followups"]):
+                                if _fq_cols[_fi].button(_fq, key=f"dq_fup_{_hi}_{_fi}"):
+                                    st.session_state["_dq_pending"] = _fq
+                                    st.rerun()
 
-                    # Ask your own follow-up
-                    st.markdown("**Or ask your own follow-up:**")
-                    _dq_own = st.text_input(
-                        "Follow-up question",
-                        key=f"dq_own_{hash(_dq_question)}",
-                        label_visibility="collapsed",
-                        placeholder="e.g. What is the refund timeline if I cancel?",
-                    )
-                    if _dq_own:
-                        st.session_state["_dq_pending"] = _dq_own
+                # Clear history button
+                if st.session_state.get("dq_history"):
+                    if st.button("🗑️ Clear Q&A history", key="dq_clear_hist"):
+                        st.session_state["dq_history"] = []
                         st.rerun()
             else:
                 st.info("Upload your sales deed or builder-buyer agreement PDF to get started.")
