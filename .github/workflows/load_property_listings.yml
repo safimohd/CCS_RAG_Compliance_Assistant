@@ -1,0 +1,50 @@
+name: Load Bangalore Property Listings
+
+# Manual trigger only — go to Actions tab, pick this workflow, click "Run workflow".
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run — process and print stats, skip Supabase writes"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --quiet requests pandas python-dotenv
+
+      - name: Run listings loader
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          ARGS=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="--dry-run"
+          fi
+          echo "Running: python 05_App/load_property_listings.py $ARGS"
+          python 05_App/load_property_listings.py $ARGS
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Bangalore Property Listings Loader" >> $GITHUB_STEP_SUMMARY
+          echo "Run \`${{ github.run_number }}\` finished: **${{ job.status }}**" >> $GITHUB_STEP_SUMMARY
+          echo "Source: Kaggle Bengaluru_House_Data (13k rows), dry_run=${{ github.event.inputs.dry_run }}" >> $GITHUB_STEP_SUMMARY
