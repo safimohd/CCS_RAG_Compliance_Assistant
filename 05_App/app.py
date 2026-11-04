@@ -1987,7 +1987,8 @@ with st.sidebar:
 
             _dqa_hist = st.session_state.get("_dqa_history_sidebar", {})
             if _dqa_hist:
-                _dqa_expander_open = bool(st.session_state.get("_active_dqa_file"))
+                _dqa_active_file = st.session_state.get("_active_dqa_file")
+                _dqa_expander_open = bool(_dqa_active_file)
                 with st.expander("📄 Document Q&A", expanded=_dqa_expander_open):
                     for _dqa_si, (_dfname, _drows) in enumerate(_dqa_hist.items()):
                         # Date from the most-recent row for this file
@@ -1999,21 +2000,33 @@ with st.sidebar:
                             _dqa_date = ""
                         _dqa_qcount = len(_drows)
                         _dqa_label = f"Session #{_dqa_si + 1}  ·  {_dqa_date}  ·  {_dqa_qcount}Q  📄"
-                        _is_dqa_active = st.session_state.get("_active_dqa_file") == _dfname
+                        _is_dqa_active = _dqa_active_file == _dfname
                         if st.button(
                             _dqa_label,
                             key=f"dqa_sess_{_dqa_si}",
                             use_container_width=True,
-                            type="primary",
+                            type="primary" if not _is_dqa_active else "secondary",
                             help=_dfname,
                         ):
-                            # Load this file's Q&A history into the Document Q&A tab
-                            st.session_state["_active_dqa_file"] = _dfname
-                            st.session_state["dq_history"] = [
-                                {"q": r["question"], "a": r["answer"], "followups": r.get("followups") or []}
-                                for r in _drows   # already newest-first from the query
-                            ]
+                            if _is_dqa_active:
+                                # Clicking active session collapses it
+                                st.session_state.pop("_active_dqa_file", None)
+                                st.session_state.pop("dq_history", None)
+                            else:
+                                st.session_state["_active_dqa_file"] = _dfname
+                                st.session_state["dq_history"] = [
+                                    {"q": r["question"], "a": r["answer"], "followups": r.get("followups") or []}
+                                    for r in _drows
+                                ]
                             st.rerun()
+
+                        # Show Q&A thread inline in sidebar when this session is active
+                        if _is_dqa_active:
+                            for _sr in reversed(_drows):
+                                st.markdown(f"**Q:** {_sr['question']}")
+                                _ans_preview = _sr['answer'][:300] + ("…" if len(_sr['answer']) > 300 else "")
+                                st.caption(_ans_preview)
+                                st.markdown("---")
 
     st.divider()
     st.toggle("🌙 Dark mode", key="dark_mode",
