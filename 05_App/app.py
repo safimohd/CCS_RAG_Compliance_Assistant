@@ -1714,6 +1714,12 @@ st.markdown(CSS, unsafe_allow_html=True)
 if st.session_state.get("dark_mode"):
     st.markdown(DARK_CSS, unsafe_allow_html=True)
 
+# Generate a stable Document Q&A session ID at app startup (not inside the tab)
+# so the sidebar can show Q&A history even before the tab is visited.
+if "dq_session_id" not in st.session_state:
+    import uuid as _uuid_startup
+    st.session_state["dq_session_id"] = str(_uuid_startup.uuid4())
+
 with st.sidebar:
     # ── Account popover — sits at the very top of the sidebar ─────────────────
     if "current_user" not in st.session_state:
@@ -2380,10 +2386,7 @@ if domain == "RERA":
                     _r.raise_for_status()
                     return _r.json()["choices"][0]["message"]["content"]
 
-                # ── Persistent session ID (stable for the lifetime of this browser session)
-                if "dq_session_id" not in st.session_state:
-                    import uuid as _uuid
-                    st.session_state["dq_session_id"] = str(_uuid.uuid4())
+                # dq_session_id is initialised at app startup; just read it here
                 _dq_sid = st.session_state["dq_session_id"]
 
                 # ── Supabase helpers for Document Q&A history ──────────────────
