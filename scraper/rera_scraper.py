@@ -64,23 +64,23 @@ def fetch_listing() -> str:
 # ---------------------------------------------------------------------------
 # Step 2: Extract JS arrays from the HTML via regex
 # ---------------------------------------------------------------------------
-_ARRAY_RE = re.compile(
-    r"var\s+(applicationNameList\d*)\s*=\s*new Array\(\s*\);"
-    r".*?"
-    r"(?=var\s+applicationNameList|\Z)",
-    re.DOTALL,
-)
-_PUSH_RE = re.compile(r"\.push\('([^']+)'\)")
+_DECL_RE  = re.compile(r"var\s+(applicationNameList\d*)\s*=\s*new Array\(\s*\);")
+_PUSH_RE  = re.compile(r"(applicationNameList\d*)\.push\('([^']+)'\)")
 
 
 def extract_arrays(html: str) -> dict[str, list[str]]:
-    """Return a dict  {array_name: [values…]}  for all 4 applicationNameList* vars."""
-    results: dict[str, list[str]] = {}
-    for m in _ARRAY_RE.finditer(html):
-        name   = m.group(1)
-        block  = m.group(0)
-        values = _PUSH_RE.findall(block)
-        results[name] = values
+    """Return a dict  {array_name: [values…]}  for all applicationNameList* vars."""
+    # Find declared array names in order
+    names = [m.group(1) for m in _DECL_RE.finditer(html)]
+    results: dict[str, list[str]] = {n: [] for n in names}
+
+    # Walk all push calls and assign to the correct array
+    for m in _PUSH_RE.finditer(html):
+        arr_name, value = m.group(1), m.group(2)
+        if arr_name in results:
+            results[arr_name].append(value)
+
+    for name, values in results.items():
         log.info("  %-30s  %d entries", name, len(values))
     return results
 
