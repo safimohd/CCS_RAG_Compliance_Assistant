@@ -2357,18 +2357,46 @@ if domain == "RERA":
                     "Is the carpet area clearly defined?",
                     "Are there any clauses that may violate RERA?",
                 ]
-                st.markdown("**Quick checks:**")
+                # Pre-fill from follow-up button click (must happen before input renders)
+                if "_dq_pending" in st.session_state:
+                    st.session_state["dq_question"] = st.session_state.pop("_dq_pending")
+
+                # Render full session history (oldest at top, newest at bottom)
+                for _hi, _hentry in enumerate(reversed(st.session_state.get("dq_history", []))):
+                    with st.chat_message("user"):
+                        st.markdown(_hentry["q"])
+                    with st.chat_message("assistant"):
+                        if "COMPLIANCE CONCERN" in _hentry["a"]:
+                            st.warning("One or more compliance concerns found in your document. See details below.")
+                        st.markdown("### Analysis")
+                        st.markdown(_hentry["a"])
+                        st.caption("Sources: your uploaded document + Karnataka RERA regulatory corpus.")
+
+                        # Follow-up suggestions per history entry
+                        if _hentry.get("followups"):
+                            st.markdown("---")
+                            st.markdown("**Dig deeper — suggested follow-ups:**")
+                            _fq_cols = st.columns(len(_hentry["followups"]))
+                            _rev_idx = len(st.session_state["dq_history"]) - 1 - _hi
+                            for _fi, _fq in enumerate(_hentry["followups"]):
+                                if _fq_cols[_fi].button(_fq, key=f"dq_fup_{_rev_idx}_{_fi}"):
+                                    st.session_state["_dq_pending"] = _fq
+                                    st.rerun()
+
+                st.markdown("---")
+
+                # Quick-check buttons — shown below history so user can keep going
+                if not st.session_state.get("dq_history"):
+                    st.markdown("**Quick checks to get started:**")
+                else:
+                    st.markdown("**Ask another question:**")
                 _dq_cols = st.columns(len(_dq_suggestions))
                 for _dq_i, _dq_sq in enumerate(_dq_suggestions):
                     if _dq_cols[_dq_i].button(_dq_sq, key=f"dq_sq_{_dq_i}", use_container_width=True):
                         st.session_state["dq_question"] = _dq_sq
 
-                # Pre-fill from follow-up button click
-                if "_dq_pending" in st.session_state:
-                    st.session_state["dq_question"] = st.session_state.pop("_dq_pending")
-
                 _dq_question = st.text_input(
-                    "Or type your own question",
+                    "Type your question",
                     value=st.session_state.get("dq_question", ""),
                     placeholder="e.g. Does this agreement comply with RERA possession norms?",
                     key="dq_text_input",
@@ -2389,7 +2417,7 @@ if domain == "RERA":
                             except Exception:
                                 _dq_rera_ctx  = "RERA corpus not available in this session."
                             _dq_ans = _dq_ask(_dq_ctx, _dq_rera_ctx, _dq_question, _dq_pgs)
-                        # Prepend to history (newest first)
+                        # Prepend to history (newest first internally)
                         st.session_state["dq_history"].insert(0, {
                             "q": _dq_question,
                             "a": _dq_ans,
@@ -2398,27 +2426,6 @@ if domain == "RERA":
                         # Clear input ready for next question
                         st.session_state.pop("dq_question", None)
                         st.rerun()
-
-                # Render full session history
-                for _hi, _hentry in enumerate(st.session_state.get("dq_history", [])):
-                    with st.chat_message("user"):
-                        st.markdown(_hentry["q"])
-                    with st.chat_message("assistant"):
-                        if "COMPLIANCE CONCERN" in _hentry["a"]:
-                            st.warning("One or more compliance concerns found in your document. See details below.")
-                        st.markdown("### Analysis")
-                        st.markdown(_hentry["a"])
-                        st.caption("Sources: your uploaded document + Karnataka RERA regulatory corpus.")
-
-                        # Follow-up suggestions per history entry
-                        if _hentry.get("followups"):
-                            st.markdown("---")
-                            st.markdown("**Dig deeper — suggested follow-ups:**")
-                            _fq_cols = st.columns(len(_hentry["followups"]))
-                            for _fi, _fq in enumerate(_hentry["followups"]):
-                                if _fq_cols[_fi].button(_fq, key=f"dq_fup_{_hi}_{_fi}"):
-                                    st.session_state["_dq_pending"] = _fq
-                                    st.rerun()
 
                 # Clear history button
                 if st.session_state.get("dq_history"):
