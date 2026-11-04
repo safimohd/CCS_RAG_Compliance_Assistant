@@ -2246,6 +2246,13 @@ if domain == "RERA":
         import requests as _req_docqa
         import numpy as _np_docqa
 
+        st.markdown("### 📄 Sales Deed / Agreement Analyzer")
+        st.markdown(
+            "Upload your **sales deed, builder-buyer agreement, or any real estate document** (PDF). "
+            "The tool will answer your questions by reading your document *and* cross-checking against "
+            "Karnataka RERA regulations — flagging anything that looks non-compliant."
+        )
+
         _OPENAI_KEY = _secret("OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
         _EMBED_MODEL = "text-embedding-3-small"
         _QA_MODEL    = _secret("LLM_MODEL") or os.environ.get("LLM_MODEL", "gpt-4o-mini")
@@ -2290,25 +2297,33 @@ if domain == "RERA":
                     _scores = _D @ _q / (_np_docqa.linalg.norm(_D, axis=1) * _np_docqa.linalg.norm(_q) + 1e-9)
                     return _scores.argsort()[::-1][:k].tolist()
 
-                def _dq_ask(context, question, pages):
-                    _sys = ("You are a RERA compliance expert helping a first-time home buyer in Karnataka. "
-                            "Answer using ONLY the document excerpts provided. "
-                            "If the answer is not in the excerpts, say: 'This information is not found in the uploaded document.' "
-                            f"Cite the relevant page numbers at the end of your answer.")
-                    _usr = f"Document excerpts (pages {', '.join(pages)}):\n{context}\n\nQuestion: {question}"
+                def _dq_ask(doc_context, rera_context, question, pages):
+                    _sys = (
+                        "You are a RERA compliance expert helping a first-time home buyer in Karnataka. "
+                        "You have two sources: (1) the buyer's uploaded document, and (2) Karnataka RERA regulations. "
+                        "Answer the question using both sources. "
+                        "If a clause in the document contradicts or falls short of RERA requirements, "
+                        "clearly flag it as: 'COMPLIANCE CONCERN: ...' "
+                        "Cite page numbers from the uploaded document where relevant."
+                    )
+                    _usr = (
+                        f"UPLOADED DOCUMENT (pages {', '.join(pages)}):\n{doc_context}\n\n"
+                        f"KARNATAKA RERA REGULATIONS:\n{rera_context}\n\n"
+                        f"Question: {question}"
+                    )
                     _r = _req_docqa.post(
                         "https://api.openai.com/v1/chat/completions",
                         headers={"Authorization": f"Bearer {_OPENAI_KEY}"},
                         json={"model": _QA_MODEL, "messages": [{"role": "system", "content": _sys}, {"role": "user", "content": _usr}], "temperature": 0.2},
-                        timeout=30,
+                        timeout=45,
                     )
                     _r.raise_for_status()
                     return _r.json()["choices"][0]["message"]["content"]
 
-                with st.spinner("Reading and indexing document…"):
+                with st.spinner("Reading and indexing your document…"):
                     _dq_chunks = _dq_extract_chunks(_dq_raw)
                     if not _dq_chunks:
-                        st.error("Could not extract text from this PDF — it may be a scanned image.")
+                        st.error("Could not extract text — this PDF may be a scanned image. Try a text-based PDF.")
                         st.stop()
                     _dq_cache_key = f"dq_vecs_{_dq_uploaded.name}_{len(_dq_raw)}"
                     if _dq_cache_key not in st.session_state:
@@ -2316,34 +2331,51 @@ if domain == "RERA":
 
                 _dq_vecs = st.session_state[_dq_cache_key]
                 st.success(f"Indexed {len(_dq_chunks)} sections from **{_dq_uploaded.name}**")
+                st.caption("Questions are answered using your document AND Karnataka RERA regulations combined.")
 
                 _dq_suggestions = [
-                    "What is the RERA registration number?",
+                    "Is the RERA registration number mentioned?",
                     "What is the promised possession date?",
-                    "What penalty applies for delayed possession?",
-                    "What amenities are included?",
-                    "What is the carpet area of the flat?",
+                    "What penalty applies if builder delays possession?",
+                    "Is the carpet area clearly defined?",
+                    "Are there any clauses that may violate RERA?",
                 ]
-                st.markdown("**Quick questions:**")
+                st.markdown("**Quick checks:**")
                 _dq_cols = st.columns(len(_dq_suggestions))
                 for _dq_i, _dq_sq in enumerate(_dq_suggestions):
                     if _dq_cols[_dq_i].button(_dq_sq, key=f"dq_sq_{_dq_i}", use_container_width=True):
                         st.session_state["dq_question"] = _dq_sq
 
-                _dq_question = st.text_input("Or type your own question", value=st.session_state.get("dq_question", ""),
-                                              placeholder="e.g. What happens if the builder delays possession?", key="dq_text_input")
+                _dq_question = st.text_input(
+                    "Or type your own question",
+                    value=st.session_state.get("dq_question", ""),
+                    placeholder="e.g. Does this agreement comply with RERA possession norms?",
+                    key="dq_text_input",
+                )
 
                 if _dq_question:
-                    with st.spinner("Searching document…"):
-                        _dq_q_vec = _dq_embed([_dq_question])[0]
-                        _dq_top   = _dq_top_k(_dq_q_vec, _dq_vecs, k=3)
-                        _dq_ctx   = "\n\n---\n\n".join(_dq_chunks[_i]["text"] for _i in _dq_top)
-                        _dq_pgs   = [str(_dq_chunks[_i]["page"]) for _i in _dq_top]
-                        _dq_ans   = _dq_ask(_dq_ctx, _dq_question, _dq_pgs)
-                    st.markdown("### Answer")
+                    with st.spinner("Searching document and RERA regulations…"):
+                        _dq_q_vec  = _dq_embed([_dq_question])[0]
+                        # Top chunks from uploaded document
+                        _dq_top    = _dq_top_k(_dq_q_vec, _dq_vecs, k=4)
+                        _dq_ctx    = "\n\n---\n\n".join(_dq_chunks[_i]["text"] for _i in _dq_top)
+                        _dq_pgs    = [str(_dq_chunks[_i]["page"]) for _i in _dq_top]
+                        # Top chunks from RERA RAG corpus (reuse existing retriever)
+                        try:
+                            _dq_rera_hits = retriever.invoke(_dq_question)
+                            _dq_rera_ctx  = "\n\n---\n\n".join(d.page_content for d in _dq_rera_hits[:3])
+                        except Exception:
+                            _dq_rera_ctx  = "RERA corpus not available in this session."
+                        _dq_ans = _dq_ask(_dq_ctx, _dq_rera_ctx, _dq_question, _dq_pgs)
+
+                    # Highlight compliance concerns
+                    if "COMPLIANCE CONCERN" in _dq_ans:
+                        st.warning("One or more compliance concerns found in your document. See details below.")
+                    st.markdown("### Analysis")
                     st.markdown(_dq_ans)
+                    st.caption("Sources: your uploaded document + Karnataka RERA regulatory corpus.")
             else:
-                st.info("Upload a PDF above to get started.")
+                st.info("Upload your sales deed or builder-buyer agreement PDF to get started.")
 
     # ── Tab 1: Compliance Chat (all original chatbot code runs inside this tab)
     _rera_tab_ctx = _tab_chat
