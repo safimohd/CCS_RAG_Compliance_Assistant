@@ -457,21 +457,7 @@ with tab1:
         <p style='color:{label_c};font-size:11px;font-weight:700;text-transform:uppercase;
                   letter-spacing:0.08em;margin:0 0 10px;'>Queries per day</p>
         """, unsafe_allow_html=True)
-        import plotly.graph_objects as go
-        bg_color = "#0b0f17" if is_dark else "#ffffff"
-        grid_color = "#1e2d45" if is_dark else "#e5e9f2"
-        txt_color = "#a8bdd8" if is_dark else "#6b7a99"
-        fig = go.Figure()
-        fig.add_trace(go.Bar(x=all_days, y=[daily_hc.get(d, 0) for d in all_days], name="Healthcare", marker_color="#3b82f6"))
-        fig.add_trace(go.Bar(x=all_days, y=[daily_rera.get(d, 0) for d in all_days], name="RERA", marker_color="#22c55e"))
-        fig.update_layout(
-            paper_bgcolor=bg_color, plot_bgcolor=bg_color,
-            barmode="group", showlegend=True, height=280, margin=dict(l=0, r=0, t=10, b=0),
-            legend=dict(font=dict(color=txt_color), bgcolor="rgba(0,0,0,0)"),
-            xaxis=dict(gridcolor=grid_color, color=txt_color, tickfont=dict(color=txt_color)),
-            yaxis=dict(gridcolor=grid_color, color=txt_color, tickfont=dict(color=txt_color)),
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        st.bar_chart(df_chart, height=280, use_container_width=True)
 
         st.markdown("<div style='height:24px'></div>", unsafe_allow_html=True)
 
