@@ -2096,9 +2096,14 @@ if domain == "RERA":
 
             if _lk_query:
                 _lk_col = _LK_COL_MAP.get(_lk_field, "project_name")
+                _lk_select = (
+                    "ack_number,prm_number,project_name,promoter_name,"
+                    "status,district,taluk,project_type,total_units,sold_units,"
+                    "completion_date,reg_date,lapse_date,land_area_sqft,detail_url"
+                )
                 _lk_url = (f"{_SUPABASE_URL}/rest/v1/rera_projects"
                            f"?{_lk_col}=ilike.*{_req_lookup.utils.quote(_lk_query)}*"
-                           f"&limit=20&select=ack_number,prm_number,project_name,promoter_name")
+                           f"&limit=20&select={_lk_select}")
                 try:
                     _lk_r = _req_lookup.get(_lk_url, headers={"apikey": _SUPABASE_KEY, "Authorization": f"Bearer {_SUPABASE_KEY}"}, timeout=15)
                     _lk_r.raise_for_status()
@@ -2109,20 +2114,67 @@ if domain == "RERA":
 
                 if _lk_results:
                     st.success(f"Found {len(_lk_results)} project(s)")
+                    _STATUS_COLOR = {"active": "🟢", "expired": "🔴", "lapsed": "🟠", "revoked": "⛔"}
                     for _lk_p in _lk_results:
-                        with st.expander(f"**{_lk_p.get('project_name') or 'N/A'}** — {_lk_p.get('promoter_name') or 'N/A'}"):
-                            _lk_c1, _lk_c2 = st.columns(2)
-                            _lk_c1.metric("ACK Number", _lk_p.get("ack_number") or "N/A")
-                            _lk_c2.metric("PRM Number", _lk_p.get("prm_number") or "N/A")
-                            if _lk_p.get("ack_number"):
-                                st.markdown(f"[View on K-RERA portal ↗](https://rera.karnataka.gov.in/projectViewDetails?id={_lk_p['ack_number']})")
+                        _lk_status_raw = (_lk_p.get("status") or "").lower()
+                        _lk_badge = _STATUS_COLOR.get(_lk_status_raw, "⬜")
+                        _lk_title = (
+                            f"{_lk_badge} **{_lk_p.get('project_name') or 'N/A'}**"
+                            f"  |  {_lk_p.get('promoter_name') or 'N/A'}"
+                        )
+                        with st.expander(_lk_title):
+                            # Row 1: Status + Location
+                            _lk_r1a, _lk_r1b, _lk_r1c = st.columns(3)
+                            _lk_r1a.metric("Status", (_lk_p.get("status") or "Not enriched yet").title())
+                            _lk_r1b.metric("District", _lk_p.get("district") or "N/A")
+                            _lk_r1c.metric("Project Type", _lk_p.get("project_type") or "N/A")
+
+                            # Row 2: Units
+                            _lk_r2a, _lk_r2b, _lk_r2c = st.columns(3)
+                            _lk_total = _lk_p.get("total_units")
+                            _lk_sold  = _lk_p.get("sold_units")
+                            _lk_avail = (_lk_total - _lk_sold) if (_lk_total and _lk_sold is not None) else None
+                            _lk_r2a.metric("Total Units", _lk_total if _lk_total else "N/A")
+                            _lk_r2b.metric("Units Sold", _lk_sold if _lk_sold is not None else "N/A")
+                            _lk_r2c.metric("Units Available", _lk_avail if _lk_avail is not None else "N/A")
+
+                            # Row 3: Dates
+                            _lk_r3a, _lk_r3b, _lk_r3c = st.columns(3)
+                            _lk_r3a.metric("Registration Date", _lk_p.get("reg_date") or "N/A")
+                            _lk_r3b.metric("Expected Completion", _lk_p.get("completion_date") or "N/A")
+                            _lk_r3c.metric("Valid Until", _lk_p.get("lapse_date") or "N/A")
+
+                            # Row 4: RERA Numbers
+                            _lk_r4a, _lk_r4b = st.columns(2)
+                            _lk_r4a.markdown(f"**ACK:** `{_lk_p.get('ack_number') or 'N/A'}`")
+                            _lk_r4b.markdown(f"**PRM:** `{_lk_p.get('prm_number') or 'N/A'}`")
+
+                            # Buyer guidance
+                            if _lk_status_raw == "active":
+                                st.success("This project is **Active** on K-RERA. The builder is currently compliant.")
+                            elif _lk_status_raw in ("expired", "lapsed"):
+                                st.error("Registration has **expired / lapsed**. Verify status directly with K-RERA before booking.")
+                            elif _lk_status_raw == "revoked":
+                                st.error("Registration has been **revoked** by K-RERA. Exercise extreme caution.")
+                            else:
+                                st.info("Detailed status not yet scraped. Click the portal link below to verify.")
+
+                            # Portal link
+                            _lk_portal_id = _lk_p.get("prm_number") or _lk_p.get("ack_number") or ""
+                            if _lk_portal_id:
+                                st.markdown(f"[View full details on K-RERA portal ↗](https://rera.karnataka.gov.in/projectViewDetails?id={_lk_portal_id})")
                 else:
                     st.warning("No matching projects found. Try a shorter keyword.")
             else:
                 st.info("Type a project name or builder name to search.")
 
             with st.expander("About this data"):
-                st.markdown("Scraped from [rera.karnataka.gov.in](https://rera.karnataka.gov.in/viewAllProjects). All 10,096 RERA-registered Karnataka projects as of November 2026.")
+                st.markdown(
+                    "Sourced from [K-RERA](https://rera.karnataka.gov.in/viewAllProjects) — all 10,096 RERA-registered Karnataka projects. "
+                    "Rich details (status, location, units, dates) are scraped progressively from project detail pages and stored in our database. "
+                    "Projects showing 'Not enriched yet' have not been detail-scraped yet. "
+                    "Always cross-check critical decisions on the official portal."
+                )
 
     # ── Tab 3: Investment Signals ──────────────────────────────────────────
     with _tab_invest:
