@@ -1271,13 +1271,16 @@ def _mic_widget(state_key: str, openai_key: str, widget_key: str) -> None:
         return
 
     import hashlib as _hl, io as _io_mic
-    _audio = _ar(
-        text="",
-        recording_color="#e53935",
-        neutral_color="#546e7a",
-        icon_size="lg",
-        key=widget_key,
-    )
+    _mic_col = st.columns([10, 1])[1]
+    with _mic_col:
+        _audio = _ar(
+            text="",
+            recording_color="#e53935",
+            neutral_color="#546e7a",
+            icon_size="lg",
+            pause_threshold=3.0,
+            key=widget_key,
+        )
     if _audio:
         _hash = _hl.md5(_audio).hexdigest()
         _seen_key = f"_mic_seen_{widget_key}"
