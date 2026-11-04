@@ -41,3 +41,4 @@ _new_sources/
 # any single file over 100MB, so committing this would break the push.
 05_App/chroma_db.tar.gz
 *.tar.gz
+.streamlit/secrets.toml
