@@ -2346,6 +2346,10 @@ if domain == "RERA":
                     if _dq_cols[_dq_i].button(_dq_sq, key=f"dq_sq_{_dq_i}", use_container_width=True):
                         st.session_state["dq_question"] = _dq_sq
 
+                # Pre-fill from follow-up button click
+                if "_dq_pending" in st.session_state:
+                    st.session_state["dq_question"] = st.session_state.pop("_dq_pending")
+
                 _dq_question = st.text_input(
                     "Or type your own question",
                     value=st.session_state.get("dq_question", ""),
@@ -2374,6 +2378,29 @@ if domain == "RERA":
                     st.markdown("### Analysis")
                     st.markdown(_dq_ans)
                     st.caption("Sources: your uploaded document + Karnataka RERA regulatory corpus.")
+
+                    # Follow-up suggestions
+                    _dq_followups = get_contextual_followups("RERA", _dq_question, _dq_ans)
+                    if _dq_followups:
+                        st.markdown("---")
+                        st.markdown("**Dig deeper — suggested follow-ups:**")
+                        _fq_cols = st.columns(len(_dq_followups))
+                        for _fi, _fq in enumerate(_dq_followups):
+                            if _fq_cols[_fi].button(_fq, key=f"dq_followup_{_fi}_{hash(_dq_question)}"):
+                                st.session_state["_dq_pending"] = _fq
+                                st.rerun()
+
+                    # Ask your own follow-up
+                    st.markdown("**Or ask your own follow-up:**")
+                    _dq_own = st.text_input(
+                        "Follow-up question",
+                        key=f"dq_own_{hash(_dq_question)}",
+                        label_visibility="collapsed",
+                        placeholder="e.g. What is the refund timeline if I cancel?",
+                    )
+                    if _dq_own:
+                        st.session_state["_dq_pending"] = _dq_own
+                        st.rerun()
             else:
                 st.info("Upload your sales deed or builder-buyer agreement PDF to get started.")
 
