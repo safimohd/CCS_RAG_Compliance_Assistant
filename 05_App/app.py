@@ -1958,32 +1958,32 @@ with st.sidebar:
 
     # ── Document Q&A history (RERA only) ──────────────────────────────────────
     if LOCKED_DOMAIN == "RERA":
-        _dqa_sid = st.session_state.get("dq_session_id", "")
-        if _dqa_sid:
-            # Fetch all Q&A rows for this browser session, newest first
-            if "_dqa_history_sidebar" not in st.session_state:
-                try:
-                    import requests as _rq_dqa
-                    _sb_url_h = _secret("SUPABASE_URL")
-                    _sb_key_h = _secret("SUPABASE_SERVICE_KEY") or _secret("SUPABASE_KEY")
-                    if _sb_url_h and _sb_key_h:
-                        _hr = _rq_dqa.get(
-                            f"{_sb_url_h}/rest/v1/document_qa_history",
-                            headers={"apikey": _sb_key_h, "Authorization": f"Bearer {_sb_key_h}"},
-                            params={"session_id": f"eq.{_dqa_sid}", "order": "created_at.desc", "limit": "200"},
-                            timeout=5,
-                        )
-                        _hrows = _hr.json() if _hr.ok else []
-                        # Group by filename — each unique file = one "Document Q&A session"
-                        _dqa_by_file: dict = {}
-                        for _row in _hrows:
-                            _fn = _row.get("filename") or "Unknown file"
-                            _dqa_by_file.setdefault(_fn, []).append(_row)
-                        st.session_state["_dqa_history_sidebar"] = _dqa_by_file
-                    else:
-                        st.session_state["_dqa_history_sidebar"] = {}
-                except Exception:
+        # Fetch the most recent Q&A rows globally (no session_id filter) so
+        # history is visible immediately on any fresh page load, not just
+        # during the session that created it (session_state is ephemeral).
+        if "_dqa_history_sidebar" not in st.session_state:
+            try:
+                import requests as _rq_dqa
+                _sb_url_h = _secret("SUPABASE_URL")
+                _sb_key_h = _secret("SUPABASE_SERVICE_KEY") or _secret("SUPABASE_KEY")
+                if _sb_url_h and _sb_key_h:
+                    _hr = _rq_dqa.get(
+                        f"{_sb_url_h}/rest/v1/document_qa_history",
+                        headers={"apikey": _sb_key_h, "Authorization": f"Bearer {_sb_key_h}"},
+                        params={"order": "created_at.desc", "limit": "200"},
+                        timeout=5,
+                    )
+                    _hrows = _hr.json() if _hr.ok else []
+                    # Group by filename — each unique file = one "Document Q&A session"
+                    _dqa_by_file: dict = {}
+                    for _row in _hrows:
+                        _fn = _row.get("filename") or "Unknown file"
+                        _dqa_by_file.setdefault(_fn, []).append(_row)
+                    st.session_state["_dqa_history_sidebar"] = _dqa_by_file
+                else:
                     st.session_state["_dqa_history_sidebar"] = {}
+            except Exception:
+                st.session_state["_dqa_history_sidebar"] = {}
 
             _dqa_hist = st.session_state.get("_dqa_history_sidebar", {})
             if _dqa_hist:
