@@ -2013,8 +2013,6 @@ with st.sidebar:
                                 {"q": r["question"], "a": r["answer"], "followups": r.get("followups") or []}
                                 for r in _drows   # already newest-first from the query
                             ]
-                            # Signal to auto-switch to the Document Q&A tab on next render
-                            st.session_state["_switch_to_docqa"] = True
                             st.rerun()
 
     st.divider()
@@ -2134,29 +2132,6 @@ st.markdown(
 
 # ── RERA extra tabs (K-RERA Lookup + Investment Signals + Document Q&A) ───────
 if domain == "RERA":
-    # Auto-switch to Document Q&A tab when a sidebar session was clicked
-    if st.session_state.pop("_switch_to_docqa", False):
-        import streamlit.components.v1 as _stc
-        _stc.html("""
-        <script>
-        (function() {
-          function clickDocQaTab() {
-            var tabs = window.parent.document.querySelectorAll('button[data-baseweb="tab"]');
-            for (var i = 0; i < tabs.length; i++) {
-              if (tabs[i].innerText.indexOf('Document Q') !== -1) {
-                tabs[i].click();
-                return true;
-              }
-            }
-            return false;
-          }
-          if (!clickDocQaTab()) {
-            setTimeout(clickDocQaTab, 300);
-          }
-        })();
-        </script>
-        """, height=0)
-
     _tab_chat, _tab_lookup, _tab_invest, _tab_docqa = st.tabs([
         "💬 Compliance Chat",
         "🔍 K-RERA Project Lookup",
@@ -2351,6 +2326,26 @@ if domain == "RERA":
 
         st.subheader("Ask questions about your RERA document")
         st.markdown("Upload any RERA-related PDF — sale agreement, allotment letter, project brochure — and ask questions in plain language.")
+
+        # ── Past-session read-only view (no file needed) ──────────────────────
+        _dq_past_file = st.session_state.get("_active_dqa_file")
+        _dq_past_hist = st.session_state.get("dq_history", [])
+        if _dq_past_file and _dq_past_hist and not st.session_state.get("dq_pdf"):
+            st.info(f"📄 Viewing past session: **{_dq_past_file}**  — upload the same file below to ask new questions.")
+            for _phi, _phentry in enumerate(reversed(_dq_past_hist)):
+                with st.chat_message("user"):
+                    st.markdown(_phentry["q"])
+                with st.chat_message("assistant"):
+                    if "COMPLIANCE CONCERN" in _phentry["a"]:
+                        st.warning("One or more compliance concerns found in your document. See details below.")
+                    st.markdown("### Analysis")
+                    st.markdown(_phentry["a"])
+                    st.caption("Sources: your uploaded document + Karnataka RERA regulatory corpus.")
+            if st.button("✕ Close past session", key="dq_close_past"):
+                st.session_state.pop("_active_dqa_file", None)
+                st.session_state.pop("dq_history", None)
+                st.rerun()
+            st.markdown("---")
 
         if not _OPENAI_KEY:
             st.error("OPENAI_API_KEY not set. Add it to Streamlit Secrets.")
