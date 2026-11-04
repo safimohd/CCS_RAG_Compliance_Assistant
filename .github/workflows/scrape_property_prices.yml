@@ -42,6 +42,28 @@ jobs:
           echo "Running: python 05_App/scrape_property_prices.py $ARGS"
           python 05_App/scrape_property_prices.py $ARGS
 
+      - name: Notify
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          if [ "$STATUS" = "success" ]; then
+            TITLE="Property Price Scraper passed"
+            MSG="NoBroker 2026 locality prices updated in Supabase."
+            PRIORITY="default"
+            TAGS="white_check_mark"
+          else
+            TITLE="Property Price Scraper FAILED"
+            MSG="Run #${{ github.run_number }} failed. Check Actions tab."
+            PRIORITY="high"
+            TAGS="x"
+          fi
+          curl -s \
+            -H "Title: $TITLE" \
+            -H "Priority: $PRIORITY" \
+            -H "Tags: $TAGS" \
+            -d "$MSG" \
+            https://ntfy.sh/rera-safi-2026
+
       - name: Summary
         if: always()
         run: |

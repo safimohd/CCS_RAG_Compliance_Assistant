@@ -49,3 +49,25 @@ jobs:
           echo "Run \`${{ github.run_number }}\` finished: **${{ job.status }}**" >> $GITHUB_STEP_SUMMARY
           echo "Sources: BankBazaar (gold), Yahoo Finance (Nifty 50), Paisabazaar (FD)" >> $GITHUB_STEP_SUMMARY
           echo "dry_run=${{ github.event.inputs.dry_run }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Notify
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          if [ "$STATUS" = "success" ]; then
+            TITLE="Market Rates Scraper passed"
+            MSG="Gold, Nifty 50, FD rates updated in Supabase."
+            PRIORITY="default"
+            TAGS="white_check_mark"
+          else
+            TITLE="Market Rates Scraper FAILED"
+            MSG="Run #${{ github.run_number }} failed. Check Actions tab."
+            PRIORITY="high"
+            TAGS="x"
+          fi
+          curl -s \
+            -H "Title: $TITLE" \
+            -H "Priority: $PRIORITY" \
+            -H "Tags: $TAGS" \
+            -d "$MSG" \
+            https://ntfy.sh/rera-safi-2026
