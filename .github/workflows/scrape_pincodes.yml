@@ -1,0 +1,77 @@
+name: Karnataka Pincode Scraper
+
+# Manual trigger only — go to Actions tab, pick this workflow, click "Run workflow".
+on:
+  workflow_dispatch:
+    inputs:
+      start_pincode:
+        description: "Start pincode (default: 560001 — Bangalore start)"
+        required: false
+        default: "560001"
+        type: string
+      end_pincode:
+        description: "End pincode (default: 591346 — Karnataka end)"
+        required: false
+        default: "591346"
+        type: string
+      limit:
+        description: "Max pincodes to check (0 = all in range)"
+        required: false
+        default: "0"
+        type: string
+      dry_run:
+        description: "Dry run — fetch and print, skip Supabase writes"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+      resume:
+        description: "Resume from last stored Karnataka pincode"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360   # 6 h cap — full range ~31k pincodes at 0.3 s each
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --quiet requests python-dotenv
+
+      - name: Run pincode scraper
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          ARGS="--start ${{ github.event.inputs.start_pincode }} --end ${{ github.event.inputs.end_pincode }}"
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          if [ "${{ github.event.inputs.limit }}" != "0" ]; then
+            ARGS="$ARGS --limit ${{ github.event.inputs.limit }}"
+          fi
+          if [ "${{ github.event.inputs.resume }}" = "true" ]; then
+            ARGS="$ARGS --resume"
+          fi
+          echo "Running: python 05_App/scrape_pincodes.py $ARGS"
+          python 05_App/scrape_pincodes.py $ARGS
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Karnataka Pincode Scraper" >> $GITHUB_STEP_SUMMARY
+          echo "Run \`${{ github.run_number }}\` finished: **${{ job.status }}**" >> $GITHUB_STEP_SUMMARY
+          echo "Range: ${{ github.event.inputs.start_pincode }}–${{ github.event.inputs.end_pincode }}, dry_run=${{ github.event.inputs.dry_run }}, resume=${{ github.event.inputs.resume }}" >> $GITHUB_STEP_SUMMARY
