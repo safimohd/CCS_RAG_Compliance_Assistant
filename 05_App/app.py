@@ -1271,6 +1271,48 @@ def _mic_widget(state_key: str, openai_key: str, widget_key: str) -> None:
         return
 
     import hashlib as _hl, io as _io_mic
+    # Inject mic sound script once per session
+    if not st.session_state.get("_mic_sound_injected"):
+        st.session_state["_mic_sound_injected"] = True
+        import streamlit.components.v1 as _cv1
+        _cv1.html("""<script>
+(function(){
+  function beep(freq, dur, vol){
+    try{
+      var ac=new(window.AudioContext||window.webkitAudioContext)();
+      var o=ac.createOscillator(), g=ac.createGain();
+      o.connect(g); g.connect(ac.destination);
+      o.frequency.value=freq; o.type='sine';
+      g.gain.setValueAtTime(vol,ac.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001,ac.currentTime+dur);
+      o.start(); o.stop(ac.currentTime+dur);
+    }catch(e){}
+  }
+  var was=false;
+  setInterval(function(){
+    try{
+      var frames=parent.document.querySelectorAll('iframe');
+      for(var i=0;i<frames.length;i++){
+        var doc=frames[i].contentDocument;
+        if(!doc) continue;
+        var btn=doc.querySelector('button');
+        if(!btn) continue;
+        var paths=btn.querySelectorAll('path,circle,rect');
+        var isRec=false;
+        for(var j=0;j<paths.length;j++){
+          var f=paths[j].getAttribute('fill')||'';
+          if(f.toLowerCase().indexOf('e53935')>-1){isRec=true;break;}
+        }
+        if(isRec!==was){
+          if(isRec) beep(880,0.12,0.35);   // start: short high ping
+          else      beep(440,0.25,0.3);    // stop: softer lower tone
+          was=isRec;
+        }
+      }
+    }catch(e){}
+  },150);
+})();
+</script>""", height=0)
     _mic_col = st.columns([10, 1])[1]
     with _mic_col:
         _audio = _ar(
