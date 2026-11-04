@@ -1,0 +1,102 @@
+name: K-RERA Scraper
+
+# Run whenever YOU want — click "Run workflow" in the GitHub Actions tab.
+# No 2am cron. No surprises. You control when it runs.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (fetch + parse, skip Supabase write)"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      # -------------------------------------------------------
+      # 1. Checkout repo
+      # -------------------------------------------------------
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # -------------------------------------------------------
+      # 2. Python setup
+      # -------------------------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --quiet -r scraper/requirements.txt
+
+      # -------------------------------------------------------
+      # 3. Run scraper
+      # -------------------------------------------------------
+      - name: Run K-RERA scraper
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          NTFY_TOPIC:   ${{ secrets.NTFY_TOPIC }}
+          DRY_RUN:      ${{ github.event.inputs.dry_run }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "DRY RUN — skipping Supabase write"
+            python - <<'EOF'
+          import os, sys
+          os.environ["SUPABASE_URL"] = "http://localhost"
+          os.environ["SUPABASE_KEY"] = "dry_run_key"
+          import importlib.util, pathlib
+          spec = importlib.util.spec_from_file_location("scraper", "scraper/rera_scraper.py")
+          mod  = importlib.util.module_from_spec(spec)
+          # Monkey-patch the upsert so it just logs
+          import rera_scraper as dummy  # noqa
+          EOF
+            python -c "
+          import os, re, requests, logging
+          logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
+          log = logging.getLogger()
+          HEADERS = {'User-Agent': 'Mozilla/5.0 (compatible; GH-Actions-DryRun)'}
+          r = requests.get('https://rera.karnataka.gov.in/viewAllProjects', headers=HEADERS, timeout=60)
+          r.raise_for_status()
+          log.info('Page size: %d bytes', len(r.text))
+          ack = re.findall(r\"applicationNameList\.push\('([^']+)'\)\", r.text)
+          log.info('ACK entries found: %d', len(ack))
+          log.info('Sample: %s', ack[:3])
+          "
+          else
+            python scraper/rera_scraper.py
+          fi
+
+      # -------------------------------------------------------
+      # 4. Notify on FAILURE (ntfy.sh push to your phone)
+      #    GitHub also sends you an email automatically.
+      # -------------------------------------------------------
+      - name: Notify failure via ntfy.sh
+        if: failure()
+        run: |
+          curl -s \
+            -H "Title: K-RERA scraper FAILED" \
+            -H "Priority: urgent" \
+            -H "Tags: rotating_light" \
+            -d "Workflow run #${{ github.run_number }} failed. Check: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            "https://ntfy.sh/${{ secrets.NTFY_TOPIC }}"
+
+      # -------------------------------------------------------
+      # 5. Notify on SUCCESS (optional, comment out if noisy)
+      # -------------------------------------------------------
+      - name: Notify success via ntfy.sh
+        if: success()
+        run: |
+          curl -s \
+            -H "Title: K-RERA scraper done" \
+            -H "Priority: low" \
+            -H "Tags: white_check_mark" \
+            -d "Scrape complete. Run #${{ github.run_number }}" \
+            "https://ntfy.sh/${{ secrets.NTFY_TOPIC }}"
