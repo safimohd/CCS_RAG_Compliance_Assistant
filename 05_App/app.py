@@ -1900,7 +1900,9 @@ with st.sidebar:
     if _cu_sess.get("id") and "_user_sessions" not in st.session_state:
         st.session_state["_user_sessions"] = fetch_user_sessions(20)
 
-    _sess_list = st.session_state.get("_user_sessions", []) if _cu_sess.get("id") else []
+    # Filter sessions to the current domain so RERA never shows Healthcare sessions
+    _all_sess = st.session_state.get("_user_sessions", []) if _cu_sess.get("id") else []
+    _sess_list = [s for s in _all_sess if not LOCKED_DOMAIN or s.get("domain") == LOCKED_DOMAIN]
 
     st.divider()
     with st.expander("💬 Past sessions", expanded=False):
@@ -1947,6 +1949,50 @@ with st.sidebar:
                 st.caption("Your conversations will appear here.")
             else:
                 st.caption("Sign in to save and resume sessions.")
+
+    # ── Document Q&A history (RERA only) ──────────────────────────────────────
+    if LOCKED_DOMAIN == "RERA":
+        _dqa_sid = st.session_state.get("dq_session_id", "")
+        if _dqa_sid:
+            # Fetch Q&A history for this browser session, grouped by filename
+            if "_dqa_history_sidebar" not in st.session_state:
+                try:
+                    import requests as _rq_dqa
+                    _sb_url_h = _secret("SUPABASE_URL")
+                    _sb_key_h = _secret("SUPABASE_SERVICE_KEY") or _secret("SUPABASE_KEY")
+                    if _sb_url_h and _sb_key_h:
+                        _hr = _rq_dqa.get(
+                            f"{_sb_url_h}/rest/v1/document_qa_history",
+                            headers={"apikey": _sb_key_h, "Authorization": f"Bearer {_sb_key_h}"},
+                            params={"session_id": f"eq.{_dqa_sid}", "order": "created_at.desc", "limit": "100"},
+                            timeout=5,
+                        )
+                        _hrows = _hr.json() if _hr.ok else []
+                        # Group by filename
+                        _dqa_by_file: dict = {}
+                        for _row in _hrows:
+                            _fn = _row.get("filename") or "Unknown file"
+                            _dqa_by_file.setdefault(_fn, []).append(_row)
+                        st.session_state["_dqa_history_sidebar"] = _dqa_by_file
+                    else:
+                        st.session_state["_dqa_history_sidebar"] = {}
+                except Exception:
+                    st.session_state["_dqa_history_sidebar"] = {}
+
+            _dqa_hist = st.session_state.get("_dqa_history_sidebar", {})
+            if _dqa_hist:
+                with st.expander("📄 Document Q&A history", expanded=False):
+                    for _dfname, _drows in _dqa_hist.items():
+                        st.markdown(f"**{_dfname}** · {len(_drows)} question{'s' if len(_drows) != 1 else ''}")
+                        for _drow in _drows[:5]:   # show up to 5 per file
+                            try:
+                                _dts = _drow.get("created_at", "").rstrip("Z").split("+")[0]
+                                _ddt = datetime.fromisoformat(_dts).replace(tzinfo=timezone.utc).astimezone(IST)
+                                _d_time = _ddt.strftime("%-d %b %I:%M %p").lstrip("0")
+                            except Exception:
+                                _d_time = ""
+                            _dq_preview = (_drow.get("question") or "")[:60]
+                            st.caption(f"{'🔴' if 'COMPLIANCE CONCERN' in (_drow.get('answer') or '') else '🟢'} {_dq_preview}…  ·  {_d_time}")
 
     st.divider()
     st.toggle("🌙 Dark mode", key="dark_mode",
@@ -2486,6 +2532,8 @@ if domain == "RERA":
                         })
                         # Persist to Supabase (best-effort, non-blocking)
                         _dq_sb_save(_dq_sid, _dq_uploaded.name, _dq_question, _dq_ans, _dq_followups)
+                        # Invalidate sidebar Q&A history cache so it refreshes on next render
+                        st.session_state.pop("_dqa_history_sidebar", None)
                         # Clear input ready for next question
                         st.session_state.pop("dq_question", None)
                         st.rerun()
