@@ -1260,6 +1260,47 @@ def get_contextual_followups(domain: str, question: str, answer: str) -> list[st
     return _DOMAIN_FOLLOWUPS.get(domain, [])
 
 
+# ── Voice / microphone helpers ────────────────────────────────────────────────
+def _mic_widget(state_key: str, openai_key: str, widget_key: str) -> None:
+    """Render a mic button. If new audio is recorded, transcribe with Whisper
+    and store the transcript in session_state[state_key], then rerun."""
+    try:
+        from audio_recorder_streamlit import audio_recorder as _ar
+    except ImportError:
+        st.caption("🎙️ Install audio-recorder-streamlit for voice input")
+        return
+
+    import hashlib as _hl, io as _io_mic
+    _audio = _ar(
+        text="",
+        recording_color="#e53935",
+        neutral_color="#546e7a",
+        icon_size="lg",
+        key=widget_key,
+    )
+    if _audio:
+        _hash = _hl.md5(_audio).hexdigest()
+        _seen_key = f"_mic_seen_{widget_key}"
+        if st.session_state.get(_seen_key) != _hash:
+            st.session_state[_seen_key] = _hash
+            if not openai_key:
+                st.warning("OPENAI_API_KEY not set — cannot transcribe audio.")
+                return
+            with st.spinner("Transcribing…"):
+                try:
+                    import openai as _oai_mic
+                    _c = _oai_mic.OpenAI(api_key=openai_key)
+                    _res = _c.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=("audio.wav", _io_mic.BytesIO(_audio), "audio/wav"),
+                    )
+                    st.session_state[state_key] = _res.text
+                except Exception as _e:
+                    st.warning(f"Transcription failed: {_e}")
+                    return
+            st.rerun()
+
+
 # Suggested rephrased questions shown when an answer is low-confidence.
 _LOW_CONF_SUGGESTIONS: dict[str, list[str]] = {
     "Healthcare": [
@@ -2554,6 +2595,7 @@ if domain == "RERA":
                     if _dq_cols[_dq_i].button(_dq_sq, key=f"dq_sq_{_dq_i}", use_container_width=True):
                         st.session_state["dq_question"] = _dq_sq
 
+                _mic_widget("dq_question", _OPENAI_KEY, "mic_docqa")
                 _dq_question = st.chat_input(
                     "Ask a question about your document…",
                     key="dq_text_input",
@@ -2796,6 +2838,7 @@ with _rera_tab_ctx:
                         st.session_state["pending_q"] = fq
                         st.rerun()
 
+    _mic_widget("pending_q", _secret("OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY", ""), "mic_chat")
     prompt = st.chat_input(meta["placeholder"])
     if not prompt:
         prompt = st.session_state.pop("pending_q", None)
