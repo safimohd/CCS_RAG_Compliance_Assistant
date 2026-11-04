@@ -65,7 +65,7 @@ def fetch_listing() -> str:
 # Step 2: Extract JS arrays from the HTML via regex
 # ---------------------------------------------------------------------------
 _DECL_RE  = re.compile(r"var\s+(applicationNameList\d*)\s*=\s*new Array\(\s*\);")
-_PUSH_RE  = re.compile(r"(applicationNameList\d*)\.push\('([^']+)'\)")
+_PUSH_RE  = re.compile(r"(applicationNameList\d*)\s+\.push\('([^']+)'\)", re.DOTALL)
 
 
 def extract_arrays(html: str) -> dict[str, list[str]]:
