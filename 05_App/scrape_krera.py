@@ -30,6 +30,7 @@ import asyncio
 import os
 import time
 import logging
+import datetime as dt
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -54,7 +55,7 @@ logging.basicConfig(
 log = logging.getLogger("krera-scraper")
 
 # Shared counters (updated by all workers)
-_stats = {"done": 0, "ok": 0, "fail": 0, "start": 0.0}
+_stats = {"done": 0, "ok": 0, "fail": 0, "start": 0.0, "total": 0}
 
 
 def _elapsed() -> str:
@@ -64,12 +65,39 @@ def _elapsed() -> str:
     return f"{h:02d}:{m:02d}:{s:02d}"
 
 
-def _rate() -> str:
+def _rate() -> float:
+    """Rows per second."""
     secs = time.time() - _stats["start"]
     if secs < 1:
-        return "..."
-    rph = _stats["done"] / secs * 3600
-    return f"{rph:.0f} rows/hr"
+        return 0.0
+    return _stats["done"] / secs
+
+
+def _progress() -> str:
+    total   = _stats["total"]
+    done    = _stats["done"]
+    elapsed = _elapsed()
+    rps     = _rate()
+
+    if total:
+        pct = done / total * 100
+        progress = f"{done}/{total} ({pct:.0f}%)"
+    else:
+        progress = str(done)
+
+    if rps > 0 and total and done < total:
+        secs_left = (total - done) / rps
+        eta_time  = datetime.now() + dt.timedelta(seconds=secs_left)
+        m_left, s_left = divmod(int(secs_left), 60)
+        h_left, m_left = divmod(m_left, 60)
+        if h_left:
+            remaining = f"{h_left}h {m_left}m left"
+        else:
+            remaining = f"{m_left}m left"
+        eta_str = eta_time.strftime("%I:%M %p")
+        return f"{progress} | elapsed {elapsed} | {remaining} | ETA {eta_str}"
+    else:
+        return f"{progress} | elapsed {elapsed}"
 
 
 # ---------------------------------------------------------------------------
@@ -201,26 +229,24 @@ async def worker(worker_id: int, queue: asyncio.Queue,
             payload = await search_and_parse(page, prm)
 
         _stats["done"] += 1
-        elapsed = _elapsed()
-        rate    = _rate()
+        prog = _progress()
 
         if not payload:
             _stats["fail"] += 1
-            log.warning("[W%d] [%s | %s] No data id=%s", worker_id, elapsed, rate, row["id"])
+            log.warning("[W%d] [%s] No data id=%s", worker_id, prog, row["id"])
         elif dry_run:
             _stats["ok"] += 1
-            log.info("[W%d] [%s | %s] DRY-RUN id=%s: %s",
-                     worker_id, elapsed, rate, row["id"], payload)
+            log.info("[W%d] [%s] DRY-RUN id=%s: %s", worker_id, prog, row["id"], payload)
         else:
             ok = update_row(row["id"], payload)
             if ok:
                 _stats["ok"] += 1
-                log.info("[W%d] [%s | %s] OK id=%s status=%s district=%s",
-                         worker_id, elapsed, rate, row["id"],
+                log.info("[W%d] [%s] OK id=%s status=%s district=%s",
+                         worker_id, prog, row["id"],
                          payload.get("status", "?"), payload.get("district", "?"))
             else:
                 _stats["fail"] += 1
-                log.warning("[W%d] [%s | %s] DB fail id=%s", worker_id, elapsed, rate, row["id"])
+                log.warning("[W%d] [%s] DB fail id=%s", worker_id, prog, row["id"])
 
         queue.task_done()
         await asyncio.sleep(PAGE_DELAY)
@@ -265,6 +291,21 @@ def main():
         raise SystemExit("Set SUPABASE_URL and SUPABASE_SERVICE_KEY in env or .env")
 
     _stats["start"] = time.time()
+
+    # Fetch total unenriched count for progress display
+    if not args.prm:
+        try:
+            url = f"{SUPABASE_URL}/rest/v1/rera_projects"
+            resp = requests.get(url, headers={**_sb_headers(), "Prefer": "count=exact"},
+                                params={"select": "id", "enriched_at": "is.null", "limit": "1"},
+                                timeout=15)
+            cr = resp.headers.get("content-range", "")
+            _stats["total"] = int(cr.split("/")[1]) if "/" in cr else 0
+            if args.limit:
+                _stats["total"] = min(_stats["total"], args.limit)
+            log.info("Total rows to enrich: %d", _stats["total"])
+        except Exception:
+            pass
 
     if args.prm:
         row = fetch_one_by_prm(args.prm)
