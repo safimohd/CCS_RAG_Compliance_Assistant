@@ -223,12 +223,29 @@ async def _extract_detail_data(page) -> dict:
             }
 
             // 1a. Table-based rows
+            // K-RERA uses TWO patterns:
+            //   2-cell:  <td>Label :</td>  <td>Value</td>
+            //   3-cell:  <td>Label</td>  <td>:</td>  <td>Value</td>
+            // Handle both by checking if the cell immediately after the label is a bare colon.
             const tableRows = Array.from(menu2.querySelectorAll('table tr'));
             for (const row of tableRows) {
                 const cells = Array.from(row.querySelectorAll('td'))
                     .map(c => c.textContent.trim());
-                for (let i = 0; i + 1 < cells.length; i += 2) {
-                    addKV(cells[i], cells[i + 1]);
+                let i = 0;
+                while (i < cells.length) {
+                    const label = cells[i];
+                    if (!label || label === ':') { i++; continue; }
+                    // 3-cell pattern: next cell is exactly ":"
+                    if (i + 2 < cells.length && cells[i + 1] === ':') {
+                        addKV(label, cells[i + 2]);
+                        i += 3;
+                    // 2-cell pattern: label already ends with ":" or next cell is a value
+                    } else if (i + 1 < cells.length && cells[i + 1] !== ':') {
+                        addKV(label, cells[i + 1]);
+                        i += 2;
+                    } else {
+                        i++;
+                    }
                 }
             }
 
