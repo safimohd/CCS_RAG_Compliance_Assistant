@@ -207,14 +207,21 @@ async def _extract_detail_data(page) -> dict:
             const menu2 = document.querySelector('#menu2');
             if (!menu2) return { kv: {}, towers: [], amenities: {}, total_units: null };
 
-            // 1. Key-value pairs from all td pairs
+            // 1. Key-value pairs: pair cells WITHIN each row (not across rows)
+            //    Row pattern: [label, value] or [label, value, label, value]
             const kv = {};
-            const cells = Array.from(menu2.querySelectorAll('td'));
-            for (let i = 0; i < cells.length - 1; i++) {
-                const label = cells[i].textContent.trim().replace(/:$/, '').trim();
-                const value = cells[i + 1].textContent.trim();
-                if (label && value && label.length < 100 && label.length > 1) {
-                    kv[label.toLowerCase()] = value;
+            const tableRows = Array.from(menu2.querySelectorAll('table tr'));
+            for (const row of tableRows) {
+                const cells = Array.from(row.querySelectorAll('td'))
+                    .map(c => c.textContent.trim());
+                for (let i = 0; i + 1 < cells.length; i += 2) {
+                    const label = cells[i].replace(/:$/, '').trim().toLowerCase();
+                    const value = cells[i + 1].trim();
+                    // Skip empty, too-long, or purely numeric labels (codes like '10', '1010')
+                    if (label && value && label.length > 2 && label.length < 100
+                            && isNaN(Number(label))) {
+                        kv[label] = value;
+                    }
                 }
             }
 
