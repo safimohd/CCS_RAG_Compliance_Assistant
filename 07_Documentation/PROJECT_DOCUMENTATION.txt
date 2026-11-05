@@ -1487,5 +1487,184 @@ PART 17: ADDITIONAL GOTCHAS (supplement to Part 11)
 
 
 ================================================================================
+PART 18: PROJECT TIMELINE (Chronological)
+================================================================================
+
+A full visual timeline artifact is published at:
+https://claude.ai/artifact/LYDbx83LjRrwFT5Em3NHC6
+
+The chronological record below mirrors that artifact for text-searchable reference.
+
+Legend: [MS] Milestone  [PV] Pivot/Decision  [FX] Fix/Gotcha resolved  [FB] Faculty feedback
+
+--------------------------------------------------------------------------------
+PHASE 1: KICKOFF (August 2026)
+--------------------------------------------------------------------------------
+
+Aug 24, 2026 [MS] Project kickoff meeting with Prof. Majumdar
+  - Domains confirmed: Healthcare + Real Estate (RERA)
+  - 3-month plan: Month 1 Build, Month 2 Demo, Month 3 Build+Demo
+  - Code to be open-sourced on GitHub
+  - Initial deployment target: Vercel (pivoted later)
+  - Prof. would supply benchmark data and API keys
+
+--------------------------------------------------------------------------------
+PHASE 2: BUILDING (September 2026)
+--------------------------------------------------------------------------------
+
+Sep 2026, early [MS] Corpus assembled -- 803 PDFs collected and classified
+  - Authority tier system defined (A through E); docs sorted into tier subfolders
+  - 803 PDFs total: 358 active corpus + 445 archived
+  - Healthcare: 258 docs; RERA: 86 docs
+
+Sep 2026, early [FX] 88 image-only PDFs discovered -- OCR applied with Tesseract
+  - 87% of Karnataka RERA documents had no text layer (scanned images)
+  - Without intervention, retrieval would have silently returned nothing on most RERA queries
+  - Tesseract OCR run on all 88; 104 sidecars saved to 02_Corpus/_ocr_text/
+  - Largest sidecars: Karnataka RERA Rules 126,506 chars; CBME Guideline 126,797 chars
+
+Sep 2026, mid [MS] ChromaDB index built with BAAI/bge-small-en-v1.5 embeddings
+  - LangChain RecursiveCharacterTextSplitter: chunk=1000, overlap=150
+  - Authority tier weights: A=1.00, B=0.95, C=0.80, D=0.55, E=0.35
+  - Tiers D and E excluded from retrieval by default
+  - Result: 25,955 chunks, 345 indexed docs, 384-dimensional embeddings
+
+Sep 2026, mid [PV] Deployment pivot: Vercel -> Streamlit Community Cloud
+  - Vercel had no support for ChromaDB's SQLite dependency and the persistent index
+  - Streamlit Community Cloud offered simpler path with secrets management and GitHub auto-deploy
+
+Sep 2026, mid [MS] First Streamlit app deployed + Supabase feedback pipeline
+  - Live on Streamlit Community Cloud, auto-deploy on every git push to main
+  - Thumbs up/down feedback stored to Supabase via REST API
+  - pysqlite3-binary shim added (Streamlit Cloud's SQLite too old for ChromaDB)
+  - Answer cache (.answer_cache.json) + daily question limit to protect API credits
+
+Sep 2026, late [MS] Real estate data pipeline built and deployed
+  - Five GitHub Actions workflows (workflow_dispatch, manual trigger)
+  - K-RERA projects: 10,096 rows scraped
+  - Market rates (gold, Nifty 50, FD): 168 rows
+  - NoBroker property prices: 17 localities
+  - Kaggle property listings: 13,319 rows
+  - Estimated prices by locality: 1,292 localities
+
+Sep 2026, late [FX] Sidecar collision bug found and fixed
+  - Two tier-A K-RERA circulars shared a base filename; each served the other's penalty figures
+  - Fix: SHA1 hash suffix added to all sidecar filenames
+  - See also Part 17, gotcha #19
+
+Sep 2026, late [FX] Silent-widening scope filter bug caught and fixed
+  - Post-retrieval filtering meant that when all candidates were filtered out, system fell
+    back silently to unfiltered results
+  - Fix: all scope and tier filters moved inside ChromaDB where clause (pre-retrieval)
+  - test_scope.py Section 6 now asserts the old design fails
+  - See also Part 17, gotcha #20
+
+Sep 27, 2026 [MS] Rollback snapshot saved: app_working_27sep.py
+  - Stable copy archived before further structural changes
+
+--------------------------------------------------------------------------------
+PHASE 3: BENCHMARK (October 2026)
+--------------------------------------------------------------------------------
+
+Oct 2026, early [MS] Admin dashboard built -- 774 lines (admin.py)
+  - Dark/light mode with explicit color tokens; Plotly charts; tab centering via JS DOM injection
+  - Access: append ?admin=1 to either app URL; password: iimb2024
+  - Tabs: Activity, Documents, Bots, KB Coverage
+
+Oct 2026, early [PV] Benchmark pivot: 4-condition design -> 3-system design
+  - Original design: RAG (gpt-5-nano), Base LLM (gpt-5-nano), two Together AI open-source models
+  - Together AI key returned HTTP 401 -- account unpaid or privacy setting blocked access
+  - Pivoted to 3 systems all using gpt-5-nano, isolating retrieval strategy not model size
+  - System A: Base LLM (no retrieval)
+  - System B: Standard RAG (top-k=6)
+  - System C: Agentic RAG (sub-queries, candidate_k=24)
+
+Oct 2026, early-mid [MS] 200 benchmark questions written across 5 tiers
+  - 100 Healthcare + 100 RERA; each split T1 to T5 (20 per tier per domain)
+  - T1 Factual recall; T2 Multi-provision; T3 Scenario; T4 Edge cases; T5 Refusal/out-of-scope
+  - T5 questions are intentionally unanswerable; test graceful refusal over hallucination
+  - Every question has a human-written expected answer
+
+Oct 11, 2026 [MS] Domain routing entry files created: app_healthcare.py + app_rera.py
+  - 5-line entry points that set APP_DOMAIN before importing app.py
+  - Prevents domain flipping when both apps share the same codebase on Streamlit Cloud
+  - Healthcare URL: ccsragcomplianceassistant-6hug2utprjrpwtyijwjanr.streamlit.app
+  - RERA URL: ccsragcomplianceassistant-cisyv46xzq7kte95ywkmhg.streamlit.app
+
+Oct 2026, mid [FX] Two draft documents mis-tiered C -> D (Yoga, Siddha policy drafts)
+  - fix_draft_tiers.py re-tiered 194 chunks in ChromaDB and updated ingestion_report.csv
+  - Already applied; do not re-run
+
+Oct 24, 2026 [MS] Benchmark run complete -- 200/200 answered, zero failures
+  - Output: benchmark_answers_20261024_185733.xlsx
+  - Runtime: approximately 4-5 hours (T4 edge-case questions: 200-300 seconds each)
+  - All three systems answered all 200 questions
+
+Oct 28, 2026 [FB] Prof. Majumdar feedback on benchmark results
+  - Base LLM beating the RAG systems is a problem -- if RAG doesn't improve on training
+    knowledge, what is the point?
+  - Issue is retrieval precision, not answer generation; focus there first
+  - Evaluation PARKED; UI improvements first, return to evaluation after
+  - API key credits confirmed fine; 429s were rate limiting not exhaustion
+
+Oct 29, 2026 [MS] Evaluation run attempted -- 542/600 scored
+  - LLM-as-judge: Qwen3-8B-Flash via Together AI
+  - 58 rows failed with HTTP 429 (rate limiting, not credit exhaustion)
+  - Fix identified: add time.sleep(1) in evaluate_benchmark.py; rerun 58 failed rows via
+    rerun_missing_answers.py (requires Together AI top-up under $1)
+  - Scoring rubric: Factual Accuracy 0-4 + Completeness 0-2 + Confidence Calibration 0-2 = 8 max
+
+--------------------------------------------------------------------------------
+PHASE 4: REFINEMENT (November 2026)
+--------------------------------------------------------------------------------
+
+Nov 3, 2026 [FB] Prof. Majumdar UI feedback session
+  - Query history: show previous searches in a sidebar or collapsible panel
+  - Central vs. State RERA filter: more meaningful than current stakeholder filter
+  - User journey audit: map full path from landing to answer; reduce clicks to minimum
+  - Priority: UI changes first, then return to evaluation
+
+Nov 4, 2026 [FB] Prof. Soudeep Deb -- independent RERA tool evaluation
+  - "Smart Ctrl+F" critique: real estate professionals already know the law; tool adds no value
+    for them
+  - Target audience: rebuild around first-time buyers making high-stakes decisions without
+    expert support
+  - PDF upload: let users upload sale deeds and builder agreements and query against them
+    alongside the corpus -- highest-priority feature
+  - Building/society name lookup: search by project name for RERA status, complaints, timelines
+  - Investment signals: area-level guidance by pincode and builder track record
+  - Predictive regulation (long-term): forecast which rules will be enforced more strictly
+
+Nov 5, 2026 [MS] Documentation fully synced -- Parts 13-17 added, committed as cfb91b4
+  - All handover files cross-referenced against PROJECT_DOCUMENTATION.txt
+  - Parts 13-17 added; full timeline added as Part 18 (this section)
+
+--------------------------------------------------------------------------------
+PENDING AS OF NOV 5, 2026
+--------------------------------------------------------------------------------
+
+HIGH PRIORITY
+  - Rerun 58 failed benchmark rows via rerun_missing_answers.py
+    (requires Together AI top-up <$1 + fix privacy setting at api.together.ai/settings/privacy)
+  - UI: query history panel + Central vs. State RERA filter + user journey audit
+    (Prof. Majumdar Nov 3 priority; must be done before evaluation resumes)
+  - Define target audience + PDF/brochure upload feature
+    (both Prof. Deb and Prof. Majumdar pointed here independently)
+
+MEDIUM PRIORITY
+  - K-RERA enrichment: run --limit 1000 several times (10,096 rows at ~1.5s/row)
+  - Karnataka pincode scraper full re-run (UNIQUE constraint fixed; table has 0 rows; ~4.5h)
+  - Investment tab: rent vs. EMI + real estate vs. FD/gold/Nifty (data ready in Supabase)
+
+LOWER PRIORITY
+  - Analysis report (PDF, 10 pages max): blocked on 58 failed rows
+    4 analysis questions: tier-wise RAG improvement, cases where RAG hurt,
+    question types suited to RAG, deployment recommendation
+  - Building/society name lookup + investment signals view (Prof. Deb direction;
+    rera_projects table supports this once enriched)
+  - keep-warm.yml: must be created manually (GitHub blocks remote writes to .github/workflows)
+
+
+================================================================================
 END OF DOCUMENT
 ================================================================================
