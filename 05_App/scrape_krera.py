@@ -207,21 +207,64 @@ async def _extract_detail_data(page) -> dict:
             const menu2 = document.querySelector('#menu2');
             if (!menu2) return { kv: {}, towers: [], amenities: {}, total_units: null };
 
-            // 1. Key-value pairs: pair cells WITHIN each row (not across rows)
-            //    Row pattern: [label, value] or [label, value, label, value]
+            // 1. Key-value pairs from TWO sources:
+            //    a) Table cells within each row (tower/amenity tables)
+            //    b) Bootstrap div-based form rows (label/control-label + sibling value div)
+            //       which is how K-RERA renders GPS, parking, sub-type, etc.
             const kv = {};
+
+            function addKV(labelText, valueText) {
+                const label = labelText.replace(/:$/, '').trim().toLowerCase();
+                const value = valueText.trim();
+                if (label && value && label.length > 2 && label.length < 100
+                        && isNaN(Number(label))) {
+                    kv[label] = value;
+                }
+            }
+
+            // 1a. Table-based rows
             const tableRows = Array.from(menu2.querySelectorAll('table tr'));
             for (const row of tableRows) {
                 const cells = Array.from(row.querySelectorAll('td'))
                     .map(c => c.textContent.trim());
                 for (let i = 0; i + 1 < cells.length; i += 2) {
-                    const label = cells[i].replace(/:$/, '').trim().toLowerCase();
-                    const value = cells[i + 1].trim();
-                    // Skip empty, too-long, or purely numeric labels (codes like '10', '1010')
-                    if (label && value && label.length > 2 && label.length < 100
-                            && isNaN(Number(label))) {
-                        kv[label] = value;
-                    }
+                    addKV(cells[i], cells[i + 1]);
+                }
+            }
+
+            // 1b. Bootstrap form-group rows: <label> + following sibling col div
+            //     Pattern 1: .form-group containing label.control-label + div.col-*
+            //     Pattern 2: div.col-* acting as label (text ends with ":") + next sibling
+            const formGroups = Array.from(menu2.querySelectorAll('.form-group'));
+            for (const fg of formGroups) {
+                const lbl = fg.querySelector('label, .control-label');
+                if (!lbl) continue;
+                // The value is in the next sibling col div that is NOT a label
+                const valueDivs = Array.from(fg.querySelectorAll('div[class*="col-"]'))
+                    .filter(d => !d.querySelector('label') || d !== lbl.parentElement);
+                if (valueDivs.length > 0) {
+                    // Avoid nested form-groups bleeding into each other
+                    const valText = valueDivs[0].childNodes[0]
+                        ? (valueDivs[0].childNodes[0].textContent || valueDivs[0].textContent)
+                        : valueDivs[0].textContent;
+                    addKV(lbl.textContent, valText.trim());
+                }
+            }
+
+            // 1c. Fallback: any element with text ending in ":" whose next sibling has content
+            //     Covers label : <span>value</span> and <div class="...">Label :</div><div>value</div>
+            const allLabels = Array.from(menu2.querySelectorAll(
+                'label, .control-label, [class*="label"], th'
+            ));
+            for (const el of allLabels) {
+                const txt = el.textContent.trim();
+                if (!txt.endsWith(':')) continue;
+                // Look for a sibling or parent-sibling that holds the value
+                let valEl = el.nextElementSibling;
+                if (!valEl && el.parentElement) valEl = el.parentElement.nextElementSibling;
+                if (valEl) {
+                    const valTxt = valEl.textContent.trim();
+                    if (valTxt) addKV(txt, valTxt);
                 }
             }
 
@@ -265,9 +308,14 @@ async def _extract_detail_data(page) -> dict:
         amenities = extracted.get("amenities", {})
         total_u   = extracted.get("total_units")
 
-        # Debug: show first 20 kv keys to verify extraction
-        sample = dict(list(kv.items())[:20])
-        log.debug("kv sample (first 20): %s", sample)
+        # Debug: show ALL kv keys so we can spot GPS/parking labels
+        log.debug("kv full (%d keys): %s", len(kv), kv)
+        # Specifically flag whether GPS was found
+        for gps_key in ("latitude", "longitude"):
+            if any(gps_key in k for k in kv):
+                log.debug("GPS key '%s' FOUND in kv", gps_key)
+            else:
+                log.debug("GPS key '%s' NOT found in kv", gps_key)
         log.debug("towers found: %d, amenities found: %d", len(towers), len(amenities))
 
         def kv_get(keyword: str) -> Optional[str]:
