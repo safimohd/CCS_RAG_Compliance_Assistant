@@ -105,7 +105,7 @@ def _sb_headers() -> dict:
 
 
 def _upsert_rows_sync(rows: list[dict]) -> bool:
-    url = f"{SUPABASE_URL}/rest/v1/pincodes"
+    url = f"{SUPABASE_URL}/rest/v1/pincodes?on_conflict=pincode"
     for attempt in range(3):
         try:
             resp = requests.post(url, headers=_sb_headers(), json=rows, timeout=30)
