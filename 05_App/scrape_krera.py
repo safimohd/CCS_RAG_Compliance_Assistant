@@ -142,8 +142,17 @@ def fetch_one_by_prm(prm: str) -> Optional[dict]:
 def update_row(row_id: int, payload: dict) -> bool:
     url = f"{SUPABASE_URL}/rest/v1/rera_projects?id=eq.{row_id}"
     payload["enriched_at"] = datetime.now(timezone.utc).isoformat()
-    resp = requests.patch(url, headers=_sb_headers(), json=payload, timeout=30)
-    return resp.status_code in (200, 204)
+    for attempt in range(3):
+        try:
+            resp = requests.patch(url, headers=_sb_headers(), json=payload, timeout=30)
+            return resp.status_code in (200, 204)
+        except Exception as e:
+            if attempt < 2:
+                log.warning("DB write attempt %d failed for id=%s: %s — retrying", attempt + 1, row_id, e)
+                time.sleep(2 ** attempt)
+            else:
+                log.error("DB write failed after 3 attempts for id=%s: %s", row_id, e)
+    return False
 
 
 # ---------------------------------------------------------------------------
