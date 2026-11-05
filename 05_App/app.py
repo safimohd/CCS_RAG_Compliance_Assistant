@@ -2368,10 +2368,26 @@ if domain == "RERA":
             {"locality": "KR Puram",             "pin": "560036", "avg_psf": 5800,  "trend": "+9% YoY",  "risk": "Medium"},
             {"locality": "Rajarajeshwari Nagar", "pin": "560098", "avg_psf": 5200,  "trend": "+6% YoY",  "risk": "Medium"},
         ]
-        _RISK_ICON = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}
+        _RISK_ICON  = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}
+        _RISK_LABEL = {
+            "Low":    "Established area, steady demand, lower volatility",
+            "Medium": "Growing corridor, some infrastructure dependency",
+            "High":   "Peripheral / pre-launch zone, higher upside but illiquid",
+        }
 
         st.subheader("Bengaluru Locality Investment Signals")
-        st.caption("Price benchmarks for the ₹40–80 lakh budget range")
+
+        # FIX #10 — disclaimer is now prominent, above the fold
+        st.warning(
+            "⚠️ PSF figures are indicative 2026 market benchmarks only. "
+            "Consult a registered property agent before making any investment decision."
+        )
+
+        # FIX #6 — slider guidance so users know what the defaults mean
+        st.caption(
+            "Typical first-time buyer in Bengaluru: ₹50–70L budget, 800–1,000 sq ft. "
+            "Adjust sliders to reflect your actual numbers."
+        )
 
         _iv_c1, _iv_c2 = st.columns(2)
         with _iv_c1:
@@ -2382,29 +2398,81 @@ if domain == "RERA":
         _iv_target_psf = (_iv_budget * 100_000) / _iv_area
         st.info(f"Your budget implies **₹{_iv_target_psf:,.0f} / sq ft** for a {_iv_area} sq ft flat at ₹{_iv_budget}L")
 
-        st.markdown("#### Localities that fit your budget")
-        _iv_matches = [p for p in _LOCALITIES if p["avg_psf"] <= _iv_target_psf * 1.10]
-        _iv_matches.sort(key=lambda x: abs(x["avg_psf"] - _iv_target_psf))
+        # FIX #4 — split into within-budget and stretch sections (no misleading heading)
+        # FIX #2/#3 — both lists now sorted the same way: closest PSF to target first
+        _iv_within  = sorted(
+            [p for p in _LOCALITIES if p["avg_psf"] <= _iv_target_psf],
+            key=lambda x: abs(x["avg_psf"] - _iv_target_psf)
+        )
+        _iv_stretch = sorted(
+            [p for p in _LOCALITIES if _iv_target_psf < p["avg_psf"] <= _iv_target_psf * 1.15],
+            key=lambda x: x["avg_psf"] - _iv_target_psf
+        )
 
-        if _iv_matches:
-            for _iv_p in _iv_matches[:10]:
-                _iv_diff = _iv_p["avg_psf"] - _iv_target_psf
-                _iv_fit  = "within budget" if _iv_diff <= 0 else f"₹{_iv_diff:,.0f}/sqft over budget"
-                _iv_col1, _iv_col2, _iv_col3, _iv_col4 = st.columns([3, 2, 2, 2])
-                _iv_col1.markdown(f"**{_iv_p['locality']}** `{_iv_p['pin']}`")
-                _iv_col2.markdown(f"₹{_iv_p['avg_psf']:,} / sqft")
-                _iv_col3.markdown(_iv_p["trend"])
-                _iv_col4.markdown(f"{_RISK_ICON[_iv_p['risk']]} {_iv_p['risk']} — {_iv_fit}")
+        # FIX #9 — explicit empty state when nothing matches
+        if not _iv_within and not _iv_stretch:
+            st.warning(
+                "No localities found for this budget and size combination. "
+                "Try increasing your budget or reducing the desired size."
+            )
         else:
-            st.warning("No localities match this budget. Try increasing your budget or reducing the size.")
+            if _iv_within:
+                st.markdown("#### ✅ Within your budget")
+                for _iv_p in _iv_within[:8]:
+                    _iv_diff = _iv_target_psf - _iv_p["avg_psf"]
+                    _iv_col1, _iv_col2, _iv_col3, _iv_col4 = st.columns([3, 2, 2, 3])
+                    _iv_col1.markdown(f"**{_iv_p['locality']}** `{_iv_p['pin']}`")
+                    _iv_col2.markdown(f"₹{_iv_p['avg_psf']:,} / sqft")
+                    _iv_col3.markdown(_iv_p["trend"])
+                    # FIX #5 — risk label includes explanation
+                    _iv_col4.markdown(
+                        f"{_RISK_ICON[_iv_p['risk']]} **{_iv_p['risk']}**  \n"
+                        f"<small style='color:grey'>{_RISK_LABEL[_iv_p['risk']]}</small>  \n"
+                        f"<small>₹{_iv_diff:,.0f}/sqft headroom</small>",
+                        unsafe_allow_html=True,
+                    )
+
+            if _iv_stretch:
+                st.markdown("#### 🔶 Slight stretch (up to 15% over budget)")
+                st.caption("These areas cost a bit more per sq ft than your budget allows. Consider a smaller flat or a slight budget increase.")
+                for _iv_p in _iv_stretch[:4]:
+                    _iv_diff = _iv_p["avg_psf"] - _iv_target_psf
+                    _iv_col1, _iv_col2, _iv_col3, _iv_col4 = st.columns([3, 2, 2, 3])
+                    _iv_col1.markdown(f"**{_iv_p['locality']}** `{_iv_p['pin']}`")
+                    _iv_col2.markdown(f"₹{_iv_p['avg_psf']:,} / sqft")
+                    _iv_col3.markdown(_iv_p["trend"])
+                    _iv_col4.markdown(
+                        f"{_RISK_ICON[_iv_p['risk']]} **{_iv_p['risk']}**  \n"
+                        f"<small style='color:grey'>{_RISK_LABEL[_iv_p['risk']]}</small>  \n"
+                        f"<small style='color:#c0392b'>₹{_iv_diff:,.0f}/sqft over budget</small>",
+                        unsafe_allow_html=True,
+                    )
 
         st.markdown("---")
+        # FIX #8 — sortable, full-width table with column config
+        # FIX #2 — table now sorted same way as cards (closest PSF to target first)
         st.markdown("#### Full locality table")
         _iv_df = _pd_invest.DataFrame(_LOCALITIES)
         _iv_df.columns = ["Locality", "PIN", "Avg PSF (₹)", "YoY Trend", "Risk"]
-        _iv_df["Est. cost at target size (₹L)"] = (_iv_df["Avg PSF (₹)"] * _iv_area / 100_000).round(1)
-        st.dataframe(_iv_df, use_container_width=True, hide_index=True)
-        st.caption("PSF figures are indicative 2026 market benchmarks. Consult a registered property agent before making investment decisions.")
+        _iv_df["Est. cost (₹L)"] = (_iv_df["Avg PSF (₹)"] * _iv_area / 100_000).round(1)
+        _iv_df["vs. Budget"] = (_iv_df["Avg PSF (₹)"] - _iv_target_psf).round(0).astype(int)
+        # Sort by distance from target PSF — matches card order above
+        _iv_df = _iv_df.sort_values("vs. Budget", key=lambda s: s.abs()).reset_index(drop=True)
+        # FIX #2 (table column clipping) — explicit column widths via column_config
+        st.dataframe(
+            _iv_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Locality":      st.column_config.TextColumn("Locality",      width="medium"),
+                "PIN":           st.column_config.TextColumn("PIN",           width="small"),
+                "Avg PSF (₹)":  st.column_config.NumberColumn("Avg PSF (₹)", width="small",  format="₹%d"),
+                "YoY Trend":    st.column_config.TextColumn("YoY Trend",      width="small"),
+                "Risk":         st.column_config.TextColumn("Risk",           width="small"),
+                "Est. cost (₹L)": st.column_config.NumberColumn("Est. cost (₹L)", width="small", format="%.1f L"),
+                "vs. Budget":   st.column_config.NumberColumn("vs. Budget (₹/sqft)", width="small", format="%+d"),
+            },
+        )
 
     # ── Tab 4: Document Q&A ────────────────────────────────────────────────
     with _tab_docqa:
