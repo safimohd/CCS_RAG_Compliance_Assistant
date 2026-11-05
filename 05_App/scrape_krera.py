@@ -169,6 +169,61 @@ def _parse_date(text: str) -> Optional[str]:
     return None
 
 
+async def _extract_total_units(page) -> Optional[int]:
+    """
+    Clicks into the project detail modal and reads total_units from the
+    'Type of Inventory' table (the TOTAL row in the Project Details tab).
+    Returns None if the detail page or the TOTAL row is not found.
+    """
+    try:
+        # Click the first 'View Project Details' link in the results table
+        detail_link = page.locator("table a").first
+        await detail_link.click()
+        await asyncio.sleep(2.0)
+
+        # Click the 'Project Details' tab (#menu2)
+        proj_tab = page.locator("a[href='#menu2']")
+        await proj_tab.click()
+        await asyncio.sleep(1.0)
+
+        # Find the TOTAL row in the inventory table inside #menu2
+        # The row has a cell with text "TOTAL" and the next cell is total units
+        rows = await page.locator("#menu2 table tr").all()
+        for row in rows:
+            txt = await row.inner_text()
+            cols = [c.strip() for c in txt.split("\t")]
+            if cols and cols[0].upper() == "TOTAL" and len(cols) >= 3:
+                try:
+                    return int(cols[2])
+                except ValueError:
+                    pass
+
+        # Fallback: look for "Total No. of Units" label in key-value cells
+        cells = await page.locator("#menu2 td").all()
+        for i, cell in enumerate(cells):
+            label = (await cell.inner_text()).strip()
+            if "total no. of units" in label.lower() and i + 1 < len(cells):
+                val = (await cells[i + 1].inner_text()).strip()
+                try:
+                    return int(val)
+                except ValueError:
+                    pass
+
+        log.warning("TOTAL row not found in Project Details tab")
+        return None
+
+    except Exception as e:
+        log.warning("Detail page extraction failed: %s", e)
+        return None
+    finally:
+        # Close the modal if it's open (press Escape)
+        try:
+            await page.keyboard.press("Escape")
+            await asyncio.sleep(0.5)
+        except Exception:
+            pass
+
+
 async def search_and_parse(page, prm_number: str) -> Optional[dict]:
     try:
         await page.goto(KRERA_URL, timeout=90000, wait_until="domcontentloaded")
@@ -215,6 +270,11 @@ async def search_and_parse(page, prm_number: str) -> Optional[dict]:
         payload["reg_date"] = _parse_date(get(10))
     if get(11):
         payload["completion_date"] = _parse_date(get(11))
+
+    # Extract total_units from the detail page
+    total_units = await _extract_total_units(page)
+    if total_units is not None:
+        payload["total_units"] = total_units
 
     return {k: v for k, v in payload.items() if v is not None}
 
