@@ -1,83 +1,54 @@
 """
-K-RERA Project Enrichment Scraper
-==================================
-Fetches project detail pages from rera.karnataka.gov.in and enriches
+K-RERA Project Enrichment Scraper (Playwright version)
+=======================================================
+Searches rera.karnataka.gov.in by registration number and enriches
 the `rera_projects` Supabase table with:
-  status, district, taluk, project_type, total_units, sold_units,
-  completion_date, reg_date, lapse_date, land_area_sqft, detail_url
+  status, district, taluk, project_type,
+  reg_date (approved_on), completion_date
+
+Uses Playwright to handle the JavaScript-heavy site.
+Units sold / land area are NOT scraped (require modal — deferred).
 
 Usage
 -----
-  # Enrich all un-enriched rows (enriched_at IS NULL):
+  # Enrich all un-enriched rows:
   python scrape_krera.py
 
-  # Enrich a specific ACK number:
-  python scrape_krera.py --ack "ACK/KA/RERA/1251/310/PR/281026/010719"
-
-  # Dry-run (parse + print, no DB writes):
+  # Dry-run (print only, no DB writes):
   python scrape_krera.py --dry-run --limit 5
 
-  # Resume / re-enrich rows older than N days:
-  python scrape_krera.py --re-enrich-days 30
+  # Enrich a specific registration number:
+  python scrape_krera.py --prm "PRM/KA/RERA/1251/309/PR/170916/000459"
+
+Install (once):
+  pip install playwright python-dotenv supabase
+  playwright install chromium
 
 Environment variables (or .env file):
   SUPABASE_URL          your project URL
-  SUPABASE_SERVICE_KEY  service-role key (not anon key — needs UPDATE)
-
-Install dependencies (once):
-  pip install requests beautifulsoup4 python-dotenv supabase --break-system-packages
+  SUPABASE_SERVICE_KEY  service-role key
 """
 
 import argparse
+import asyncio
 import os
-import re
 import time
 import logging
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Optional
 
 import requests
-from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
+from playwright.async_api import async_playwright, TimeoutError as PWTimeout
 
 load_dotenv()
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", os.environ.get("SUPABASE_KEY", ""))
 
-BASE_URL = "https://rera.karnataka.gov.in"
-
-DETAIL_URL_TEMPLATE = (
-    "https://rera.karnataka.gov.in/projectViewDetails"
-    "?id={prm_number}"          # used if detail_url column is populated
-)
-
-# ACK number forms the search URL on the portal
-ACK_SEARCH_URL = (
-    "https://rera.karnataka.gov.in/viewAllProjects"
-    "?acknumber={ack}"
-)
-
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-IN,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-}
-
-BATCH_SIZE    = 50     # rows fetched from Supabase per iteration
-REQUEST_DELAY = 1.5    # seconds between portal requests (be polite)
-MAX_RETRIES   = 3
+KRERA_URL   = "https://rera.karnataka.gov.in/viewAllProjects"
+BATCH_SIZE  = 50
+PAGE_DELAY  = 2.0   # seconds between searches (be polite)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -88,7 +59,7 @@ log = logging.getLogger("krera-scraper")
 
 
 # ---------------------------------------------------------------------------
-# Supabase helpers (plain REST, no extra SDK needed)
+# Supabase helpers
 # ---------------------------------------------------------------------------
 
 def _sb_headers() -> dict:
@@ -100,37 +71,24 @@ def _sb_headers() -> dict:
     }
 
 
-def fetch_rows(offset: int, limit: int, re_enrich_days: Optional[int]) -> list[dict]:
-    """Fetch rows that need enriching from Supabase."""
+def fetch_rows(offset: int, limit: int) -> list[dict]:
     url = f"{SUPABASE_URL}/rest/v1/rera_projects"
-
-    if re_enrich_days:
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=re_enrich_days)).isoformat()
-        filter_q = f"enriched_at=is.null,or=(enriched_at=lt.{cutoff})"
-        params = {
-            "select": "id,ack_number,prm_number,detail_url",
-            "and": f"(enriched_at.is.null),or=(enriched_at.lt.{cutoff})",
-        }
-    else:
-        params = {
-            "select": "id,ack_number,prm_number,detail_url",
-            "enriched_at": "is.null",
-        }
-
-    params["limit"]  = str(limit)
-    params["offset"] = str(offset)
-
+    params = {
+        "select": "id,ack_number,prm_number",
+        "enriched_at": "is.null",
+        "limit": str(limit),
+        "offset": str(offset),
+    }
     resp = requests.get(url, headers=_sb_headers(), params=params, timeout=30)
     resp.raise_for_status()
     return resp.json()
 
 
-def fetch_one(ack_number: str) -> Optional[dict]:
-    """Fetch a single row by ACK number."""
+def fetch_one_by_prm(prm: str) -> Optional[dict]:
     url = f"{SUPABASE_URL}/rest/v1/rera_projects"
     params = {
-        "select": "id,ack_number,prm_number,detail_url",
-        "ack_number": f"eq.{ack_number}",
+        "select": "id,ack_number,prm_number",
+        "prm_number": f"eq.{prm}",
         "limit": "1",
     }
     resp = requests.get(url, headers=_sb_headers(), params=params, timeout=30)
@@ -140,7 +98,6 @@ def fetch_one(ack_number: str) -> Optional[dict]:
 
 
 def update_row(row_id: int, payload: dict) -> bool:
-    """PATCH a row in Supabase."""
     url = f"{SUPABASE_URL}/rest/v1/rera_projects?id=eq.{row_id}"
     payload["enriched_at"] = datetime.now(timezone.utc).isoformat()
     resp = requests.patch(url, headers=_sb_headers(), json=payload, timeout=30)
@@ -148,163 +105,110 @@ def update_row(row_id: int, payload: dict) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Portal scraping
+# Playwright scraper
 # ---------------------------------------------------------------------------
 
-def _get_html(url: str) -> Optional[str]:
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            r = requests.get(url, headers=HEADERS, timeout=20)
-            if r.status_code == 200:
-                return r.text
-            log.warning("HTTP %s for %s (attempt %d)", r.status_code, url, attempt)
-        except requests.RequestException as exc:
-            log.warning("Request error %s (attempt %d): %s", url, attempt, exc)
-        time.sleep(REQUEST_DELAY * attempt)
-    return None
-
-
-def _parse_date(text: str) -> Optional[date]:
-    """Parse dd/mm/yyyy or dd-mm-yyyy or similar."""
+def _parse_date(text: str) -> Optional[str]:
     text = text.strip()
-    for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d %b %Y", "%d-%b-%Y"):
+    for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d"):
         try:
-            return datetime.strptime(text, fmt).date()
+            return datetime.strptime(text, fmt).date().isoformat()
         except ValueError:
             pass
     return None
 
 
-def _extract_text(soup: BeautifulSoup, label: str) -> str:
-    """Find the value cell adjacent to a label cell on the detail page."""
-    td = soup.find(lambda tag: tag.name == "td" and label.lower() in tag.get_text(strip=True).lower())
-    if td:
-        sibling = td.find_next_sibling("td")
-        if sibling:
-            return sibling.get_text(strip=True)
-    return ""
-
-
-def parse_project_detail(html: str, url: str) -> dict:
+async def search_and_parse(page, prm_number: str) -> Optional[dict]:
     """
-    Parse K-RERA project detail HTML into a flat dict matching our columns.
-    The portal renders a table-based layout; we probe for known label text.
+    Search K-RERA by PRM number, parse the first result row.
+    Returns a dict of fields or None if not found.
     """
-    soup = BeautifulSoup(html, "html.parser")
-    data: dict = {"detail_url": url}
+    try:
+        await page.goto(KRERA_URL, timeout=90000, wait_until="domcontentloaded")
+        await asyncio.sleep(1.5)
+    except PWTimeout:
+        log.warning("Page load timeout for %s", prm_number)
+        return None
 
-    # --- Registration Status ---
-    raw = _extract_text(soup, "Status")
-    if not raw:
-        raw = _extract_text(soup, "Project Status")
-    data["status"] = raw or None
+    try:
+        await page.fill("#regNo2", prm_number)
+        await page.click("input[name='btn1']")
+        await asyncio.sleep(2.5)
+    except Exception as e:
+        log.warning("Search interaction failed: %s", e)
+        return None
 
-    # --- District / Taluk ---
-    data["district"] = _extract_text(soup, "District") or None
-    data["taluk"]    = _extract_text(soup, "Taluk") or None
+    # Parse results table — skip header rows (rows 0 and 1)
+    rows = await page.locator("table tr").all()
+    data_rows = rows[2:]  # first two are header
+    if not data_rows:
+        log.warning("No results for %s", prm_number)
+        return None
 
-    # --- Project Type ---
-    for lbl in ("Project Type", "Type of Project", "Type"):
-        v = _extract_text(soup, lbl)
-        if v:
-            data["project_type"] = v
-            break
+    first_row = data_rows[0]
+    txt = await first_row.inner_text()
+    cols = [c.strip() for c in txt.split("\t")]
 
-    # --- Units ---
-    for lbl in ("Total Units", "Total No. of Units", "No of Units"):
-        v = _extract_text(soup, lbl)
-        if v and v.isdigit():
-            data["total_units"] = int(v)
-            break
+    # Column indices (from observed output):
+    # 0=S.NO, 1=ACK_NO, 2=REG_NO, 3=(view icon blank), 4=PROMOTER,
+    # 5=PROJECT_NAME, 6=STATUS, 7=DISTRICT, 8=TALUK, 9=PROJECT_TYPE,
+    # 10=APPROVED_ON, 11=COMPLETION_DATE
+    if len(cols) < 10:
+        log.warning("Unexpected column count %d for %s", len(cols), prm_number)
+        return None
 
-    for lbl in ("Units Sold", "No. of Units Sold", "Sold Units"):
-        v = _extract_text(soup, lbl)
-        if v and v.isdigit():
-            data["sold_units"] = int(v)
-            break
+    def get(i):
+        v = cols[i] if i < len(cols) else ""
+        return v if v and v != "N/A" else None
 
-    # --- Dates ---
-    for lbl in ("Date of Registration", "Registration Date", "Reg Date"):
-        v = _extract_text(soup, lbl)
-        if v:
-            d = _parse_date(v)
-            if d:
-                data["reg_date"] = d.isoformat()
-                break
+    payload = {
+        "status":          get(6),
+        "district":        get(7),
+        "taluk":           get(8),
+        "project_type":    get(9),
+    }
 
-    for lbl in ("Proposed Date of Completion", "Completion Date", "Project Completion Date"):
-        v = _extract_text(soup, lbl)
-        if v:
-            d = _parse_date(v)
-            if d:
-                data["completion_date"] = d.isoformat()
-                break
+    raw_reg  = get(10)
+    raw_comp = get(11)
+    if raw_reg:
+        payload["reg_date"] = _parse_date(raw_reg)
+    if raw_comp:
+        payload["completion_date"] = _parse_date(raw_comp)
 
-    for lbl in ("Lapse Date", "Expiry Date", "Valid Till"):
-        v = _extract_text(soup, lbl)
-        if v:
-            d = _parse_date(v)
-            if d:
-                data["lapse_date"] = d.isoformat()
-                break
-
-    # --- Land Area ---
-    for lbl in ("Land Area", "Total Land Area", "Site Area"):
-        v = _extract_text(soup, lbl)
-        # strip "sq.ft", "sqft", "sq ft", etc.
-        num = re.sub(r"[^\d.]", "", v.lower().replace("sq", "").replace("ft", ""))
-        if num:
-            try:
-                data["land_area_sqft"] = float(num)
-                break
-            except ValueError:
-                pass
-
-    return data
+    # Drop None values
+    return {k: v for k, v in payload.items() if v is not None}
 
 
-def build_detail_url(row: dict) -> str:
-    """
-    Construct the K-RERA project detail URL.
-    Try stored detail_url first, then PRM number, then ACK search.
-    """
-    if row.get("detail_url"):
-        return row["detail_url"]
+async def run_enrichment(rows: list[dict], dry_run: bool):
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page    = await browser.new_page()
 
-    prm = row.get("prm_number", "")
-    if prm:
-        return f"{BASE_URL}/projectViewDetails?id={prm}"
+        for row in rows:
+            prm = row.get("prm_number", "")
+            if not prm:
+                log.warning("Row id=%s has no prm_number — skipping", row["id"])
+                continue
 
-    ack = row.get("ack_number", "")
-    return ACK_SEARCH_URL.format(ack=requests.utils.quote(ack, safe=""))
+            log.info("Searching: %s", prm)
+            payload = await search_and_parse(page, prm)
 
+            if not payload:
+                log.warning("No data for id=%s prm=%s", row["id"], prm)
+            elif dry_run:
+                log.info("DRY-RUN id=%s: %s", row["id"], payload)
+            else:
+                ok = update_row(row["id"], payload)
+                if ok:
+                    log.info("Updated id=%s — status=%s district=%s",
+                             row["id"], payload.get("status", "?"),
+                             payload.get("district", "?"))
+                else:
+                    log.warning("DB update failed for id=%s", row["id"])
 
-def enrich_row(row: dict, dry_run: bool) -> bool:
-    """Fetch detail page, parse, and update Supabase. Returns True on success."""
-    url = build_detail_url(row)
-    log.info("  GET %s", url)
+            await asyncio.sleep(PAGE_DELAY)
 
-    html = _get_html(url)
-    if not html:
-        log.warning("  No HTML returned — skipping row id=%s", row["id"])
-        return False
-
-    parsed = parse_project_detail(html, url)
-
-    # Only keep fields with actual values to avoid overwriting with None
-    payload = {k: v for k, v in parsed.items() if v is not None}
-
-    if dry_run:
-        log.info("  DRY-RUN payload: %s", payload)
-        return True
-
-    ok = update_row(row["id"], payload)
-    if ok:
-        log.info("  Updated id=%s — status=%s district=%s", row["id"],
-                 payload.get("status", "?"), payload.get("district", "?"))
-    else:
-        log.warning("  DB update failed for id=%s", row["id"])
-    return ok
+        await browser.close()
 
 
 # ---------------------------------------------------------------------------
@@ -312,47 +216,43 @@ def enrich_row(row: dict, dry_run: bool) -> bool:
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Enrich K-RERA projects in Supabase")
-    parser.add_argument("--ack",             help="Single ACK number to enrich")
-    parser.add_argument("--dry-run",         action="store_true")
-    parser.add_argument("--limit",           type=int, default=0,
+    parser = argparse.ArgumentParser(description="Enrich K-RERA projects via Playwright")
+    parser.add_argument("--prm",      help="Single PRM registration number to enrich")
+    parser.add_argument("--dry-run",  action="store_true")
+    parser.add_argument("--limit",    type=int, default=0,
                         help="Max rows to process (0 = all)")
-    parser.add_argument("--re-enrich-days",  type=int, default=0,
-                        help="Re-enrich rows whose enriched_at is older than N days")
     args = parser.parse_args()
 
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise SystemExit("Set SUPABASE_URL and SUPABASE_SERVICE_KEY in env or .env")
 
-    # --- Single ACK mode ---
-    if args.ack:
-        row = fetch_one(args.ack)
+    if args.prm:
+        row = fetch_one_by_prm(args.prm)
         if not row:
-            raise SystemExit(f"ACK not found in DB: {args.ack}")
-        enrich_row(row, args.dry_run)
+            raise SystemExit(f"PRM not found in DB: {args.prm}")
+        asyncio.run(run_enrichment([row], args.dry_run))
         return
 
-    # --- Batch mode ---
     offset    = 0
     processed = 0
-    re_days   = args.re_enrich_days if args.re_enrich_days > 0 else None
 
     while True:
-        rows = fetch_rows(offset, BATCH_SIZE, re_days)
-        if not rows:
+        batch = fetch_rows(offset, BATCH_SIZE)
+        if not batch:
             break
 
-        for row in rows:
-            enrich_row(row, args.dry_run)
-            processed += 1
-            time.sleep(REQUEST_DELAY)
+        to_process = batch
+        if args.limit and processed + len(to_process) > args.limit:
+            to_process = to_process[:args.limit - processed]
 
-            if args.limit and processed >= args.limit:
-                log.info("Reached limit of %d rows — stopping.", args.limit)
-                return
+        asyncio.run(run_enrichment(to_process, args.dry_run))
+        processed += len(to_process)
+        log.info("Batch done — %d rows processed so far.", processed)
+
+        if args.limit and processed >= args.limit:
+            break
 
         offset += BATCH_SIZE
-        log.info("Batch done — %d rows processed so far.", processed)
 
     log.info("All done — %d rows enriched.", processed)
 
