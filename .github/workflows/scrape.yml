@@ -61,6 +61,34 @@ jobs:
           echo "Running: python 05_App/scrape_krera.py $ARGS"
           python 05_App/scrape_krera.py $ARGS
 
+      - name: Notify
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          LIMIT="${{ github.event.inputs.limit }}"
+          if [ "$STATUS" = "success" ]; then
+            TITLE="K-RERA Enrichment passed"
+            MSG="Batch (limit=$LIMIT) finished. Check Supabase for updated enriched_at rows."
+            PRIORITY="default"
+            TAGS="white_check_mark"
+          elif [ "$STATUS" = "cancelled" ]; then
+            TITLE="K-RERA Enrichment CANCELLED"
+            MSG="Run #${{ github.run_number }} was cancelled after hitting the 5h timeout. Use a smaller --limit next time."
+            PRIORITY="high"
+            TAGS="warning"
+          else
+            TITLE="K-RERA Enrichment FAILED"
+            MSG="Run #${{ github.run_number }} failed. Check Actions tab."
+            PRIORITY="high"
+            TAGS="x"
+          fi
+          curl -s \
+            -H "Title: $TITLE" \
+            -H "Priority: $PRIORITY" \
+            -H "Tags: $TAGS" \
+            -d "$MSG" \
+            https://ntfy.sh/rera-safi-2026
+
       - name: Summary
         if: always()
         run: |
