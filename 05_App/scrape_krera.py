@@ -113,14 +113,17 @@ def _sb_headers() -> dict:
     }
 
 
-def fetch_rows(offset: int, limit: int) -> list[dict]:
+def fetch_rows(offset: int, limit: int, new_fields_only: bool = False) -> list[dict]:
     url = f"{SUPABASE_URL}/rest/v1/rera_projects"
     params = {
         "select": "id,ack_number,prm_number",
-        "enriched_at": "is.null",
         "limit": str(limit),
         "offset": str(offset),
     }
+    if new_fields_only:
+        params["latitude"] = "is.null"   # pick up records missing the new fields
+    else:
+        params["enriched_at"] = "is.null"
     resp = requests.get(url, headers=_sb_headers(), params=params, timeout=30)
     resp.raise_for_status()
     return resp.json()
@@ -169,62 +172,159 @@ def _parse_date(text: str) -> Optional[str]:
     return None
 
 
-async def _extract_total_units(page) -> Optional[int]:
+async def _extract_detail_data(page) -> dict:
     """
-    Clicks into the project detail modal and reads total_units from the
-    'Type of Inventory' table (the TOTAL row in the Project Details tab).
-    Returns None if the detail page or the TOTAL row is not found.
+    Clicks into the project detail modal, opens the Project Details tab (#menu2),
+    and extracts both existing fields (total_units) and new enrichment fields:
+      latitude, longitude, project_sub_type, no_of_towers, approving_authority,
+      open_parking, covered_parking, far_sanctioned, source_of_water,
+      total_carpet_area_sqmt, amenities (JSONB)
+    Returns {} if the detail page is not found.
     """
+    result: dict = {}
     try:
-        # Click the first 'View Project Details' link in the results table
         detail_link = page.locator("table a").first
         await detail_link.click()
         await asyncio.sleep(2.0)
 
-        # Click the 'Project Details' tab (#menu2)
         proj_tab = page.locator("a[href='#menu2']")
         await proj_tab.click()
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(1.5)
 
-        # Find the TOTAL row in the inventory table inside #menu2
-        # The row has a cell with text "TOTAL" and the next cell is total units
-        rows = await page.locator("#menu2 table tr").all()
-        for row in rows:
-            txt = await row.inner_text()
-            cols = [c.strip() for c in txt.split("\t")]
-            if cols and cols[0].upper() == "TOTAL" and len(cols) >= 3:
+        # --- JS extraction: key-value pairs + tower table + amenity table ---
+        extracted = await page.evaluate("""
+        () => {
+            const menu2 = document.querySelector('#menu2');
+            if (!menu2) return { kv: {}, towers: [], amenities: {}, total_units: null };
+
+            // 1. Key-value pairs from all td pairs
+            const kv = {};
+            const cells = Array.from(menu2.querySelectorAll('td'));
+            for (let i = 0; i < cells.length - 1; i++) {
+                const label = cells[i].textContent.trim().replace(/:$/, '').trim();
+                const value = cells[i + 1].textContent.trim();
+                if (label && value && label.length < 100 && label.length > 1) {
+                    kv[label.toLowerCase()] = value;
+                }
+            }
+
+            // 2. Tower table rows (look for rows with numeric floor count)
+            const towers = [];
+            const tableRows = Array.from(menu2.querySelectorAll('table tr'));
+            let totalUnits = null;
+            for (const row of tableRows) {
+                const cols = Array.from(row.querySelectorAll('td')).map(c => c.textContent.trim());
+                if (cols.length >= 3 && cols[0].toUpperCase() === 'TOTAL') {
+                    const v = parseInt(cols[2], 10);
+                    if (!isNaN(v)) totalUnits = v;
+                }
+                // Tower data rows: first col is tower name (non-empty, not a header keyword)
+                const skip = ['s.no', 'tower name', 'sl.no', 'total', '', 'type'];
+                if (cols.length >= 4 && cols[0] && !skip.includes(cols[0].toLowerCase())) {
+                    const floors = parseInt(cols[2], 10);
+                    if (!isNaN(floors) && floors > 0) {
+                        towers.push({ name: cols[0], floors: floors });
+                    }
+                }
+            }
+
+            // 3. Amenities table: rows with Yes/No in second cell
+            const amenities = {};
+            for (const row of tableRows) {
+                const cols = Array.from(row.querySelectorAll('td')).map(c => c.textContent.trim());
+                if (cols.length >= 2 && (cols[1] === 'Yes' || cols[1] === 'No') && cols[0].length > 2) {
+                    const key = cols[0].toLowerCase()
+                        .replace(/[^a-z0-9]+/g, '_')
+                        .replace(/^_+|_+$/g, '');
+                    amenities[key] = cols[1] === 'Yes';
+                }
+            }
+
+            return { kv, towers, amenities, total_units: totalUnits };
+        }
+        """)
+
+        kv        = extracted.get("kv", {})
+        towers    = extracted.get("towers", [])
+        amenities = extracted.get("amenities", {})
+        total_u   = extracted.get("total_units")
+
+        def kv_get(keyword: str) -> Optional[str]:
+            for k, v in kv.items():
+                if keyword.lower() in k:
+                    v = v.strip()
+                    return v if v and v.upper() not in ("", "N/A", "NA", "-") else None
+            return None
+
+        # total_units
+        if total_u is not None:
+            result["total_units"] = total_u
+
+        # GPS
+        for field, keyword in [("latitude", "latitude"), ("longitude", "longitude")]:
+            raw = kv_get(keyword)
+            if raw:
                 try:
-                    return int(cols[2])
+                    result[field] = float(raw)
                 except ValueError:
                     pass
 
-        # Fallback: look for "Total No. of Units" label in key-value cells
-        cells = await page.locator("#menu2 td").all()
-        for i, cell in enumerate(cells):
-            label = (await cell.inner_text()).strip()
-            if "total no. of units" in label.lower() and i + 1 < len(cells):
-                val = (await cells[i + 1].inner_text()).strip()
+        # Parking
+        for field, keyword in [("open_parking", "open parking"), ("covered_parking", "covered parking")]:
+            raw = kv_get(keyword)
+            if raw:
                 try:
-                    return int(val)
+                    result[field] = int(raw.replace(",", ""))
                 except ValueError:
                     pass
 
-        log.warning("TOTAL row not found in Project Details tab")
-        return None
+        # Text fields
+        for field, keyword in [
+            ("project_sub_type",    "sub type"),
+            ("approving_authority", "approving authority"),
+            ("source_of_water",     "source of water"),
+        ]:
+            raw = kv_get(keyword)
+            if raw:
+                result[field] = raw
+
+        # FAR
+        raw = kv_get("far sanctioned")
+        if raw:
+            try:
+                result["far_sanctioned"] = float(raw.replace(",", ""))
+            except ValueError:
+                pass
+
+        # Total carpet area
+        raw = kv_get("total carpet area")
+        if raw:
+            try:
+                result["total_carpet_area_sqmt"] = float(raw.replace(",", ""))
+            except ValueError:
+                pass
+
+        # Towers
+        if towers:
+            result["no_of_towers"] = len(towers)
+
+        # Amenities
+        if amenities:
+            result["amenities"] = amenities
 
     except Exception as e:
         log.warning("Detail page extraction failed: %s", e)
-        return None
     finally:
-        # Close the modal if it's open (press Escape)
         try:
             await page.keyboard.press("Escape")
             await asyncio.sleep(0.5)
         except Exception:
             pass
 
+    return result
 
-async def search_and_parse(page, prm_number: str) -> Optional[dict]:
+
+async def search_and_parse(page, prm_number: str, new_fields_only: bool = False) -> Optional[dict]:
     try:
         await page.goto(KRERA_URL, timeout=90000, wait_until="domcontentloaded")
         await asyncio.sleep(1.2)
@@ -260,27 +360,35 @@ async def search_and_parse(page, prm_number: str) -> Optional[dict]:
         v = cols[i] if i < len(cols) else ""
         return v.strip() if v and v.strip() not in ("", "N/A") else None
 
-    payload = {
-        "status":       get(6),
-        "district":     get(7),
-        "taluk":        get(8),
-        "project_type": get(9),
-    }
-    if get(10):
-        payload["reg_date"] = _parse_date(get(10))
-    if get(11):
-        payload["completion_date"] = _parse_date(get(11))
+    payload: dict = {}
 
-    # Extract total_units from the detail page
-    total_units = await _extract_total_units(page)
-    if total_units is not None:
-        payload["total_units"] = total_units
+    if not new_fields_only:
+        # Full enrichment pass: grab all base fields from search results
+        payload = {
+            "status":       get(6),
+            "district":     get(7),
+            "taluk":        get(8),
+            "project_type": get(9),
+        }
+        if get(10):
+            payload["reg_date"] = _parse_date(get(10))
+        if get(11):
+            payload["completion_date"] = _parse_date(get(11))
+
+    # promoter_name is free — col 4 on the search results row, always grab it
+    if get(4):
+        payload["promoter_name"] = get(4)
+
+    # Extract detail-page fields (includes total_units + all new fields)
+    detail = await _extract_detail_data(page)
+    payload.update(detail)
 
     return {k: v for k, v in payload.items() if v is not None}
 
 
 async def worker(worker_id: int, queue: asyncio.Queue,
-                 browser, dry_run: bool, semaphore: asyncio.Semaphore):
+                 browser, dry_run: bool, semaphore: asyncio.Semaphore,
+                 new_fields_only: bool = False):
     page = await browser.new_page()
     while True:
         try:
@@ -295,7 +403,7 @@ async def worker(worker_id: int, queue: asyncio.Queue,
             continue
 
         async with semaphore:
-            payload = await search_and_parse(page, prm)
+            payload = await search_and_parse(page, prm, new_fields_only=new_fields_only)
 
         _stats["done"] += 1
         prog = _progress()
@@ -323,7 +431,8 @@ async def worker(worker_id: int, queue: asyncio.Queue,
     await page.close()
 
 
-async def run_enrichment(rows: list[dict], dry_run: bool, concurrency: int):
+async def run_enrichment(rows: list[dict], dry_run: bool, concurrency: int,
+                         new_fields_only: bool = False):
     queue     = asyncio.Queue()
     semaphore = asyncio.Semaphore(concurrency)
 
@@ -334,7 +443,8 @@ async def run_enrichment(rows: list[dict], dry_run: bool, concurrency: int):
         browser = await p.chromium.launch(headless=True)
         workers = [
             asyncio.create_task(
-                worker(i + 1, queue, browser, dry_run, semaphore)
+                worker(i + 1, queue, browser, dry_run, semaphore,
+                       new_fields_only=new_fields_only)
             )
             for i in range(concurrency)
         ]
@@ -348,11 +458,13 @@ async def run_enrichment(rows: list[dict], dry_run: bool, concurrency: int):
 
 def main():
     parser = argparse.ArgumentParser(description="Enrich K-RERA projects via Playwright")
-    parser.add_argument("--prm",         help="Single PRM registration number")
-    parser.add_argument("--dry-run",     action="store_true")
-    parser.add_argument("--limit",       type=int, default=0,
+    parser.add_argument("--prm",            help="Single PRM registration number")
+    parser.add_argument("--dry-run",        action="store_true")
+    parser.add_argument("--new-fields",     action="store_true",
+                        help="Only extract new columns (lat/lng/parking/etc) for already-enriched rows")
+    parser.add_argument("--limit",          type=int, default=0,
                         help="Max rows to process (0 = all)")
-    parser.add_argument("--concurrency", type=int, default=3,
+    parser.add_argument("--concurrency",    type=int, default=3,
                         help="Parallel browser tabs (default 3)")
     args = parser.parse_args()
 
@@ -376,18 +488,21 @@ def main():
         except Exception:
             pass
 
+    new_fields_only = args.new_fields
+
     if args.prm:
         row = fetch_one_by_prm(args.prm)
         if not row:
             raise SystemExit(f"PRM not found in DB: {args.prm}")
-        asyncio.run(run_enrichment([row], args.dry_run, 1))
+        asyncio.run(run_enrichment([row], args.dry_run, 1,
+                                   new_fields_only=new_fields_only))
         return
 
     offset    = 0
     processed = 0
 
     while True:
-        batch = fetch_rows(offset, BATCH_SIZE)
+        batch = fetch_rows(offset, BATCH_SIZE, new_fields_only=new_fields_only)
         if not batch:
             break
 
@@ -397,7 +512,8 @@ def main():
 
         log.info("--- Batch starting: rows %d to %d ---",
                  offset + 1, offset + len(to_process))
-        asyncio.run(run_enrichment(to_process, args.dry_run, args.concurrency))
+        asyncio.run(run_enrichment(to_process, args.dry_run, args.concurrency,
+                                   new_fields_only=new_fields_only))
         processed += len(to_process)
 
         total_secs = int(time.time() - _stats["start"])
