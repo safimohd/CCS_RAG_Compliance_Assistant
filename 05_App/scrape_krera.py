@@ -285,6 +285,29 @@ async def _extract_detail_data(page) -> dict:
                 }
             }
 
+            // 1d. Generic div-row scan: Bootstrap col pairs where first col text ends with ":"
+            //     Catches <div class="col-*">Label :</div><div class="col-*">Value</div>
+            const allDivCols = Array.from(menu2.querySelectorAll('div[class*="col-"]'));
+            for (let i = 0; i < allDivCols.length - 1; i++) {
+                const a = allDivCols[i];
+                const b = allDivCols[i + 1];
+                // Only consider adjacent siblings (same parent)
+                if (a.parentElement !== b.parentElement) continue;
+                const aText = a.textContent.trim();
+                const bText = b.textContent.trim();
+                if (aText.endsWith(':') && bText && bText.length < 200) {
+                    addKV(aText, bText);
+                }
+            }
+
+            // 1e. Last-resort regex on full textContent of menu2
+            //     Finds "Latitude : 12.877..." no matter what tag wraps it.
+            const rawText = menu2.textContent.replace(/\s+/g, ' ');
+            const latM = rawText.match(/latitude\s*:?\s*([\d]{1,3}\.[\d]{3,20})/i);
+            const lngM = rawText.match(/longitude\s*:?\s*([\d]{1,3}\.[\d]{3,20})/i);
+            if (latM) kv['latitude'] = latM[1];
+            if (lngM) kv['longitude'] = lngM[1];
+
             // 2. Tower table rows (look for rows with numeric floor count)
             const towers = [];
             let totalUnits = null;
