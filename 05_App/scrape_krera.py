@@ -121,7 +121,7 @@ def fetch_rows(offset: int, limit: int, new_fields_only: bool = False) -> list[d
         "offset": str(offset),
     }
     if new_fields_only:
-        params["latitude"] = "is.null"   # pick up records missing the new fields
+        params["or"] = "(latitude.is.null,pin_code.is.null)"  # rows missing any new field
     else:
         params["enriched_at"] = "is.null"
     resp = requests.get(url, headers=_sb_headers(), params=params, timeout=30)
@@ -352,6 +352,7 @@ async def _extract_detail_data(page) -> dict:
             ("project_sub_type",    "sub type"),
             ("approving_authority", "approving authority"),
             ("source_of_water",     "source of water"),
+            ("pin_code",            "pin code"),
         ]:
             raw = kv_get(keyword)
             if raw:
