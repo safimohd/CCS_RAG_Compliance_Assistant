@@ -302,9 +302,9 @@ async def _extract_detail_data(page) -> dict:
 
             // 1e. Last-resort regex on full textContent of menu2
             //     Finds "Latitude : 12.877..." no matter what tag wraps it.
-            const rawText = menu2.textContent.replace(/\s+/g, ' ');
-            const latM = rawText.match(/latitude\s*:?\s*([\d]{1,3}\.[\d]{3,20})/i);
-            const lngM = rawText.match(/longitude\s*:?\s*([\d]{1,3}\.[\d]{3,20})/i);
+            const rawText = menu2.textContent.replace(/\\s+/g, ' ');
+            const latM = rawText.match(/latitude\\s*:?\\s*([\\d]{1,3}\\.[\\d]{3,20})/i);
+            const lngM = rawText.match(/longitude\\s*:?\\s*([\\d]{1,3}\\.[\\d]{3,20})/i);
             if (latM) kv['latitude'] = latM[1];
             if (lngM) kv['longitude'] = lngM[1];
 
@@ -414,8 +414,15 @@ async def _extract_detail_data(page) -> dict:
             except ValueError:
                 pass
 
-        # Towers
-        if towers:
+        # Towers — prefer the explicit "Number of Towers" field from kv (accurate),
+        # fall back to counting extracted tower rows only if kv didn't have it.
+        raw_tower_count = kv_get("number of towers") or kv_get("no. of towers") or kv_get("towers")
+        if raw_tower_count:
+            try:
+                result["no_of_towers"] = int(float(raw_tower_count))
+            except ValueError:
+                pass
+        elif towers:
             result["no_of_towers"] = len(towers)
 
         # Amenities
