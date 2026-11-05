@@ -47,7 +47,7 @@ KA_PINCODE_START = 560001
 KA_PINCODE_END   = 591346
 
 INDIA_POST_API = "https://api.postalpincode.in/pincode/{pincode}"
-REQUEST_DELAY  = 0.3   # seconds between calls (free API, be polite)
+REQUEST_DELAY  = 1.0   # seconds between calls (free API — 0.3s got rate-limited)
 BATCH_SIZE     = 200   # upsert rows in one Supabase call
 
 logging.basicConfig(
@@ -124,7 +124,16 @@ def fetch_pincode(pincode: int) -> list[dict]:
     """
     url = INDIA_POST_API.format(pincode=pincode)
     try:
-        resp = requests.get(url, timeout=10)
+        for attempt in range(3):
+            try:
+                resp = requests.get(url, timeout=10)
+                break
+            except Exception as e:
+                if attempt < 2:
+                    log.debug("Attempt %d failed for %d: %s — retrying in 5s", attempt+1, pincode, e)
+                    time.sleep(5)
+                else:
+                    raise
         if resp.status_code != 200:
             return []
         data = resp.json()
