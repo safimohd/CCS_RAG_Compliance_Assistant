@@ -1,0 +1,1162 @@
+================================================================================
+  INDIAN REGULATORY COMPLIANCE INTELLIGENCE ASSISTANT
+  Complete Project Documentation — CCS, IIM Bangalore, Term 5
+  Author: Safi (rahmansafi2000@gmail.com) & Sairaj
+  Supervisor: Prof. Subhabrata Majumdar ("Subho")
+  GitHub: https://github.com/safimohd/CCS_RAG_Compliance_Assistant
+  Supabase Project ID: hcezxgqsioeduhqwhxio
+  Last updated: November 2026
+================================================================================
+
+This document covers everything done in this project from the first meeting on
+August 24, 2026 to the present. It is structured as a narrative that follows
+the actual sequence of events, including what we originally planned, what broke,
+what Prof. Majumdar told us to change, and why each pivot happened.
+
+
+================================================================================
+PART 1: GENESIS AND INITIAL PLAN (August 24, 2026)
+================================================================================
+
+The project kicked off with a single meeting on August 24, 2026 between Safi,
+Sairaj, and Prof. Majumdar. The core ask was straightforward: build a benchmark
+dataset and an AI-powered compliance assistant, then deploy it to the cloud.
+
+What Prof. Majumdar said in that meeting:
+- Domain coverage: Healthcare and Real Estate. He would confirm inclusion.
+- Code should be open-sourced on GitHub.
+- Deployment: Vercel (this changed later).
+- He would share benchmark data with the team.
+
+Three-month plan agreed at kickoff:
+  Month 1: Building
+  Month 2: Demo
+  Month 3: Building + Demo
+
+At this point, the vision was something fairly generic: a RAG chatbot over
+regulatory documents, with a benchmark to measure quality. What none of us
+anticipated was how deep the engineering rabbit hole would go.
+
+
+================================================================================
+PART 2: WHAT WE BUILT AND WHY (September 2026)
+================================================================================
+
+--------------------------------------------------------------------------------
+2.1 Corpus Assembly
+--------------------------------------------------------------------------------
+
+The first major task was gathering source documents. We settled on two domains:
+Healthcare and Real Estate (specifically Karnataka RERA).
+
+For Healthcare, documents were organized into authority buckets:
+  01_Core_Regulatory        -- Clinical Establishments Act, NMC regulations,
+                               PM-JAY instruments. Assigned Tier A (binding).
+  02_Core_PMJAY_Insurance   -- PM-JAY insurance framework. Tier A.
+  03_Medical_Regulation_    -- NMC regulations and medical education standards.
+     Education                 Tier B.
+  04_Supporting_Guidance    -- Guidelines, FAQs, manuals, SOPs. Tier C.
+  05_Draft_Proposed         -- Draft documents not yet in force. Tier D.
+  06_Review                 -- Documents where binding status was unverified.
+                               Tier E.
+
+For RERA, the same tier structure applied:
+  01_Central_RERA           -- Real Estate (Regulation and Development) Act
+                               2016, central rules. Tier A.
+  02_Karnataka_RERA         -- Karnataka RERA Rules 2017, K-RERA circulars,
+                               penalty notifications, circulars. Tier A.
+  03_Supporting_Guidance    -- Guidelines, FAQs. Tier C.
+
+What we discovered that nobody anticipated: 88 of the 350 corpus PDFs had no
+text layer at all. They were scanned images. For RERA specifically, roughly
+87% of the Karnataka documents were image-only. This meant that without OCR,
+retrieval would have silently returned nothing on most RERA queries and we
+would never have known why.
+
+PIVOT 1: We ran Tesseract OCR on every image-only PDF. The sidecar text files
+live in 02_Corpus/_ocr_text/. ingest_corpus.py checks for these sidecars and
+uses them when the PDF yields fewer than 300 characters of extracted text.
+
+Final corpus: 803 PDFs reconciled, producing 345 indexed documents with 25,955
+chunks. Healthcare: 24,586 chunks, 258 documents. RERA: 1,369 chunks, 86
+documents.
+
+One Kannada-language tier-A document could not be processed (transfer failure).
+It is documented as a known accepted loss.
+
+--------------------------------------------------------------------------------
+2.2 Embedding and Indexing
+--------------------------------------------------------------------------------
+
+We used the BAAI/bge-small-en-v1.5 embedding model (384 dimensions) with
+normalize_embeddings=True. This matches what the cohort's benchmark group was
+using, so comparisons would be fair.
+
+Chunking: RecursiveCharacterTextSplitter, chunk size 1000, overlap 150.
+
+The index is built by ingest_corpus.py and stored at 05_App/chroma_db/. The
+collection is called "regulatory_corpus". Each chunk carries metadata for
+domain (Healthcare or RERA), authority tier (A through E), and document title.
+
+One critical decision: ingest_corpus.py's main() calls clear_index() at the
+very top, before the 35-minute extraction process begins. This was not how it
+was originally written. It was moved after a painful incident where
+shutil.rmtree hit a Windows PermissionError (OneDrive lock) partway through
+deletion, leaving an index that was present on disk but silently unusable. The
+35-minute extraction had already run and was wasted. The fix: delete first,
+then extract, so if the delete fails you know immediately and lose no work.
+
+The corpus has an important exclusion: 01_Benchmarks/ is explicitly forbidden
+from indexing. If the benchmark's expected answers were in the index, the RAG
+system would retrieve its own answer key and invalidate the entire base-vs-RAG
+comparison.
+
+Authority tiers and their retrieval weights:
+  A: 1.00  (binding regulation -- citable as law)
+  B: 0.95  (sector regulation -- binding within sector)
+  C: 0.80  (supporting guidance -- explanatory, not binding law)
+  D: 0.55  (draft / proposed -- never present as binding)
+  E: 0.35  (review -- binding status unverified)
+
+By default, tiers D and E are excluded from retrieval. This cuts the candidate
+pool: 38% of Healthcare chunks and 29% of RERA chunks are in excluded tiers.
+This turns out to matter a lot (see the benchmark results section).
+
+The index is too large to commit to GitHub (Chroma's sqlite3 file grows past
+100MB). It is packaged as chroma_db.tar.gz and uploaded as a GitHub Release
+asset (release tag: index-v1). The deployed Streamlit apps download it on
+first boot via an INDEX_URL secret.
+
+--------------------------------------------------------------------------------
+2.3 Retrieval Pipeline (rag_query.py)
+--------------------------------------------------------------------------------
+
+rag_query.py is the core retrieval module. Its retrieve() function handles
+everything from embedding the query to returning ranked source chunks.
+
+Key design decisions:
+
+TOP_K = 6 (how many chunks reach the LLM)
+CANDIDATE_K = 24 (how many chunks are fetched from ChromaDB before re-ranking)
+
+The 24-candidate approach exists because authority tier weighting happens after
+retrieval. A tier-A chunk with a cosine similarity of 0.42 should beat a tier-C
+chunk with 0.48. If we just took the top 6 by cosine, authority would not
+factor in at all.
+
+Re-ranking formula:
+  weighted_score = cosine_similarity * tier_weight
+
+There is a gotcha here that cost us time: ChromaDB's default distance metric
+is L2 (Euclidean), not cosine. LangChain reports L2 scores as (1 - L2/sqrt(2)),
+which goes negative for distant vectors. The function to_cosine() in rag_query.py
+corrects this using the fact that for unit-normalized vectors:
+  cosine = 1 - (1 - score)^2
+
+This matters because if you sort by raw (possibly negative) cosine and multiply
+by tier weight, a tier-A chunk at cosine -0.30 scores (-0.30 * 1.00 = -0.30)
+while a tier-C chunk at cosine -0.30 scores (-0.30 * 0.80 = -0.24). The tier-C
+chunk sorts higher. Authority inverts precisely when retrieval is weakest and
+matters most. Both the L2-to-cosine conversion and the non-negative relevance
+formula are fixed in rag_query.py.
+
+The system prompt instructs the LLM to cite tier and document title for each
+claim, state when material is from guidance rather than binding law, and decline
+to speculate beyond what the documents say.
+
+Maximum 2 chunks per source document is enforced to prevent one template
+document from flooding the context window. This created a problem (see
+benchmark results).
+
+--------------------------------------------------------------------------------
+2.4 The Two Discovery Bugs (September 2026)
+--------------------------------------------------------------------------------
+
+BUG 1: Sidecar collision.
+Two Karnataka RERA tier-A circulars were character-identical apart from the
+financial year. Their sidecar OCR files got swapped during the ingestion run.
+This meant document A served document B's penalty figures under the correct
+title and correct authority tag. The system gave confident, authoritative,
+wrong answers. Fixed in September by renaming the sidecar files correctly and
+rebuilding the index.
+
+BUG 2: Scope filter was post-filtering instead of pre-filtering.
+The original scope filter worked like this: retrieve 24 chunks from ChromaDB,
+then remove any chunks whose document title did not match the user's selection.
+If nothing matched, fall back to the unscoped 24 chunks.
+
+The problem: a physiotherapy equipment question returned a Yoga standards DRAFT.
+Not because the Yoga draft was more relevant, but because roughly 20 near-identical
+CEA (Clinical Establishments Act) facility templates, one per facility type, were
+filling all 24 candidate slots. The physiotherapy document existed in the index
+but never made it into the top 24 chunks. The post-filter found nothing matching
+"physiotherapy" and fell back to returning the first chunk it had, which was the
+Yoga draft.
+
+PIVOT 2: Move all filters inside the ChromaDB where clause, not after retrieval.
+The correct architecture: domain, tier, and scope filters all go into the Chroma
+query's where parameter before any chunks are fetched. This was the core change
+in October 2026.
+
+After fixing this, tier starvation was also discovered: a query that should
+return healthcare staffing requirements was returning zero documents, because
+the 24-chunk candidate window was being filled by excluded-tier chunks (drafts
+and review documents) which then all got filtered out. Zero chunks meant no
+answer. Moving the tier filter inside the where clause fixed this too.
+
+--------------------------------------------------------------------------------
+2.5 Two Mis-Tiered Drafts (October 11, 2026)
+--------------------------------------------------------------------------------
+
+During testing, Yoga Standards and Siddha Standards documents were showing up
+in answers alongside binding law. These two documents said DRAFT in their titles.
+Ten other draft documents were correctly tiered D and excluded. These two were
+tiered C (supporting guidance, included by default).
+
+fix_draft_tiers.py was written to re-tier them: C to D in both the ChromaDB
+collection (194 chunks updated) and in 03_Metadata/ingestion_report.csv (2 rows
+corrected). After this, they were excluded from default retrieval.
+
+--------------------------------------------------------------------------------
+2.6 Scope Design: What "Filtering" Actually Means
+--------------------------------------------------------------------------------
+
+Three designs were tried and two were rejected:
+
+Design 1: Post-filter with fallback.
+  Retrieve 24 chunks, then filter by title. If nothing matches, return
+  the unscoped results. This is the silent-widening bug. Rejected.
+
+Design 2: Strict title allowlist.
+  Filter to only the exact selected documents. This hid 90% of Healthcare and
+  75% of RERA documents for most queries. A scope filter of "FY 2023-24" would
+  miss Section 4(2)(l)(D) of the RERA Act and the 2020 bank account directions
+  because neither carries a year in its title. Rejected.
+
+Design 3 (shipped): Exclude competing narrow documents, keep general law.
+  The insight: only 17 of 161 retrievable Healthcare documents are tied to a
+  specific facility type. Only 13 of 53 RERA documents are tied to a specific
+  financial year. The general law is the large majority. So the rule is:
+  exclude documents tied to a DIFFERENT narrow category, keep everything else.
+
+  This required FACILITY_MARKERS in rag_query.py: a list of facility type
+  strings (including AYUSH types like Yoga and Siddha that have no dropdown
+  option but have specific documents) so that "general" does not accidentally
+  include a facility-specific draft.
+
+A regression test (measure_scope.py) and an offline test suite (test_scope.py,
+7 sections) were written to prevent either rejected design from being
+reintroduced. Section 6 of test_scope.py explicitly asserts that the rejected
+silent-widening design fails.
+
+--------------------------------------------------------------------------------
+2.7 Document Title Cleanup (October 11, 2026)
+--------------------------------------------------------------------------------
+
+68 of 214 displayed document titles contained noise that a reviewer should not
+see: file sizes ("Hospital (Level 2) (832.09 KB)"), OCR pipe fragments
+("1 | OPERATIONAL | GUIDELINES FOR |"), leading numerals, and gazette
+registration numbers as the full title.
+
+clean_title() was added to app.py to handle display-only cleanup. The raw title
+string is preserved for retrieval and scope matching. What users see in the
+source citations is the cleaned version.
+
+--------------------------------------------------------------------------------
+2.8 Deployment Architecture
+--------------------------------------------------------------------------------
+
+The original plan (August 24) was to deploy to Vercel.
+
+PIVOT 3: We switched to Streamlit Community Cloud.
+Reason: The app uses ChromaDB (requires SQLite 3.35+) and the BGE embedding
+model, both of which need a persistent runtime environment and disk access.
+Vercel is a serverless platform that cannot hold the index between requests.
+Streamlit Community Cloud gives each deployment a persistent container.
+
+Two apps, one codebase:
+  05_App/app_healthcare.py -- entry point for the Healthcare deployment
+  05_App/app_rera.py       -- entry point for the RERA deployment
+
+Each entry file sets APP_DOMAIN before running app.py. The domain selector is
+hidden when APP_DOMAIN is set, so a healthcare reviewer cannot see the RERA
+interface and vice versa.
+
+Both apps must be public (not private). Private apps cannot be kept warm by
+anonymous HTTP pings, because anonymous requests hit a Google sign-in page
+rather than the app. Making them public means the daily question limit
+(DAILY_QUESTION_LIMIT = 100) becomes the spend control instead.
+
+The pysqlite3 shim: Streamlit Community Cloud ships an older system sqlite3.
+ChromaDB requires 3.35+. The shim (pysqlite3-binary) is imported at the top
+of app.py before anything imports chromadb, replacing the system sqlite3 in
+sys.modules. This fails silently on Windows (where system sqlite3 is new
+enough), so it is wrapped in a try/except.
+
+Streamlit Secrets (not hardcoded):
+  OPENAI_API_KEY
+  INDEX_URL (pointing to the GitHub Release asset)
+  LLM_REASONING_EFFORT ("low" -- see below)
+  DAILY_QUESTION_LIMIT ("100")
+  CONTACT_EMAIL
+
+LLM_REASONING_EFFORT was set to "low" deliberately. Testing showed that lower
+reasoning effort cut latency from 60 seconds to 30 seconds AND improved the
+FY2023-24 answer. Less reasoning meant less gap-filling from training data.
+
+The index is shipped as a GitHub Release asset (index-v1/chroma_db.tar.gz).
+The app downloads and extracts it on first boot. The .gitignore excludes
+chroma_db/ and *.tar.gz.
+
+Apps sleep after 12 hours of inactivity. Waking one downloads the ~150MB
+index and pulls the BGE model before answering, which takes a few minutes.
+keep-warm.yml pings both apps every 10 minutes to prevent sleep.
+
+--------------------------------------------------------------------------------
+2.9 Answer Cache and Daily Cap
+--------------------------------------------------------------------------------
+
+app.py maintains a local .answer_cache.json (gitignored). Every question hash
+is stored with its answer. If the same question is asked again, the cached
+answer is returned without calling the LLM API. This is important because the
+OpenAI key belongs to Prof. Majumdar, not to us. Retrieval is free (local);
+generation is the only API spend.
+
+The daily cap is tracked in .usage.json (also gitignored). It resets at
+midnight IST.
+
+
+================================================================================
+PART 3: THE BENCHMARK (October 2026)
+================================================================================
+
+--------------------------------------------------------------------------------
+3.1 Three-System Design
+--------------------------------------------------------------------------------
+
+The benchmark compares three systems on the same questions:
+
+System A: Base LLM
+  GPT-5-nano with no retrieval and no domain-specific system prompt.
+  This is the baseline: what does the model know from training alone?
+
+System B: Plain RAG
+  GPT-5-nano + ChromaDB vector retrieval (rag_query.py).
+  This is our standard pipeline.
+
+System C: Agentic RAG
+  GPT-5-nano + query decomposition + multi-hop retrieval (agentic_rag.py).
+  Complex queries are split into sub-queries. Each sub-query gets its own
+  retrieval pass. Results are synthesized before answering. A reflection
+  loop reformulates and re-retrieves if the first pass flags insufficient
+  evidence.
+
+Questions: 100 per domain (Healthcare and RERA), 200 total.
+Tiers 1-5 representing question complexity, with Tier 5 being the most complex
+multi-hop queries.
+
+--------------------------------------------------------------------------------
+3.2 Scripts and Their Output
+--------------------------------------------------------------------------------
+
+05_App/benchmark/run_benchmark.py
+  Generates answers from all three systems for every question.
+  Output: benchmark/results/benchmark_answers_{timestamp}.xlsx
+  Columns: question_id, domain, tier, question_text, expected_answer,
+           system_a_answer, system_b_answer, system_c_answer,
+           system_c_sub_queries, system_c_steps
+
+05_App/benchmark/evaluate_benchmark.py
+  LLM-as-judge scoring. The judge model is Qwen3-8B-Flash on Together AI.
+  Rubric (8 points total, specified by Prof. Majumdar):
+    Factual Accuracy:       0-4
+    Completeness:           0-2
+    Confidence Calibration: 0-2
+    Total:                  0-8
+  Output: benchmark/results/benchmark_evaluation_{timestamp}.xlsx
+    Sheet "Scores"      -- one row per (question_id, system)
+    Sheet "Summary"     -- averages per domain/tier/system
+    Sheet "Comparison"  -- head-to-head table
+
+05_App/benchmark/agentic_rag.py
+  System C implementation. Decomposition prompt asks the LLM to split queries
+  into focused sub-queries as a JSON array. Each sub-query runs through retrieve().
+  Reflection loop triggers if the LLM's answer contains phrases like "insufficient
+  evidence" or "cannot determine."
+
+05_App/benchmark/questions_rera.py
+05_App/benchmark/questions_healthcare.py
+  Question sets for each domain (100 per domain, 5 tiers each).
+
+05_App/benchmark/export_questions.py
+  Exports questions to Excel for sharing with other groups.
+
+05_App/benchmark/rerun_missing_answers.py
+  Reruns specific rows that failed (by row ID) without redoing the whole benchmark.
+  Used for resuming after credit exhaustion.
+
+--------------------------------------------------------------------------------
+3.3 Results (October 28, 2026)
+--------------------------------------------------------------------------------
+
+The evaluation ran 600 benchmark rows (200 per system). 542 valid rows scored.
+
+Final scores:
+  System A (Base LLM, no retrieval): 5.07 / 8
+  System C (Agentic RAG):            4.19 / 8
+  System B (Plain RAG):              4.04 / 8
+
+The base LLM beat both RAG systems. This is a significant finding.
+
+Why the RAG systems underperformed (diagnosed after the results):
+
+1. Retrieval precision: The embedding model was not consistently ranking the
+   correct chunk in the top 24 candidates. If the right chunk misses the top 24,
+   it never reaches the LLM. The base model bypasses this entirely.
+
+2. Aggressive tier filtering: 38% of Healthcare chunks and 29% of RERA chunks
+   are excluded by default (tiers D and E). This shrinks the effective candidate
+   pool significantly, and the right chunk may be in an excluded-tier document.
+
+3. Per-document cap: Maximum 2 chunks per source document. For long authoritative
+   sources (like the RERA Act itself), this cuts off useful passages.
+
+The base LLM draws on training knowledge of well-known frameworks like the RERA
+Act and the Clinical Establishments Act. These are major legislation that would
+appear many times in its training data.
+
+The suggested improvement path from this analysis: better retrieval (hybrid
+BM25 + vector search, or a stronger re-ranker) rather than more agentic steps.
+Adding more agentic complexity (System C) did not help because the fundamental
+problem is retrieval precision, not reasoning.
+
+--------------------------------------------------------------------------------
+3.4 The 58 Failed Rows
+--------------------------------------------------------------------------------
+
+Together AI credits ran out at row 537 (RE-T4-19, System C). Of the 60 rows
+showing zero scores:
+  56: Script error -- "[ERROR: Error code: 429 - You have no credits remaining]"
+      stored as the answer, not a real answer.
+  1:  HC-T1-01 B -- judge call failed due to a Together AI privacy setting
+      (third-party data sharing blocked in account settings).
+  1:  HC-T3-15 A -- 21-minute API call timed out. Answer was fetched but the
+      judge call failed.
+  2:  HC-T1-03 C and RE-T1-18 C -- real model failures with proper rationale.
+
+The 58-row re-run is pending. Blocked on Together AI credits (under $1 needed)
+and the privacy setting fix at api.together.ai/settings/privacy.
+
+
+================================================================================
+PART 4: REAL ESTATE INVESTMENT FEATURES (October-November 2026)
+================================================================================
+
+Around October-November 2026, the project expanded beyond compliance Q&A to
+include an investment analysis layer for the RERA app. This required live market
+data and historical property listings from Bangalore.
+
+--------------------------------------------------------------------------------
+4.1 Data Pipeline Overview (all scripts -> Supabase tables)
+--------------------------------------------------------------------------------
+
+Script                        Supabase Table                  Rows      Source
+----------------------        --------------------------      ------    --------
+scrape_krera.py               rera_projects                   10,096    K-RERA portal
+scrape_market_rates.py        market_rates                    168       BankBazaar,
+                                                                        Yahoo Finance,
+                                                                        Paisabazaar
+scrape_property_prices.py     property_prices                 17        NoBroker blog
+load_property_listings.py     property_listings               13,319    Kaggle CSV
+estimate_2026_prices.py       property_prices_estimated       1,292     Computed
+scrape_pincodes.py            pincodes                        0 (bug,   India Post API
+                                                              re-run
+                                                              needed)
+
+The purpose of each data source:
+  rera_projects: Index of all Karnataka RERA-registered projects with enriched
+    metadata (status, district, completion date, units sold etc). Used for
+    compliance lookups and project search.
+  market_rates: Gold price (₹/gram), Nifty 50 CAGR (1Y/3Y/5Y/10Y), FD rates
+    from top banks (all tenures). Used for investment comparison tab.
+  property_prices: 2026 published per-sqft prices for top Bangalore localities
+    from NoBroker. 17 localities. Used as the anchor data for price estimation.
+  property_listings: 13,319 historical Bangalore property listings from the
+    Kaggle Bengaluru House Price Dataset (2017-era data). Columns include
+    area_type, location, size, total_sqft, bath, balcony, price (in lakhs).
+    Derived: bhk, price_per_sqft, is_gated.
+  property_prices_estimated: 2026 estimated per-sqft prices for all ~1,300
+    Kaggle localities. Built using locality-specific scaling where NoBroker
+    has a 2026 price for that locality, or zone-based scaling otherwise.
+  pincodes: Karnataka post office data (pincode, office_name, district,
+    division, block). Used for location lookup in the app.
+
+--------------------------------------------------------------------------------
+4.2 K-RERA Project Scraper (scrape_krera.py -> rera_projects)
+--------------------------------------------------------------------------------
+
+The K-RERA portal (rera.karnataka.gov.in) lists all registered real estate
+projects in Karnataka. The scraper hits the portal's project detail pages and
+enriches each row in rera_projects with:
+  status, district, taluk, project_type, total_units, sold_units,
+  completion_date, reg_date, lapse_date, land_area_sqft, detail_url
+
+The table has 10,096 rows. The enrichment column is enriched_at (NULL means
+not yet enriched). The scraper queries WHERE enriched_at IS NULL and processes
+rows in batches of 50, writing back via Supabase REST upsert with
+Prefer: return=minimal.
+
+GitHub Actions workflow: .github/workflows/scrape.yml
+  Trigger: workflow_dispatch only (manual)
+  Timeout: 300 minutes (5 hours)
+  Inputs: limit (default 0 = all), dry_run, re_enrich_days
+
+What went wrong:
+  Run #4 was cancelled after exactly 5 hours 0 minutes 55 seconds. The reason:
+  limit=0 tried to enrich all 10,096 rows at once. At approximately 1.5 seconds
+  per row (network round-trip to the K-RERA portal), that is roughly 15,000
+  seconds = 4.2 hours of actual work plus overhead. GitHub's 6-hour cap was hit.
+  Additionally, no ntfy notification was wired up, so we got no alert that the
+  run was cancelled.
+
+  Also discovered: the enriched column does not exist. The correct column is
+  enriched_at. An earlier script version used WHERE enriched = false which
+  silently returned all rows.
+
+Fixes applied:
+  1. Added ntfy notification block to scrape.yml with 3 states:
+     success (white_check_mark), cancelled (warning), failed (x).
+  2. Recommended batch size going forward: --limit 1000 per run, spread over
+     several days.
+  3. Correct query: WHERE enriched_at IS NULL
+
+--------------------------------------------------------------------------------
+4.3 Market Rates Scraper (scrape_market_rates.py -> market_rates)
+--------------------------------------------------------------------------------
+
+Scrapes three live investment comparison data points:
+  Gold price: BankBazaar (live today + monthly history)
+  Nifty 50:   Yahoo Finance (adjusted-close prices, CAGR computed)
+  FD rates:   Paisabazaar (top public + private banks, all tenures)
+
+168 rows in Supabase as of audit. These represent the investment alternatives
+that a Bangalore property buyer would consider.
+
+GitHub Actions workflow: .github/workflows/scrape_market_rates.yml
+  Trigger: workflow_dispatch only (manual)
+  Timeout: 15 minutes
+
+What went wrong:
+  Run #2 failed because the source site (BankBazaar/Yahoo Finance) blocked a
+  second scrape that happened only 1 minute after Run #1. The site detected
+  the bot pattern. The 168 rows from Run #1 are intact.
+
+--------------------------------------------------------------------------------
+4.4 Bangalore Property Price Scraper (scrape_property_prices.py -> property_prices)
+--------------------------------------------------------------------------------
+
+Scrapes NoBroker's Bangalore property rates blog post for 2026 prices. NoBroker
+publishes top-locality data only, so the result is 17 rows covering premium
+localities (Whitefield, Koramangala, Indiranagar, etc.)
+
+GitHub Actions workflow: .github/workflows/scrape_property_prices.yml
+  Trigger: workflow_dispatch only (manual)
+  Timeout: 15 minutes
+
+Run #1 succeeded in 16 seconds. 17 rows confirmed in Supabase. This is correct
+for the source: NoBroker only publishes data for the most prominent localities.
+
+--------------------------------------------------------------------------------
+4.5 Property Listings Loader (load_property_listings.py -> property_listings)
+--------------------------------------------------------------------------------
+
+Downloads the Bengaluru House Price Dataset CSV from GitHub (a Kaggle dataset
+mirrored publicly). 13,320 raw rows. The script processes them and derives:
+  bhk:            integer BHK count extracted from size field
+  price_per_sqft: (price_in_lakhs * 100000) / total_sqft
+  is_gated:       True when the society field is non-empty
+
+Upserted in batches of 500 rows using Prefer: resolution=merge-duplicates.
+
+GitHub Actions workflow: .github/workflows/load_property_listings.yml
+  Trigger: workflow_dispatch only (manual)
+
+Run #1 succeeded in 38 seconds. 13,319 rows confirmed (1 deduplicated), 1,294
+distinct localities. This is the full Kaggle dataset.
+
+--------------------------------------------------------------------------------
+4.6 Price Estimator (estimate_2026_prices.py -> property_prices_estimated)
+--------------------------------------------------------------------------------
+
+Bridges the gap between the 17 NoBroker localities (2026 prices) and the 1,300+
+Kaggle localities (2017 prices).
+
+The algorithm:
+  Step 1: For each locality, compute the Kaggle 2017 median price per sqft.
+  Step 2: For the 17 localities where NoBroker has a 2026 price and Kaggle
+          has 2017 data: scaling_factor = NoBroker_2026 / Kaggle_2017_median
+  Step 3: Assign every locality to a Bangalore zone:
+          North, South, East, West, Central, Peripheral
+  Step 4: For each zone, average the scaling factors of localities where both
+          sources exist. This is the zone scaling factor.
+  Step 5: For localities without a direct NoBroker 2026 price, apply the
+          zone scaling factor to their Kaggle 2017 median.
+
+Output: 1,292 rows, one per locality, with:
+  estimated_ppsf_2026, ppsf_min_2026, ppsf_max_2026,
+  source_ppsf_2017, scaling_factor, scaling_method, listing_count_2017
+
+GitHub Actions workflow: .github/workflows/estimate_2026_prices.yml
+  Trigger: workflow_dispatch only (manual)
+  Timeout: 20 minutes
+  Inputs: dry_run
+
+--------------------------------------------------------------------------------
+4.7 Pincode Scraper (scrape_pincodes.py -> pincodes)
+--------------------------------------------------------------------------------
+
+Fetches Karnataka pincode data from the free India Post API
+(api.postalpincode.in). The Karnataka pincode range is 560001 to 591346.
+The script iterates through every pincode in the range, calling the API once
+per pincode with a 0.3-second delay (polite rate limiting).
+
+For each valid Karnataka post office, it stores:
+  pincode, office_name, delivery_status, district, division_name,
+  region, block, state, country, fetched_at
+
+Batch size: 200 rows per Supabase upsert.
+
+GitHub Actions workflow: .github/workflows/scrape_pincodes.yml
+  Trigger: workflow_dispatch only (manual)
+
+What went wrong:
+  Run #2 showed as successful after 4 hours 36 minutes. But the pincodes table
+  had 0 rows. 4.5 hours of work, completely wasted.
+
+  Root cause: Missing UNIQUE constraint on (pincode, office_name). The script
+  uses Supabase's merge-duplicates upsert (Prefer: resolution=merge-duplicates).
+  This upsert mode works by finding existing rows that match on the unique key
+  and either updating them (if found) or inserting (if not). Without a unique
+  constraint, Supabase has no key to merge on. It silently writes 0 rows and
+  returns HTTP 200. No error. No warning. The workflow reported success.
+
+Fix applied: SQL migration run via Supabase MCP tool:
+  ALTER TABLE pincodes ADD CONSTRAINT pincodes_pincode_office_unique
+  UNIQUE (pincode, office_name);
+
+The pincode scraper needs to be re-run from scratch after this fix.
+Estimated runtime: 4.5 hours (full Karnataka range).
+
+
+================================================================================
+PART 5: GITHUB ACTIONS WORKFLOWS
+================================================================================
+
+Security rule (non-negotiable, established early): All workflows use
+workflow_dispatch only (manual trigger). No cron. No automatic triggers.
+Reason: We control when scrapes happen and avoid running up API bills or
+hitting rate limits unexpectedly.
+
+Exception: daily_report.yml has a cron trigger (02:30 UTC = 08:00 IST daily)
+for the daily query stats email. This was approved as a monitoring workflow
+rather than a scraping workflow.
+
+All credentials are GitHub Secrets. No hardcoded values anywhere.
+
+Workflow inventory:
+
+.github/workflows/scrape.yml
+  Name: K-RERA Enrichment Scraper
+  Script: 05_App/scrape_krera.py
+  Table: rera_projects (enriched_at field)
+  Timeout: 300 minutes
+  Inputs: limit, dry_run, re_enrich_days
+  ntfy notifications: success (white_check_mark), cancelled (warning), failed (x)
+  Topic: rera-safi-2026
+
+.github/workflows/scrape_market_rates.yml
+  Name: Scrape Market Rates
+  Script: 05_App/scrape_market_rates.py
+  Table: market_rates
+  Timeout: 15 minutes
+  Inputs: dry_run
+  ntfy notifications: success, failed
+
+.github/workflows/scrape_property_prices.yml
+  Name: Bangalore Property Price Scraper
+  Script: 05_App/scrape_property_prices.py
+  Table: property_prices
+  Timeout: 15 minutes
+  ntfy notifications: success, failed
+
+.github/workflows/scrape_pincodes.yml
+  Name: Karnataka Pincode Scraper
+  Script: 05_App/scrape_pincodes.py
+  Table: pincodes
+  No timeout set (full run is ~4.5 hours, may need adjustment)
+
+.github/workflows/load_property_listings.yml
+  Name: Load Bangalore Property Listings
+  Script: 05_App/load_property_listings.py
+  Table: property_listings
+  No timeout set
+
+.github/workflows/estimate_2026_prices.yml
+  Name: Estimate 2026 Bangalore Property Prices
+  Script: 05_App/estimate_2026_prices.py
+  Table: property_prices_estimated
+  Timeout: 20 minutes
+  Inputs: dry_run
+
+.github/workflows/daily_report.yml
+  Name: Daily Report -- Query Stats + Expiry Alerts
+  Script: .github/workflows/daily_report.py
+  Trigger: cron 02:30 UTC (08:00 IST) + workflow_dispatch
+  Purpose: Sends a daily email with query stats and K-RERA project expiry alerts
+
+.github/workflows/keep-warm.yml
+  Name: (keep apps warm)
+  Trigger: cron every 10 minutes
+  Purpose: Pings both Streamlit apps to prevent sleep
+
+
+================================================================================
+PART 6: NOTIFICATION SYSTEM (ntfy.sh)
+================================================================================
+
+We use ntfy.sh for mobile push notifications about workflow results.
+Topic: rera-safi-2026
+No authentication required (public topic).
+
+The notification block was added to scrape.yml, scrape_market_rates.yml, and
+scrape_property_prices.yml. scrape.yml had been missing it entirely; this was
+discovered when K-RERA Run #4 was silently cancelled with no notification.
+
+Notification structure (curl POST to https://ntfy.sh/rera-safi-2026):
+  Title:    Status + workflow name
+  Priority: default (success) or high (failure/cancellation)
+  Tags:     white_check_mark (success), warning (cancelled), x (failed)
+  Body:     What happened, what to check
+
+Three states handled in scrape.yml (K-RERA has the most nuance because it
+can be cancelled by GitHub's timeout):
+  success:   "K-RERA Enrichment passed. Batch (limit=N) finished."
+  cancelled: "K-RERA Enrichment CANCELLED. Run #N hit 5h timeout. Use smaller --limit."
+  failed:    "K-RERA Enrichment FAILED. Check Actions tab."
+
+
+================================================================================
+PART 7: PROF. MAJUMDAR FEEDBACK AND PIVOTS
+================================================================================
+
+Prof. Majumdar has been the primary driver of project direction. His feedback
+sessions shaped most major decisions.
+
+KICKOFF (August 24, 2026):
+  - Confirmed domains: Healthcare + Real Estate (RERA)
+  - Deploy to Vercel (later pivoted to Streamlit)
+  - Open-source the code on GitHub
+  - He would share benchmark data
+
+ONGOING INSTRUCTION (throughout September):
+  - Remove technical noise from the UI. No similarity scores, no tier letters,
+    no folder names, no passage counts. A reviewer should see source name and
+    binding status, not retrieval internals.
+  - Strip everything that is not actionable information for a compliance reader.
+
+AFTER SEEING THE BENCHMARK RESULTS (October 28, 2026):
+  - Base LLM beating RAG systems is a problem. The RAG system needs to be better
+    than what the LLM knows on its own, otherwise why build it.
+  - The issue is retrieval precision, not answer generation. Focus there.
+  - The evaluation is currently PARKED. Prof wants UI improvements first, then
+    return to evaluation.
+
+NOVEMBER 3, 2026 UI FEEDBACK:
+  Three specific asks:
+
+  1. Query History: Show the user's previous searches somewhere visible. A
+     sidebar or collapsible panel with recent queries. The user should not have
+     to retype or scroll to find what they asked before.
+
+  2. Filter by Domain / Sub-domain for RERA: The Healthcare bot has domain
+     filtering. RERA has stakeholder filtering, but Prof wants something more
+     meaningful. Specific direction: Central vs. State RERA toggle, since users
+     often need to distinguish between the central Act and Karnataka-specific
+     implementation.
+
+  3. User Journey and Minimum Clicks: Map the full user journey. Every action
+     the user needs to take should require the minimum number of clicks. Before
+     building, think through the entire path from landing to getting an answer.
+
+  Priority order set by Prof: UI changes first, then return to evaluation.
+
+NOVEMBER 4, 2026 CRITIQUE (relayed from memory):
+  Prof described the system as a "smart Ctrl+F." The implication: we are building
+  a document search engine, not an intelligence system. The question he is asking
+  is what value we add beyond keyword search. This is a challenge to the entire
+  retrieval approach. The suggested direction is to show actual reasoning, not
+  just relevant passages -- to synthesize and explain, not just retrieve.
+
+  This will likely drive the next major pivot in the RAG architecture.
+
+
+================================================================================
+PART 8: COMPLETE SCRIPT INVENTORY
+================================================================================
+
+04_Scripts/ -- Corpus acquisition scripts (run once, not automated)
+
+  Healthcare/download/
+    download_abdm.py
+      Downloads Ayushman Bharat Digital Mission documents.
+
+    download_all_healthcare.py
+      Master downloader for the full healthcare corpus. Reads from a URL list
+      and downloads each document to the appropriate tier subfolder.
+
+    download_clinical_establishments.py
+      Downloads Clinical Establishments Act and related documents from
+      government portals.
+
+    download_haryana_pmjay.py
+      Downloads Haryana PM-JAY scheme documents. Used during corpus expansion
+      when we evaluated state-level coverage.
+
+    download_healthcare_remaining.py
+    download_healthcare_remaining_v2.py
+      Retry scripts for documents that failed in earlier download runs.
+      v2 added better error handling and retry logic.
+
+  Healthcare/classification/
+    classify_healthcare_123_content.py
+      Classifies downloaded healthcare documents into authority buckets
+      (tiers A-E) based on content heuristics and filename patterns.
+
+  RERA/download/
+    download_krera_documents.py
+      Downloads Karnataka RERA circulars, notifications and guidelines from
+      the K-RERA portal.
+
+    download_rera.py
+      Downloads the central RERA Act and model rules.
+
+    download_rera_act_fallback.py
+      Fallback downloader when the primary source is unavailable. Used an
+      alternative government portal.
+
+    retry_krera_core_failed.py
+      Retried downloads for K-RERA documents that failed in the main run.
+
+  bulk_register_kb_documents.py
+    Registers downloaded documents in the knowledge base tracking system.
+    Writes to 03_Metadata/ingestion_report.csv.
+
+  retry_failed_downloads.py
+    Generic retry script for any failed download across both domains.
+
+05_App/ -- Application code (the live system)
+
+  app.py
+    Core Streamlit application. Handles both Healthcare and RERA domains
+    depending on APP_DOMAIN secret. Contains:
+    - pysqlite3 shim for Streamlit Cloud compatibility
+    - _secret(): reads from .env locally, st.secrets when deployed
+    - ensure_index(): downloads and extracts chroma_db.tar.gz on first boot
+    - scope_universe(): returns all document titles from the index (cached)
+    - resolve_scope(): maps user's selection to specific/general title sets
+    - scope_count(): tuple of (specific_count, total_count)
+    - scope_caption(): plain-language description for sidebar
+    - clean_title(): display-only title cleanup (removes file sizes, OCR noise)
+    - basis_sentence(): describes what authority tier the answer draws from
+    - daily_usage(): tracks daily question count, enforces DAILY_LIMIT
+    - choose_effort(): picks reasoning effort based on query complexity
+
+  app_healthcare.py
+    5-line entry point: sets APP_DOMAIN="Healthcare" then runs app.py.
+
+  app_rera.py
+    5-line entry point: sets APP_DOMAIN="RERA" then runs app.py.
+
+  app_working_27sep.py
+    Fallback copy from September 27. Kept as a rollback option.
+
+  rag_query.py
+    Core retrieval module. Contains:
+    - retrieve(): main retrieval function with domain/tier/scope filters in
+      the Chroma where clause (not post-retrieval)
+    - index_titles(): reads all document titles from the collection
+    - resolve_titles(): maps title needles to (specific, general) sets
+    - is_narrow_doc(): determines if a document is facility/year-specific
+    - FACILITY_MARKERS: list of facility type strings for narrow-doc detection
+    - to_cosine(): converts L2-based scores to true cosine similarity
+    - format_sources(): formats source citations for display
+    - load_env(): loads .env file
+
+  ingest_corpus.py
+    Corpus ingestion and indexing. Builds the ChromaDB index from 02_Corpus/.
+    clear_index() is called at the top of main() before any extraction starts.
+    Handles: OCR sidecar fallback, authority tier assignment from folder name,
+    title mapping from 03_Metadata/ CSVs, exclusion of benchmark folder.
+
+  scrape_krera.py
+    K-RERA project enrichment scraper.
+    Input: rera_projects rows WHERE enriched_at IS NULL
+    Output: Updates rera_projects with enriched fields
+    Writes to: Supabase rera_projects table
+    See Part 4.2 for details.
+
+  scrape_market_rates.py
+    Market rates scraper (gold, Nifty 50, FD rates).
+    Writes to: Supabase market_rates table
+    See Part 4.3 for details.
+
+  scrape_property_prices.py
+    NoBroker Bangalore property price scraper.
+    Writes to: Supabase property_prices table
+    See Part 4.4 for details.
+
+  load_property_listings.py
+    Kaggle Bengaluru House Price Dataset loader.
+    Writes to: Supabase property_listings table
+    See Part 4.5 for details.
+
+  estimate_2026_prices.py
+    2026 price estimator using locality-specific and zone-based scaling.
+    Reads from: Supabase property_listings (Kaggle 2017 data)
+    Reads from: Supabase property_prices (NoBroker 2026 data)
+    Writes to: Supabase property_prices_estimated
+    See Part 4.6 for details.
+
+  scrape_pincodes.py
+    Karnataka pincode scraper from India Post API.
+    Writes to: Supabase pincodes table
+    See Part 4.7 for details.
+
+  bulk_register_kb_documents.py
+    Registers documents in the knowledge base and updates ingestion_report.csv.
+
+  measure_scope.py
+    Regression test for the scope filter. Baselines against
+    06_Evaluation/scope_baseline.json. Exits 1 on failure. Run before every
+    deployment. --rebaseline flag to accept intended changes.
+
+  test_scope.py
+    7-section offline test suite. Runs in ~1 second. No index or embedding
+    model needed (drives retrieve() against a mock Chroma). Section 6
+    explicitly asserts that the rejected silent-widening design fails.
+
+  audit_scope.py
+    Prints every retrievable title sorted into SPECIFIC / GENERAL / UNREACHABLE.
+    Reads dropdown constants from app.py via its AST.
+
+  fix_draft_tiers.py
+    Re-tiered Yoga and Siddha draft documents from C to D in both the
+    ChromaDB index and ingestion_report.csv. ALREADY APPLIED. Do not run again.
+
+  run_evaluation.py
+    OpenRouter-wired evaluation script. PARKED. The evaluation is on hold
+    per Prof. Majumdar's November 3 instruction (UI improvements first).
+
+  admin.py
+    Admin interface for monitoring usage, managing the daily cap, and
+    viewing query logs.
+
+  audit_scope.py
+    Corpus/dropdown audit script. See above.
+
+  benchmark/
+    agentic_rag.py          System C implementation (see Part 3)
+    evaluate_benchmark.py   LLM-as-judge evaluation (see Part 3)
+    export_questions.py     Exports questions to Excel
+    questions_healthcare.py Healthcare question set (100 questions, 5 tiers)
+    questions_rera.py       RERA question set (100 questions, 5 tiers)
+    rerun_missing_answers.py Reruns specific failed rows
+    run_benchmark.py        Generates answers from all 3 systems (see Part 3)
+
+scraper/
+  rera_scraper.py
+    Earlier version of the K-RERA scraper. Predates scrape_krera.py.
+    Kept for reference. Not currently in use.
+
+
+================================================================================
+PART 9: SUPABASE TABLE REFERENCE
+================================================================================
+
+Project ID: hcezxgqsioeduhqwhxio
+
+Table: rera_projects
+  Purpose: Index of all Karnataka RERA-registered projects
+  Row count: 10,096
+  Key columns: ack_number (unique), project_name, promoter_name,
+               district, taluk, project_type, status,
+               total_units, sold_units, completion_date, reg_date,
+               lapse_date, land_area_sqft, detail_url, enriched_at
+  Populated by: scrape_krera.py via scrape.yml
+  Notes: enriched_at IS NULL = not yet enriched (all 10,096 as of Nov 2026).
+         Needs batched re-runs of --limit 1000.
+
+Table: market_rates
+  Purpose: Live investment comparison data
+  Row count: 168
+  Key columns: instrument_type (gold/nifty_50/fd), bank_name, tenure_years,
+               rate_pct, price_inr, source, scraped_at
+  Populated by: scrape_market_rates.py via scrape_market_rates.yml
+
+Table: property_prices
+  Purpose: 2026 published per-sqft prices for top Bangalore localities
+  Row count: 17
+  Key columns: locality, city, state, year, price_per_sqft,
+               yoy_growth_pct, source_url, scraped_at
+  Populated by: scrape_property_prices.py via scrape_property_prices.yml
+  Notes: 17 rows is correct. NoBroker only publishes data for top localities.
+
+Table: property_listings
+  Purpose: Historical Bangalore property listings (2017 Kaggle dataset)
+  Row count: 13,319
+  Key columns: area_type, availability, location, size, society,
+               total_sqft, bath, balcony, price_lakhs,
+               bhk, price_per_sqft, is_gated, source_year, city, state
+  Populated by: load_property_listings.py via load_property_listings.yml
+
+Table: property_prices_estimated
+  Purpose: 2026 estimated prices for all ~1,300 Bangalore localities
+  Row count: 1,292
+  Key columns: locality, zone, estimated_ppsf_2026,
+               ppsf_min_2026, ppsf_max_2026,
+               source_ppsf_2017, scaling_factor,
+               scaling_method, listing_count_2017
+  Populated by: estimate_2026_prices.py via estimate_2026_prices.yml
+
+Table: pincodes
+  Purpose: Karnataka post office data for location lookup
+  Row count: 0 (bug fixed, re-run needed)
+  Key columns: pincode, office_name, delivery_status, district,
+               division_name, region, block, state, country, fetched_at
+  Unique constraint: (pincode, office_name) -- ADDED Nov 2026 to fix
+                     the merge-duplicates silent failure
+  Populated by: scrape_pincodes.py via scrape_pincodes.yml
+  Notes: Run #2 appeared to succeed but wrote 0 rows due to missing UNIQUE
+         constraint. The constraint is now in place. Full re-run needed
+         (estimated 4.5 hours).
+
+Table: kb_documents (approximate, used by ingest tracking)
+  Purpose: Knowledge base document registry
+  Populated by: ingest_corpus.py and bulk_register_kb_documents.py
+
+Table: queries / sessions / feedback (Streamlit app tables)
+  Purpose: User interaction logs
+  Populated by: app.py, app_rera.py, app_healthcare.py via Streamlit
+
+
+================================================================================
+PART 10: WHAT IS PENDING
+================================================================================
+
+Immediate data tasks:
+  1. Re-run Karnataka Pincode Scraper (full range, no limit, bug is fixed)
+     Estimated runtime: 4.5 hours
+  2. K-RERA Enrichment: run limit=1000 several times over coming days
+     (10,096 rows pending at ~1.5s/row = ~15,000s per 10k)
+
+Evaluation backlog:
+  3. Top up Together AI credits (under $1) and fix privacy setting at
+     api.together.ai/settings/privacy
+  4. Re-run 58 failed benchmark rows via rerun_missing_answers.py
+  5. After re-run: check if scores change materially (they should not, since
+     the 58 failures were credit-exhaustion errors, not model failures)
+
+UI improvements (Prof's November 3 priority):
+  6. Query History panel in sidebar
+  7. Central vs. State RERA filter (more meaningful than current stakeholder filter)
+  8. User journey audit: map full path from landing to answer, reduce clicks
+
+Investment tab (data is ready, UI not built):
+  9. Rent vs. EMI comparison tool
+  10. Real estate vs. FD/gold/Nifty over 10 years (data is in market_rates)
+
+App improvements:
+  11. PDF/brochure upload feature: price extraction vs. market comparison
+  12. Fix retrieval accuracy: Prof's hallucination example (lake/floor issue)
+  13. Jurisdiction disclaimer: answers apply to Karnataka RERA only
+  14. Address the "smart Ctrl+F" critique: show synthesis, not just retrieval
+
+
+================================================================================
+PART 11: KNOWN GOTCHAS (do not relearn these)
+================================================================================
+
+1. ingest_corpus.py's clear_index() runs at the TOP of main(), before extraction.
+   Do not move it. See Part 2.2 for why.
+
+2. L2 vs cosine score inversion. ChromaDB defaults to L2. LangChain reports
+   1 - L2/sqrt(2), which goes negative. to_cosine() in rag_query.py corrects
+   this. Never rank by raw score from ChromaDB. See Part 2.3.
+
+3. Supabase merge-duplicates upsert requires a UNIQUE constraint. Without one,
+   the upsert writes 0 rows and returns HTTP 200 with no error. This destroyed
+   4.5 hours of work on the pincodes scraper. See Part 4.7.
+
+4. WHERE enriched = false does not work. The column is enriched_at. Use
+   WHERE enriched_at IS NULL.
+
+5. GitHub Actions 6-hour cap. Any workflow that might run for more than 6 hours
+   will be cancelled. Use smaller --limit values and batch over multiple runs.
+   Always wire ntfy notifications so you know when a run is cancelled.
+
+6. Streamlit Community Cloud's SQLite is old. The pysqlite3 shim must be
+   imported before chromadb. It is at the top of app.py. If it moves, the app
+   will fail to start on Community Cloud.
+
+7. The index (chroma_db/) must not be committed. It exceeds GitHub's 100MB
+   file limit. It lives in the GitHub Release (index-v1). The .gitignore
+   covers chroma_db/ and *.tar.gz.
+
+8. Never commit .env. It contains API keys. The .gitignore covers it. All
+   secrets go through st.secrets (deployed) or environment variables (local).
+
+9. The OpenAI key (GPT-5-nano) belongs to Prof. Majumdar. It is not ours.
+   Every API call costs money from his account. The answer cache (Part 2.9)
+   and the daily question limit exist for this reason.
+
+10. huggingface.co is blocked by the Claude container's egress proxy. The BGE
+    embedding model cannot be downloaded in a Claude session. Indexing must
+    run on the user's own machine. Reading ChromaDB metadata (titles, tiers)
+    can be done in a Claude session by staging chroma.sqlite3 and querying it
+    with plain SQL (no model needed).
+
+11. BankBazaar/Yahoo Finance rate-limits scrapers. Do not run scrape_market_rates
+    twice within a few minutes. Wait at least an hour between runs.
+
+12. The Yoga and Siddha draft documents were mis-tiered C instead of D.
+    fix_draft_tiers.py has already been applied. Do not re-run it. The index
+    has already been updated. If the Release asset has not been replaced after
+    this fix, the deployed app still uses the old tiers.
+
+
+================================================================================
+PART 12: SECURITY RULES (non-negotiable, established project-wide)
+================================================================================
+
+These rules were established early in the project and apply to every file:
+
+1. No credentials hardcoded in any file.
+   All secrets via st.secrets["KEY_NAME"] or environment variables only.
+
+2. GitHub Actions: workflow_dispatch only (manual trigger, no cron).
+   Exception: daily_report.yml has a cron for monitoring only.
+
+3. All free tools only (this is a college project).
+   Together AI free tier (until credits run out).
+   ntfy.sh free tier (public topic).
+   Streamlit Community Cloud free tier.
+   Supabase free tier.
+   GitHub free tier.
+
+4. Never commit: .env, chroma_db/, chroma_db.tar.gz, PDF files in 02_Corpus/,
+   .answer_cache.json, .usage.json.
+
+
+================================================================================
+END OF DOCUMENT
+================================================================================
