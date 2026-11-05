@@ -227,7 +227,6 @@ async def _extract_detail_data(page) -> dict:
 
             // 2. Tower table rows (look for rows with numeric floor count)
             const towers = [];
-            const tableRows = Array.from(menu2.querySelectorAll('table tr'));
             let totalUnits = null;
             for (const row of tableRows) {
                 const cols = Array.from(row.querySelectorAll('td')).map(c => c.textContent.trim());
