@@ -5,7 +5,7 @@
   Supervisor: Prof. Subhabrata Majumdar ("Subho")
   GitHub: https://github.com/safimohd/CCS_RAG_Compliance_Assistant
   Supabase Project ID: hcezxgqsioeduhqwhxio
-  Last updated: November 2026
+  Last updated: November 5, 2026
 ================================================================================
 
 This document covers everything done in this project from the first meeting on
@@ -1155,6 +1155,335 @@ These rules were established early in the project and apply to every file:
 
 4. Never commit: .env, chroma_db/, chroma_db.tar.gz, PDF files in 02_Corpus/,
    .answer_cache.json, .usage.json.
+
+
+================================================================================
+PART 13: PROF. SOUDEEP DEB FEEDBACK (November 4, 2026)
+================================================================================
+
+Prof. Soudeep Deb is a separate evaluator from Prof. Majumdar. He reviewed the
+RERA tool on November 4, 2026 and gave pointed feedback that is distinct from
+Prof. Majumdar's direction. His feedback should be treated as a parallel signal,
+not a replacement for Prof. Majumdar's.
+
+NOTE ON ATTRIBUTION: The "smart Ctrl+F" phrase documented in Part 7 under the
+November 4 critique originated with Prof. Soudeep Deb's session, not Prof.
+Majumdar. Both professors may have expressed this concern independently, but the
+documented quote comes from Prof. Deb's formal feedback session below.
+
+OVERALL OBSERVATION (Prof. Deb):
+  "The tool currently functions as a smart Ctrl+F. It retrieves and surfaces
+  regulatory text well, but real estate professionals already know the
+  regulations. The tool needs a sharper definition of who it is actually built
+  for."
+
+SPECIFIC FEEDBACK POINTS:
+
+1. Target Audience
+   The primary gap: the tool lacks a clearly defined target user. Real estate
+   agents, lawyers, and developers have enough domain knowledge to navigate RERA
+   themselves. The more valuable user is someone who does not have that
+   background and is making a high-stakes decision without expert support. The
+   tool should be rebuilt around that person.
+
+   Action: Define the target audience precisely before the next demo.
+
+2. PDF Upload and Document Q&A
+   Strong suggestion to add the ability for users to upload their own documents
+   (sale deeds, builder agreements, brochures) and ask questions against them
+   in combination with the RERA corpus. This is the feature that would
+   differentiate the tool from a simple portal search, since it works on the
+   user's specific situation rather than general regulations.
+
+   Action: Build PDF upload and document Q&A as the highest-priority feature.
+   (Note: Prof. Majumdar's Nov 3 feedback also pointed toward PDF upload. Both
+   professors independently converged on this as the most important gap.)
+
+3. Investment Signals and Area-Level Guidance
+   The tool should help users understand whether a particular area, pin code,
+   or builder has a track record worth trusting. Surfacing complaint patterns,
+   project delay history, and registration status at a geographic level would
+   add genuine decision-making value.
+
+   Action: Add Karnataka RERA project lookup by name and pin code, and add an
+   investment signal view for area-level context. The pincodes table (Part 9)
+   and rera_projects table support this once populated.
+
+4. Building and Society Name Lookup
+   Users frequently come with a specific project in mind. The tool should allow
+   lookup by building name or society name to surface compliance status,
+   complaints filed, completion timelines, and any RERA violations.
+
+   Action: Wire the rera_projects table into a project search interface.
+
+5. Predictive Regulation Model (long-term)
+   A longer-term suggestion: forecast which regulations are likely to be amended
+   or enforced more strictly, based on complaint trends and policy signals. This
+   would shift the tool from reactive (what does the law say?) to proactive
+   (what is the law likely to become?).
+
+   Action: Consider as a future research angle, not an immediate build.
+
+PRIORITY ORDER SET BY PROF. DEB:
+  - Define the target audience precisely before the next demo
+  - Build PDF upload and document Q&A as the highest-priority feature
+  - Add Karnataka RERA project lookup by name and pin code
+  - Add an investment signal view for area-level context
+  - Consider predictive regulation as a longer-term research angle
+
+Feedback captured by: Mohammad Safi Ur Rahman, CCS Project, PGPBA 2026-28
+
+
+================================================================================
+PART 14: QUICK REFERENCE
+================================================================================
+
+LIVE DEPLOYMENT URLS:
+  Healthcare app:  https://ccsragcomplianceassistant-6hug2utprjrpwtyijwjanr.streamlit.app
+  RERA app:        https://ccsragcomplianceassistant-cisyv46xzq7kte95ywkmhg.streamlit.app
+  Deployment platform: Streamlit Community Cloud
+  Auto-deploy trigger: every git push to main branch
+  Redeploy time: 60-90 seconds after push
+
+ADMIN DASHBOARD:
+  Access: append ?admin=1 to either app URL
+  Password: iimb2024
+  Tabs: Activity (daily query volume), Documents (KB coverage), Bots (per-domain
+        stats), KB Coverage (knowledge base completeness view)
+  File: 05_App/admin.py (774 lines)
+  Design: dark and light mode with explicit color tokens, Plotly charts, tab
+          centering via JavaScript DOM injection (CSS alone could not override
+          Streamlit internals), Inter font from Google Fonts
+
+KEY PEOPLE:
+  Safi (Mohammad Safi Ur Rahman)  -- Developer, project lead
+  Sairaj                          -- Teammate
+  Prof. Subhabrata Majumdar       -- Faculty advisor, provided API keys
+  Prof. Soudeep Deb               -- Evaluator (reviewed RERA tool Nov 4, 2026)
+
+API KEYS AND MODELS:
+  OpenAI API key (Prof. Majumdar) -- gpt-5-nano, answer generation + LLM judge
+                                     Confirmed working as of Oct 29, 2026.
+  Together AI key (Prof. Majumdar)-- base LLMs in run_benchmark.py
+                                     Status: 401 (invalid / unpaid).
+                                     Credits needed: under $1.
+                                     Also fix privacy setting at
+                                     api.together.ai/settings/privacy.
+  LLM used in app: gpt-5-nano (OpenAI)
+  Embedding model: BAAI/bge-small-en-v1.5 (HuggingFace, runs locally, no cost)
+
+NTFY NOTIFICATION TOPIC:
+  Topic: rera-safi-2026
+  URL: https://ntfy.sh/rera-safi-2026
+  No authentication required (public topic).
+  Subscribe in the ntfy mobile app to get push notifications from GitHub Actions.
+
+
+================================================================================
+PART 15: BENCHMARK -- ORIGINAL 4-CONDITION DESIGN AND PIVOT
+================================================================================
+
+THE ORIGINAL PLAN (before Together AI blocked us):
+
+The benchmark was originally designed with 4 conditions, all using the same
+question set:
+
+  Condition 1: RAG (gpt-5-nano + our ChromaDB retrieval)
+  Condition 2: Base LLM (gpt-5-nano, no retrieval -- same model, no context)
+  Condition 3: Larger open-source LLM (openai/gpt-oss-20b on Together AI)
+  Condition 4: Smaller open-source LLM (google/gemma-3n-E4B-it on Together AI)
+
+The intent was to isolate what retrieval adds (Condition 1 vs 2) and also test
+whether model size matters (Condition 3 vs 4) independently of retrieval.
+
+WHAT HAPPENED:
+  The Together AI API key provided by Prof. Majumdar returned HTTP 401
+  (Unauthorized). Both Condition 3 and Condition 4 were blocked. We spent
+  significant time assuming the key was correct before diagnosing the issue.
+  The key was invalid, not expired -- the account either needed a top-up or
+  the privacy setting at api.together.ai/settings/privacy was blocking API
+  access.
+
+PIVOT TO 3-SYSTEM DESIGN:
+  We restructured the benchmark as three systems rather than four conditions:
+    System A: Base LLM -- gpt-5-nano with no retrieval (parametric knowledge only)
+    System B: Standard RAG -- top-k=6 chunks from ChromaDB passed to gpt-5-nano
+    System C: Agentic RAG -- breaks each question into sub-queries, retrieves
+              separately for each, synthesises into one answer (see agentic_rag.py)
+
+  All three use gpt-5-nano. The comparison isolates retrieval strategy, not
+  model capability.
+
+BENCHMARK STATUS:
+  Answers:    200/200 complete (benchmark_answers_20261024_185733.xlsx)
+  Evaluation: 542/600 scored. 58 rows failed due to Together AI rate-limiting
+              misread as credit exhaustion. Fix: add time.sleep(1) in
+              evaluate_benchmark.py and rerun only the 58 failed rows via
+              rerun_missing_answers.py. Requires Together AI credits ($<1).
+
+SCORING RUBRIC (max 8 points per answer):
+  Factual Accuracy     0-4  Correct facts, section numbers, penalties
+  Completeness         0-2  Covers legal provision + compliance + practical impact
+  Confidence Calibration 0-2 Appropriate hedging, no overconfidence
+  Total                0-8
+
+LLM-AS-JUDGE:
+  Model: Qwen3-8B-Flash (via Together AI)
+  Uses response_format={"type":"json_object"} and robust regex fence-stripping.
+  Without the json_object format, all scores came back as 0.
+
+BENCHMARK QUESTION STRUCTURE:
+  200 total: 100 Healthcare + 100 RERA
+  5 tiers per domain (20 questions each):
+    T1: Factual recall
+    T2: Multi-provision (requires synthesising multiple sections)
+    T3: Scenario-based (applies rules to a hypothetical situation)
+    T4: Cross-domain / edge cases
+    T5: Refusal / out-of-scope (tests graceful refusal vs. hallucination)
+
+NMC ACT TRAP QUESTION (adversarial potential):
+  The National Medical Commission Act has a subtle nomenclature trap:
+  the Act in force is "Act No. 30 of 2019" but it was introduced to Parliament
+  as "Bill No. 185 of 2019." A system that answers from training data may
+  confuse the bill number with the act number. This is an ideal adversarial
+  T4/T5 question to stress-test confidence calibration. Document this in the
+  question set if adversarial questions are added.
+
+CORPUS RECONCILIATION:
+  803 PDFs total:
+    358 in the active corpus (02_Corpus/)
+    445 in the archive (documents evaluated and rejected or superseded)
+    0 unaccounted for
+
+  OCR RECOVERY -- key documents recovered from image-only PDFs:
+    Karnataka RERA Rules 2017: 126,506 chars / 40 pages
+    RERA Bank Account Directions 2020: 69,524 chars / 52 pages
+    CBME Guideline 2023: 126,797 chars / 98 pages
+    NHA Data Privacy Policy v3.0: 52,446 chars
+    104 total sidecars in 02_Corpus/_ocr_text/
+
+  CBME Guideline note: the original PDF was a partial download with 178KB of
+  null bytes appended. The file appears to open but yields corrupt text past
+  a certain page. The OCR sidecar exists and is what the index actually uses.
+
+  HTML-as-PDF files: 18 of 360 source PDFs were originally nmc.org.in HTML
+  pages downloaded as PDFs. 9 were re-downloaded from the actual file= parameter
+  in the viewer URL links. 9 remain as HTML-sourced PDFs -- they read fine.
+
+  Karnataka Real_Estate_Act.pdf: the filename implies this is a Karnataka state
+  law. It is actually the central Real Estate (Regulation and Development) Act
+  2016. The filename is misleading but the content is correct. Do not rename it
+  -- the ingestion metadata maps it to the correct title.
+
+RAG-SKELETON TEMPLATE COMPLIANCE:
+  The CCS brief required use of the reference implementation at:
+  https://github.com/shubhobm/rag-skeleton
+  We built our own LangChain + Streamlit + ChromaDB system instead.
+  This divergence needs justification in the report (Section 3 / methodology).
+  The key argument: rag-skeleton uses a simple vector store with no metadata
+  filtering, no authority tier weighting, and no scope filter. Our system
+  required all three for the compliance use case to be meaningful.
+
+
+================================================================================
+PART 16: REPORT DELIVERABLE REQUIREMENTS
+================================================================================
+
+The final deliverable is a PDF report of no more than 10 pages.
+
+The report must address four specific analysis questions:
+
+  Q1. On which tiers of question complexity did RAG improve performance most?
+      On which tiers did it improve performance least?
+      (Compare System B and C vs System A, broken down by T1-T5)
+
+  Q2. Were there questions where RAG made performance worse compared to the
+      base LLM? What type of questions were these?
+      (Cases where System A scored higher than B or C)
+
+  Q3. What types of regulatory questions are best suited for RAG vs. direct
+      LLM answering?
+      (Synthesis across domains and tiers)
+
+  Q4. Would you recommend deploying this system in a real-world context?
+      Under what guardrails or caveats?
+      (Position the system honestly given its benchmark performance)
+
+The report should also include:
+  - System architecture diagram (the three-system design)
+  - Benchmark methodology (question design, scoring rubric, LLM-as-judge setup)
+  - Key results table (scores by system, by domain, by tier)
+  - Limitations section (rag-skeleton divergence, 58 failed rows, Together AI
+    pivot, jurisdiction restriction to Karnataka RERA)
+
+STATUS: Blocked on completing the 58 failed benchmark rows. The analysis cannot
+be finalized until all 600 scores are in.
+
+
+================================================================================
+PART 17: ADDITIONAL GOTCHAS (supplement to Part 11)
+================================================================================
+
+13. run_awake.ps1 -- PowerShell Int32 overflow.
+    The script keeps the Windows laptop awake during long jobs (K-RERA scraper,
+    benchmark run, evaluation) using Windows SetThreadExecutionState.
+    Usage: powershell -ExecutionPolicy Bypass -File ..\run_awake.ps1 "python run_evaluation.py"
+    Quotes around the command are required.
+    BUG: 0x80000001 (ES_CONTINUOUS | ES_SYSTEM_REQUIRED) is parsed by PowerShell
+    as a signed Int32, which overflows. Fix: use [uint32]2147483649 instead of
+    0x80000001. The script on disk already has this fix applied.
+
+14. Windows Security blocking scikit-learn .pyd file.
+    Windows Defender or Windows Security may quarantine:
+    _expected_mutual_info_fast.cp312-win_amd64.pyd
+    This file belongs to scikit-learn, which is pulled in by sentence-transformers.
+    Symptom: ImportError on sentence_transformers even after pip install.
+    Fix: reinstall scikit-learn (pip install --force-reinstall scikit-learn).
+    Do not disable Windows Security. The file is a false positive but reinstalling
+    is safer than adding exclusions.
+
+15. .usage.json is NOT in .gitignore (suspected).
+    The security rules (Part 12) state it should never be committed, but the
+    actual .gitignore file may not list it. Verify the .gitignore contains
+    .usage.json. If not, add it -- this file holds per-deployment runtime state
+    and should not be in source control.
+
+16. keep-warm.yml exists in Part 5 script inventory but has NOT been created.
+    GitHub blocks writing to .github/workflows/ from remote sessions (Actions
+    API does not support it). The file must be created manually in the repo.
+    When created, it should ping both Streamlit app URLs every 10 minutes using
+    workflow_dispatch trigger (not cron, per security rules) OR a minimal cron
+    if the monitoring use case justifies the exception -- same as daily_report.yml.
+
+17. Empty "Real Estate" folder in project root.
+    There is a file-locked folder called "Real Estate" in the project root. It
+    appears empty but cannot be deleted due to Windows file locking (possibly
+    OneDrive or an open handle). It is cosmetic. Do not spend time on it.
+
+18. The pincodes table has 0 rows (as of Nov 2026) despite a successful-looking
+    scraper run. The root cause was a missing UNIQUE constraint on (pincode,
+    office_name) -- Supabase's merge-duplicates upsert silently writes 0 rows
+    when no UNIQUE constraint exists, returning HTTP 200. The constraint has
+    been added via SQL migration. A full re-run of scrape_pincodes.py (GitHub
+    Actions scrape_pincodes.yml, no --limit) is required. Estimated 4.5 hours.
+    See Part 11, gotcha #3 for the general principle.
+
+19. Sidecar collision bug (RESOLVED).
+    Two tier-A circulars from K-RERA had different content but were given the
+    same sidecar filename because they shared a base document name. Each was
+    reading the other's extracted text and serving wrong penalty figures.
+    Fix: sidecar filenames now include a SHA1 hash suffix. Already applied.
+    Do not revert to plain-name sidecars.
+
+20. Filtering after retrieval causes silent widening (RESOLVED).
+    An earlier design applied scope filters (domain, tier) after Chroma returned
+    candidates. When the scope filter eliminated all candidates, the system fell
+    back to unfiltered results. This meant a user asking a Karnataka-specific
+    question could get answers from central regulations -- silently, with no
+    indication the scope was ignored. The fix: all filters are now applied inside
+    the Chroma where clause (pre-retrieval). test_scope.py section 6 explicitly
+    asserts that the rejected silent-widening design fails so it cannot be
+    reintroduced.
 
 
 ================================================================================
