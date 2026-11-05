@@ -48,7 +48,7 @@ BATCH_SIZE  = 50
 PAGE_DELAY  = 1.5   # seconds between searches per worker
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s  %(levelname)-8s  %(message)s",
     datefmt="%H:%M:%S",
 )
@@ -189,7 +189,17 @@ async def _extract_detail_data(page) -> dict:
 
         proj_tab = page.locator("a[href='#menu2']")
         await proj_tab.click()
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(2.5)  # extra wait for tab content to render
+
+        # Debug: log how many cells are visible in #menu2
+        cell_count = await page.evaluate("() => document.querySelectorAll('#menu2 td').length")
+        log.debug("menu2 td count: %d", cell_count)
+        if cell_count == 0:
+            # Try alternate selectors — some pages wrap the tab in .tab-pane or .active
+            cell_count = await page.evaluate(
+                "() => document.querySelectorAll('.tab-pane.active td, #tab2 td, [id*=menu2] td').length"
+            )
+            log.debug("fallback td count: %d", cell_count)
 
         # --- JS extraction: key-value pairs + tower table + amenity table ---
         extracted = await page.evaluate("""
@@ -248,6 +258,11 @@ async def _extract_detail_data(page) -> dict:
         towers    = extracted.get("towers", [])
         amenities = extracted.get("amenities", {})
         total_u   = extracted.get("total_units")
+
+        # Debug: show first 20 kv keys to verify extraction
+        sample = dict(list(kv.items())[:20])
+        log.debug("kv sample (first 20): %s", sample)
+        log.debug("towers found: %d, amenities found: %d", len(towers), len(amenities))
 
         def kv_get(keyword: str) -> Optional[str]:
             for k, v in kv.items():
