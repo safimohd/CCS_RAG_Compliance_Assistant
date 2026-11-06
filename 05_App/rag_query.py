@@ -93,16 +93,18 @@ FACILITY_MARKERS = [
 # directions contain NONE of these markers and are correctly classified as
 # general (always returned regardless of role selection).
 RERA_NARROW_MARKERS = [
+    # Keep only markers that genuinely flag one-stakeholder circulars /
+    # admin notices, not terms that also appear in the main Act and Rules.
+    # Removed: "penalty", "allotment", "conciliation", "appellate",
+    #          "extension of time/registration", "bank account", "ongoing project",
+    #          "land owner", "monetary" — all appear in core RERA Act chapters.
     "circular", "notification", "corrigendum", "press release",
-    "public notice", "public notification", "guidelines for",
+    "public notice", "public notification",
     "model form", "procedure for",
     "quarterly", "annual audit", "audit report",
-    "bank account", "fees and head", "fee for", "revised charges",
-    "penalty",
-    "extension of time", "extension of registration", "force majeure",
-    "real estate agent", "land owner", "ongoing project",
-    "allotment", "conciliation", "monetary",
-    "appellate", "k-reat",
+    "fees and head", "fee for", "revised charges",
+    "force majeure",
+    "real estate agent",
     "change of project", "transferring",
     "national building code",
     "ಪುನರಾವೃತ",
@@ -323,11 +325,12 @@ def retrieve(store, question: str, domain: str, k: int = TOP_K,
         ranked.append((rel * TIER_WEIGHT.get(tier, 0.3), score, tier, doc))
     ranked.sort(key=lambda r: r[0], reverse=True)
 
-    # keep at most 2 chunks per document so one long PDF cannot crowd out the rest
+    # keep at most 4 chunks per document — raised from 2 to allow more context
+    # from large regulatory Acts (RERA, MCI etc.) without crowding out other docs
     seen, out = {}, []
     for adj, raw, tier, doc in ranked:
         key = doc.metadata.get("source_file", "")
-        if seen.get(key, 0) >= 2:
+        if seen.get(key, 0) >= 4:
             continue
         seen[key] = seen.get(key, 0) + 1
         out.append({"adjusted": adj, "similarity": raw, "tier": tier,
