@@ -263,7 +263,7 @@ DEMO_HTML = """
 .uf-card:nth-child(9){animation-delay:1.0s}
 </style>
 <div class="uf-strip">
-  <div class="uf-card"><b>Drop PDF</b>or paste URL</div>
+  <div class="uf-card"><b>PDF / URL / Chat</b>your choice</div>
   <div class="uf-arr">&#8594;</div>
   <div class="uf-card"><b>Extract</b>project details</div>
   <div class="uf-arr">&#8594;</div>
@@ -274,6 +274,91 @@ DEMO_HTML = """
   <div class="uf-card"><b>Report</b>one clear verdict</div>
 </div>
 """
+
+
+# ── conversational advisor ────────────────────────────────────────────────────
+
+def _build_chat_system() -> str:
+    loc_lines = "\n".join(
+        f"  - {r['locality']}: avg {r['avg_psf']:,} psf, trend {r['trend']}, risk {r['risk']}"
+        for r in LOCALITIES
+    )
+    return f"""You are a friendly, plain-language property advisor for homebuyers in Karnataka, India.
+You help people understand Karnataka RERA, check whether a builder is registered, assess price fairness,
+and decide whether to buy or rent in Bangalore.
+
+Current Bangalore locality price benchmarks (average price per sq ft):
+{loc_lines}
+
+Guidelines:
+- Keep answers short and clear. The user is a regular homebuyer, not a lawyer or finance professional.
+- For price questions use the benchmark data above. A fair price is within plus or minus 15% of the average.
+- For buy vs rent: if the estimated monthly EMI is less than 1.5x the expected market rent, buying usually makes sense over a 7-10 year horizon.
+- If someone asks about a specific RERA number, guide them to visit rera.karnataka.gov.in or upload a brochure to auto-check.
+- Always remind users to verify RERA registration and legal documents independently before making any payment.
+- Never use jargon without explaining it in plain words right after.
+- Do not use em dashes anywhere in your response."""
+
+
+def _render_chat():
+    """Conversational property advisor for users who do not have a brochure or URL."""
+
+    st.markdown(
+        "<div style='background:#f0fdf4;border-left:4px solid #22c55e;"
+        "border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:.85rem;color:#166534'>"
+        "Ask me anything: RERA registration, fair price for a locality, EMI estimates, "
+        "buy vs rent decisions, or anything else about Bangalore real estate."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    if "uf_chat_history" not in st.session_state:
+        st.session_state.uf_chat_history = []
+
+    # render existing history
+    for msg in st.session_state.uf_chat_history:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    # new message input
+    user_input = st.chat_input(
+        "e.g. Is Sobha Developers RERA registered? What is a fair price in Whitefield?"
+    )
+
+    if user_input:
+        st.session_state.uf_chat_history.append({"role": "user", "content": user_input})
+        with st.chat_message("user"):
+            st.markdown(user_input)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                try:
+                    from openai import OpenAI
+                    client = OpenAI(api_key=_secret("OPENAI_API_KEY"))
+                    messages = (
+                        [{"role": "system", "content": _build_chat_system()}]
+                        + st.session_state.uf_chat_history
+                    )
+                    resp = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=messages,
+                        temperature=0.4,
+                        max_tokens=600,
+                    )
+                    answer = resp.choices[0].message.content
+                except Exception as e:
+                    answer = f"Sorry, something went wrong. Please try again. ({e})"
+
+                st.markdown(answer)
+                st.session_state.uf_chat_history.append(
+                    {"role": "assistant", "content": answer}
+                )
+
+    if st.session_state.get("uf_chat_history"):
+        st.button(
+            "Clear chat", key="uf_clear_chat", type="secondary",
+            on_click=lambda: st.session_state.update(uf_chat_history=[]),
+        )
 
 # ── report renderer ───────────────────────────────────────────────────────────
 
@@ -401,18 +486,23 @@ def render_user_flow():
 
     st.markdown("#### Check any Karnataka property in seconds")
     st.caption(
-        "Drop a builder brochure PDF or paste the property website URL. "
-        "The pipeline extracts details and checks RERA registration, price fairness, and buy vs rent viability automatically."
+        "Have a brochure? Drop the PDF. Have a URL? Paste it. No document at all? Just chat and ask anything."
     )
 
-    # ---- input area ----
+    # ---- mode selector ----
     input_mode = st.radio(
-        "How would you like to provide the property?",
-        ["Upload a PDF brochure", "Paste a website URL"],
+        "How would you like to get started?",
+        ["Upload a PDF brochure", "Paste a website URL", "Just Chat"],
         horizontal=True,
         key="uf_input_mode",
     )
 
+    # ---- chat branch: render and exit early ----
+    if input_mode == "Just Chat":
+        _render_chat()
+        return
+
+    # ---- document / URL branch ----
     pdf_bytes = None
     url_text = None
 
