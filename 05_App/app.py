@@ -2265,7 +2265,9 @@ if domain == "RERA":
                 _lk_select = (
                     "ack_number,prm_number,project_name,promoter_name,"
                     "status,district,taluk,project_type,total_units,sold_units,"
-                    "completion_date,reg_date,lapse_date,land_area_sqft,detail_url"
+                    "completion_date,reg_date,lapse_date,land_area_sqft,detail_url,"
+                    "pin_code,no_of_towers,open_parking,covered_parking,"
+                    "project_sub_type,approving_authority,source_of_water,total_carpet_area_sqmt"
                 )
                 _lk_url = (f"{_SUPABASE_URL}/rest/v1/rera_projects"
                            f"?{_lk_col}=ilike.*{_req_lookup.utils.quote(_lk_query)}*"
@@ -2329,6 +2331,192 @@ if domain == "RERA":
                             _lk_portal_id = _lk_p.get("prm_number") or _lk_p.get("ack_number") or ""
                             if _lk_portal_id:
                                 st.markdown(f"[View full details on K-RERA portal ↗](https://rera.karnataka.gov.in/projectViewDetails?id={_lk_portal_id})")
+
+                            # ── Buyer Intelligence Brief ─────────────────────────────────
+                            # Pull enrichment fields
+                            _lk_pin     = _lk_p.get("pin_code")
+                            _lk_towers  = _lk_p.get("no_of_towers")
+                            _lk_open_pk = _lk_p.get("open_parking")
+                            _lk_cvd_pk  = _lk_p.get("covered_parking")
+                            _lk_subtype = _lk_p.get("project_sub_type")
+                            _lk_auth    = _lk_p.get("approving_authority")
+                            _lk_water   = _lk_p.get("source_of_water")
+                            _lk_carpet  = _lk_p.get("total_carpet_area_sqmt")
+
+                            _lk_has_enrich = any([
+                                _lk_pin, _lk_towers,
+                                _lk_open_pk is not None, _lk_cvd_pk is not None,
+                                _lk_subtype, _lk_auth,
+                            ])
+                            if _lk_has_enrich:
+                                st.markdown("---")
+                                st.markdown(
+                                    "<div style='font-size:.87rem;font-weight:700;"
+                                    "color:var(--brand,#1B4F8C);margin-bottom:.6rem;"
+                                    "letter-spacing:.04em;'>🧭 Buyer Intelligence Brief</div>",
+                                    unsafe_allow_html=True)
+
+                                # Quick-scan chips
+                                _lk_chips = []
+                                if _lk_pin:
+                                    _lk_chips.append(f"📍 Pincode {_lk_pin}")
+                                if _lk_towers:
+                                    try:
+                                        _tw_int = int(_lk_towers)
+                                        _lk_chips.append(f"🏗️ {_tw_int} Tower{'s' if _tw_int > 1 else ''}")
+                                    except (ValueError, TypeError):
+                                        _lk_chips.append(f"🏗️ {_lk_towers}")
+                                _lk_total_pk = None
+                                try:
+                                    _lk_opk_int = int(_lk_open_pk) if _lk_open_pk is not None else None
+                                    _lk_cpk_int = int(_lk_cvd_pk)  if _lk_cvd_pk  is not None else None
+                                except (ValueError, TypeError):
+                                    _lk_opk_int = _lk_cpk_int = None
+                                if _lk_opk_int is not None and _lk_cpk_int is not None:
+                                    _lk_total_pk = _lk_opk_int + _lk_cpk_int
+                                    _lk_chips.append(f"🅿️ {_lk_total_pk} parking spots")
+                                elif _lk_opk_int is not None:
+                                    _lk_chips.append(f"🅿️ {_lk_opk_int} open parking")
+                                elif _lk_cpk_int is not None:
+                                    _lk_chips.append(f"🏠 {_lk_cpk_int} covered parking")
+                                if _lk_subtype:
+                                    _lk_chips.append(f"🏘️ {_lk_subtype}")
+                                if _lk_auth:
+                                    _lk_chips.append(f"🏛️ {_lk_auth}")
+                                if _lk_water:
+                                    _lk_chips.append(f"💧 {_lk_water}")
+
+                                _chip_html = "&nbsp;&nbsp;".join(
+                                    f"<span style='background:var(--paper,#F0F4FA);"
+                                    f"border:1px solid var(--line,#D0D9E8);border-radius:20px;"
+                                    f"padding:3px 11px;font-size:.74rem;color:var(--ink,#0E2439);"
+                                    f"white-space:nowrap;display:inline-block;margin-bottom:4px;'>{c}</span>"
+                                    for c in _lk_chips
+                                )
+                                st.markdown(
+                                    f"<div style='line-height:2.1;margin-bottom:.6rem;'>{_chip_html}</div>",
+                                    unsafe_allow_html=True)
+
+                                # Story cards: one per insight
+                                _lk_stories = []
+
+                                # Scale of the project
+                                try:
+                                    _tw_n = int(_lk_towers) if _lk_towers else None
+                                    _tu_n = int(_lk_total)  if _lk_total  else None
+                                except (ValueError, TypeError):
+                                    _tw_n = _tu_n = None
+                                if _tw_n and _tu_n:
+                                    _upt = _tu_n // _tw_n
+                                    if _tw_n == 1:
+                                        _lk_stories.append(
+                                            "This is a <b>single-tower project</b> with "
+                                            f"{_tu_n} units. Smaller communities tend to have simpler "
+                                            "maintenance and faster RWA formation once possession happens.")
+                                    elif _tw_n <= 3:
+                                        _lk_stories.append(
+                                            f"A <b>boutique development</b> across {_tw_n} towers "
+                                            f"with roughly {_upt} units each. These mid-sized societies "
+                                            "are easier to govern and usually have tighter-knit neighbourhoods.")
+                                    else:
+                                        _lk_stories.append(
+                                            f"This is a <b>large township</b> with {_tw_n} towers "
+                                            f"and roughly {_upt} units per tower. Expect solid amenities "
+                                            "and a lively community, but factor in higher maintenance costs.")
+
+                                # Parking intelligence
+                                if _lk_total_pk is not None and _tu_n:
+                                    _pk_ratio = _lk_total_pk / _tu_n
+                                    if _pk_ratio >= 1.0:
+                                        _lk_stories.append(
+                                            f"<b>Parking looks solid</b>: {_lk_total_pk} spots for "
+                                            f"{_tu_n} units (ratio {_pk_ratio:.1f}x). Every flat "
+                                            "is likely to get at least one dedicated spot.")
+                                    elif _pk_ratio >= 0.7:
+                                        _lk_stories.append(
+                                            f"<b>Parking is moderate</b>: {_lk_total_pk} spots for "
+                                            f"{_tu_n} units (ratio {_pk_ratio:.1f}x). Some flats may need "
+                                            "to share. Ask the builder for the parking allotment plan in writing.")
+                                    else:
+                                        _lk_stories.append(
+                                            f"<b>Parking is tight</b>: only {_lk_total_pk} spots for "
+                                            f"{_tu_n} units (ratio {_pk_ratio:.1f}x). Clarify your "
+                                            "parking rights in the sale agreement before signing anything.")
+                                    if _lk_cpk_int and _lk_cpk_int > 0:
+                                        _opk_val = _lk_opk_int if _lk_opk_int else 0
+                                        _lk_stories.append(
+                                            f"Of the {_lk_total_pk} spots, <b>{_lk_cpk_int} are covered</b> "
+                                            f"(basement or stilt) and {_opk_val} are open. "
+                                            "Covered spots protect vehicles from Bengaluru weather and reduce sun damage.")
+
+                                # Approving authority context
+                                if _lk_auth:
+                                    _auth_l = _lk_auth.lower()
+                                    if "bbmp" in _auth_l:
+                                        _lk_stories.append(
+                                            "Approved by <b>BBMP</b> (Bruhat Bengaluru Mahanagara Palike). "
+                                            "The project is within Bengaluru's municipal limits, with piped water, "
+                                            "drainage, and solid waste services managed by the city corporation.")
+                                    elif "bda" in _auth_l:
+                                        _lk_stories.append(
+                                            "Approved by <b>BDA</b> (Bengaluru Development Authority). "
+                                            "BDA-sanctioned plans follow structured layout norms with "
+                                            "reserved parks and civic amenities.")
+                                    elif "bmrda" in _auth_l:
+                                        _lk_stories.append(
+                                            "Approved by <b>BMRDA</b> (Bengaluru Metropolitan Region "
+                                            "Development Authority). The project is in Bengaluru's extended "
+                                            "metro region. Infrastructure growth here is active but uneven.")
+                                    elif "gram panchayat" in _auth_l or "grama panchayat" in _auth_l:
+                                        _lk_stories.append(
+                                            "Approved by a <b>Gram Panchayat</b>. This project sits on "
+                                            "the city outskirts where civic infrastructure can be limited. "
+                                            "Confirm the Occupancy Certificate has been issued before making any payment.")
+                                    else:
+                                        _lk_stories.append(
+                                            f"Approving authority: <b>{_lk_auth}</b>. "
+                                            "Before final payment, confirm the Occupancy Certificate "
+                                            "has been issued by this body.")
+
+                                # Water source insight
+                                if _lk_water:
+                                    _wat_l = _lk_water.lower()
+                                    if "bwssb" in _wat_l or "cauvery" in _wat_l:
+                                        _lk_stories.append(
+                                            f"Water comes from <b>{_lk_water}</b>. "
+                                            "BWSSB / Cauvery piped supply is reliable and regulated. "
+                                            "No borewell dependency keeps long-term water costs predictable.")
+                                    elif "borewell" in _wat_l or "bore well" in _wat_l:
+                                        _lk_stories.append(
+                                            "Water source is <b>borewell</b>. Common on the outskirts "
+                                            "but carries a risk if the water table drops over time. "
+                                            "Ask the builder for a water quality test report and their contingency plan.")
+                                    else:
+                                        _lk_stories.append(
+                                            f"Water source: <b>{_lk_water}</b>. Confirm adequate "
+                                            "long-term supply with the builder, especially for upper floors.")
+
+                                _story_style = (
+                                    "font-size:.82rem;line-height:1.65;"
+                                    "color:var(--ink,#0E2439);"
+                                    "background:var(--paper,#F6F8FC);"
+                                    "border-left:3px solid var(--brand,#1B4F8C);"
+                                    "padding:.45rem .75rem;"
+                                    "margin:.3rem 0;"
+                                    "border-radius:0 6px 6px 0;"
+                                )
+                                for _st_txt in _lk_stories:
+                                    st.markdown(
+                                        f"<div style='{_story_style}'>{_st_txt}</div>",
+                                        unsafe_allow_html=True)
+
+                                # Carpet area footnote
+                                if _lk_carpet:
+                                    st.markdown(
+                                        f"<div style='font-size:.76rem;color:var(--muted,#6B7C93);"
+                                        f"margin-top:.5rem;'>Total carpet area on record: "
+                                        f"<b>{_lk_carpet} sqmt</b></div>",
+                                        unsafe_allow_html=True)
                 else:
                     st.warning("No matching projects found. Try a shorter keyword.")
             else:
