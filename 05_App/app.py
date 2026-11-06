@@ -2231,6 +2231,10 @@ st.markdown(
 
 # ── RERA extra tabs (K-RERA Lookup + Investment Signals + Document Q&A) ───────
 if domain == "RERA":
+    if _current_user()["role"] == "user":
+        from user_flow import render_user_flow
+        render_user_flow()
+        st.stop()
     _tab_chat, _tab_lookup, _tab_invest, _tab_docqa = st.tabs([
         "💬 Compliance Chat",
         "🔍 K-RERA Project Lookup",
