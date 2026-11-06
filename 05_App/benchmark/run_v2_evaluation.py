@@ -23,6 +23,10 @@ Key design choices (different from V1)
   * System A uses a pure-LLM prompt (no retrieval context at all)
   * LLM-as-judge runs immediately after all 50 answers are collected
   * Final output: 3_Responses sheet fully populated + 4_Scores sheet added
+  * JUDGE_MODEL is separate from LLM_MODEL so a different model/provider
+    can score the answers (avoids grading-own-homework bias)
+    Default judge: deepseek-ai/DeepSeek-V4.1-Flash via Together AI
+    Default answer model: gpt-5-nano via OPENAI_API_KEY
 
 Usage
 -----
@@ -45,9 +49,11 @@ Usage
     --benchmark /path/to/Benchmark_RERA_V2_UserJourney_50Q.xlsx \\
     --resume
 
-  OPENAI_API_KEY must be set (or in a .env file next to this script).
-  LLM_MODEL    defaults to gpt-5-nano (override via env var).
-  LLM_BASE_URL optional — set for Together AI or any OpenAI-compatible endpoint.
+  OPENAI_API_KEY   must be set — used by answer systems A/B/C.
+  LLM_MODEL        defaults to gpt-5-nano (override via env var).
+  LLM_BASE_URL     optional — set for Together AI or any OpenAI-compatible endpoint.
+  TOGETHER_API_KEY must be set — used by the judge model.
+  JUDGE_MODEL      defaults to deepseek-ai/DeepSeek-V4.1-Flash (override via env var).
 """
 
 from __future__ import annotations
@@ -76,6 +82,10 @@ PROJECT_ROOT = APP_DIR.parent
 sys.path.insert(0, str(APP_DIR))
 
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-5-nano")
+
+# Judge uses a separate model/provider to avoid grading-own-homework bias
+JUDGE_MODEL    = os.getenv("JUDGE_MODEL", "deepseek-ai/DeepSeek-V4.1-Flash")
+JUDGE_BASE_URL = "https://api.together.xyz/v1"
 
 # ── System prompts ─────────────────────────────────────────────────────────────
 
@@ -489,8 +499,13 @@ def answer_system_c(client, store, question: str, domain: str = "RERA") -> dict:
 
 # ── LLM-as-judge ──────────────────────────────────────────────────────────────
 
-def judge_one(client, question: str, expected: str, system_answer: str,
+def judge_one(judge_client, question: str, expected: str, system_answer: str,
               retries: int = 3) -> dict:
+    """
+    Score one system answer with the judge model (DeepSeek-V4.1-Flash by default).
+    Uses non-streaming so we can read content directly from rsp.choices[0].message.content.
+    judge_client is a separate OpenAI-compatible client pointed at Together AI.
+    """
     if not system_answer or system_answer.startswith("[ERROR"):
         return {
             "factual_accuracy": 0, "completeness": 0,
@@ -507,19 +522,16 @@ def judge_one(client, question: str, expected: str, system_answer: str,
     import re
     for attempt in range(retries):
         try:
-            rsp = client.chat.completions.create(
-                model=LLM_MODEL,
+            rsp = judge_client.chat.completions.create(
+                model=JUDGE_MODEL,
                 messages=[
                     {"role": "system", "content": JUDGE_SYSTEM},
                     {"role": "user",   "content": user_msg},
                 ],
-                stream=True,
+                # Non-streaming: DeepSeek reasoning model returns final answer
+                # in content (reasoning chain is in reasoning_content, not needed here)
             )
-            raw = ""
-            for chunk in rsp:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    raw += chunk.choices[0].delta.content
-            raw = raw.strip()
+            raw = (rsp.choices[0].message.content or "").strip()
             raw = re.sub(r"^```(?:json)?\s*", "", raw)
             raw = re.sub(r"\s*```$", "", raw).strip()
             result = json.loads(raw)
@@ -838,13 +850,25 @@ def main():
     if not api_key:
         sys.exit("ERROR: OPENAI_API_KEY not set in environment.")
 
+    together_key = os.getenv("TOGETHER_API_KEY")
+    if not together_key and not args.no_judge:
+        sys.exit("ERROR: TOGETHER_API_KEY not set. Required for LLM-as-judge.\n"
+                 "       Run with --no-judge to skip scoring, or set TOGETHER_API_KEY.")
+
     from openai import OpenAI
     base_url = os.getenv("LLM_BASE_URL")
     client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
 
+    # Separate client for the judge — points to Together AI
+    judge_client = (
+        OpenAI(api_key=together_key, base_url=JUDGE_BASE_URL)
+        if together_key else None
+    )
+
     print(f"V2 Evaluation starting — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Benchmark: {bench_path}")
-    print(f"Model:     {LLM_MODEL}")
+    print(f"Benchmark:   {bench_path}")
+    print(f"Answer model: {LLM_MODEL}")
+    print(f"Judge model:  {JUDGE_MODEL} (Together AI)")
 
     # Load questions
     questions = load_benchmark(bench_path)
@@ -976,7 +1000,7 @@ def main():
                 print(f"  [{call_n:4}/{total_calls}] {qid} System {sys_label} ...",
                       end=" ", flush=True)
                 t0 = time.time()
-                scores = judge_one(client, q_text, expected, answer)
+                scores = judge_one(judge_client, q_text, expected, answer)
                 elapsed = time.time() - t0
                 print(f"total={scores['total']}/8  ({elapsed:.1f}s)")
                 time.sleep(1)
