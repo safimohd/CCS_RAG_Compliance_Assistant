@@ -84,7 +84,7 @@ def _extract_fields(text: str) -> dict:
     client = OpenAI(api_key=_secret("OPENAI_API_KEY"))
     try:
         resp = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=os.environ.get("LLM_MODEL", "gpt-5-nano"),
             messages=[
                 {"role": "system", "content": EXTRACT_PROMPT},
                 {"role": "user", "content": text[:6000]},
@@ -349,7 +349,7 @@ def _render_chat():
                         + st.session_state.uf_chat_history
                     )
                     resp = client.chat.completions.create(
-                        model="gpt-4o-mini",
+                        model=os.environ.get("LLM_MODEL", "gpt-5-nano"),
                         messages=messages,
                         temperature=0.4,
                         max_tokens=600,
