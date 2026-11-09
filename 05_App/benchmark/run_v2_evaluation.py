@@ -1269,7 +1269,7 @@ def main():
     print(f"Answer model: {LLM_MODEL}")
     print(f"Judge model:  {JUDGE_MODEL} (Together AI)")
     print(f"Retrieval:    HyDE for B; C: T1/T2 HyDE, T3 HyDE sub-queries, T4/T5 raw sub-queries")
-    print(f"System C:     Tier-wise routing + multi-section override for T1/T2")
+    print(f"System C:     Full agentic pipeline on ALL tiers (eval_mode=True, no tier routing)")
     print(f"Prompts:      V2.4 — B/C: entity-check + conditional section cite; A: best-effort citation")
 
     # Pre-flight: validate APIs, ChromaDB, xlsx lock before the long run
