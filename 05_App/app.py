@@ -1928,53 +1928,76 @@ with st.sidebar:
             "**Confidence badge** — a warning appears when the match is weak.\n\n"
             "**Not legal advice.** Always verify with a professional before acting.")
 
-    st.markdown("<div class='rc-side-h'>Narrow the search</div>",
-                unsafe_allow_html=True)
-    if domain == "RERA":
-        role = st.selectbox("I am a…", list(RERA_ROLES),
-                            help="Narrows the search to documents most relevant "
-                                 "to your role. The foundational Act and Karnataka "
-                                 "Rules always appear alongside role-specific circulars.")
-        jurisdiction = st.selectbox(
-            "Jurisdiction", list(RERA_JURISDICTIONS),
-            help="Filter by Central RERA Act documents or Karnataka State RERA "
-                 "documents. 'All documents' searches the full corpus.")
-        scope_needles = RERA_ROLES[role]
-        jurisdiction_needles = RERA_JURISDICTIONS[jurisdiction]
-        scope_label = role if jurisdiction == "All documents" else f"{role} · {jurisdiction}"
-        examples = (RERA_ROLE_EXAMPLES.get(role) or EXAMPLES["RERA"])
+    # ── Sidebar filters: compliance officers and admins only ─────────────────
+    # Regular home-buyer users get a clean sidebar; they never reach the
+    # corpus-search flow (render_user_flow + st.stop() fires first for them).
+    _sb_is_power_user = _cu["role"] in ("compliance_officer", "admin")
+
+    if _sb_is_power_user:
+        st.markdown("<div class='rc-side-h'>Narrow the search</div>",
+                    unsafe_allow_html=True)
+        if domain == "RERA":
+            role = st.selectbox("I am a…", list(RERA_ROLES),
+                                help="Narrows the search to documents most relevant "
+                                     "to your role. The foundational Act and Karnataka "
+                                     "Rules always appear alongside role-specific circulars.")
+            jurisdiction = st.selectbox(
+                "Jurisdiction", list(RERA_JURISDICTIONS),
+                help="Filter by Central RERA Act documents or Karnataka State RERA "
+                     "documents. 'All documents' searches the full corpus.")
+            scope_needles = RERA_ROLES[role]
+            jurisdiction_needles = RERA_JURISDICTIONS[jurisdiction]
+            scope_label = role if jurisdiction == "All documents" else f"{role} · {jurisdiction}"
+            examples = (RERA_ROLE_EXAMPLES.get(role) or EXAMPLES["RERA"])
+        else:
+            facility = st.selectbox("Type of establishment", list(HEALTHCARE_FACILITIES),
+                                    help="Standards are published separately for each "
+                                         "type of facility. Choosing one returns the "
+                                         "standards that apply to it.")
+            scope_needles = HEALTHCARE_FACILITIES[facility]
+            jurisdiction_needles: list = []
+            scope_label = facility
+            examples = ([t.format(n=FACILITY_NOUN[facility]) for t in FACILITY_TEMPLATES]
+                        if scope_needles else EXAMPLES["Healthcare"])
+
+        n_scoped, n_general = scope_count(domain, scope_needles)
+        _any_filter = bool(scope_needles or jurisdiction_needles)
+        caption = scope_caption(n_scoped, "all" if not _any_filter else "some",
+                                n_general)
+        if caption:
+            st.caption(caption)
+
+        # Kannada language toggle
+        kannada_mode = False
+        if domain == "RERA":
+            kannada_mode = st.toggle("ಕನ್ನಡ / Kannada documents",
+                                     help="Include Kannada-language FAQ documents in the search.")
+
+        with st.expander("More options"):
+            include_drafts = st.checkbox("Include draft and proposed rules", value=False,
+                                         help="Clearly labelled, and never presented as "
+                                              "law in force.")
+            include_review = st.checkbox("Include documents we have not verified",
+                                         value=False,
+                                         help="Material whose legal status we have not "
+                                              "confirmed.")
+
     else:
-        facility = st.selectbox("Type of establishment", list(HEALTHCARE_FACILITIES),
-                                help="Standards are published separately for each "
-                                     "type of facility. Choosing one returns the "
-                                     "standards that apply to it.")
-        scope_needles = HEALTHCARE_FACILITIES[facility]
-        jurisdiction_needles: list = []   # no jurisdiction split for Healthcare
-        scope_label = facility
-        examples = ([t.format(n=FACILITY_NOUN[facility]) for t in FACILITY_TEMPLATES]
-                    if scope_needles else EXAMPLES["Healthcare"])
-
-    n_scoped, n_general = scope_count(domain, scope_needles)
-    _any_filter = bool(scope_needles or jurisdiction_needles)
-    caption = scope_caption(n_scoped, "all" if not _any_filter else "some",
-                            n_general)
-    if caption:
-        st.caption(caption)
-
-    # Kannada language toggle -- RERA only (corpus has Kannada FAQ docs)
-    kannada_mode = False
-    if domain == "RERA":
-        kannada_mode = st.toggle("ಕನ್ನಡ / Kannada documents",
-                                 help="Include Kannada-language FAQ documents in the search.")
-
-    with st.expander("More options"):
-        include_drafts = st.checkbox("Include draft and proposed rules", value=False,
-                                     help="Clearly labelled, and never presented as "
-                                          "law in force.")
-        include_review = st.checkbox("Include documents we have not verified",
-                                     value=False,
-                                     help="Material whose legal status we have not "
-                                          "confirmed.")
+        # Fallback defaults for user role (render_user_flow + st.stop() fires
+        # before the corpus search, so these are never actually used).
+        kannada_mode = False
+        include_drafts = False
+        include_review = False
+        if domain == "RERA":
+            scope_needles = []
+            jurisdiction_needles: list = []
+            scope_label = "Home Buyer"
+            examples = EXAMPLES["RERA"]
+        else:
+            scope_needles = []
+            jurisdiction_needles = []
+            scope_label = ""
+            examples = EXAMPLES["Healthcare"]
 
     st.divider()
     if st.button("Start a new conversation"):
