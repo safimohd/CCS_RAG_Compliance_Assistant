@@ -623,12 +623,12 @@ def choose_effort(results, question: str) -> str:
 # ── presentation ─────────────────────────────────────────────────────────────
 CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Playfair+Display:wght@600;700&display=swap');
 :root{
   --ink:#0E2439; --muted:#6B7C93; --line:#E3E9F2; --paper:#F6F8FC;
   --card:#FFFFFF; --brand:#1B4F8C; --brand-2:#2E6FB7; --gold:#B8860B;
 }
-html, body, [class*="css"] { font-family:'Inter',-apple-system,'Segoe UI',sans-serif; }
+html, body, [class*="css"] { font-family:'DM Sans',-apple-system,'Segoe UI',sans-serif; }
 .stApp { background:var(--paper); }
 .block-container { padding-top:1.1rem; padding-bottom:3rem; max-width:1100px; }
 
@@ -641,7 +641,7 @@ html, body, [class*="css"] { font-family:'Inter',-apple-system,'Segoe UI',sans-s
   box-shadow:0 8px 24px -10px rgba(16,45,77,.5); margin-bottom:1.4rem;
 }
 .rc-hero h1{
-  font-family:'Source Serif 4',Georgia,serif; font-weight:700;
+  font-family:'Playfair Display',Georgia,serif; font-weight:700;
   font-size:1.7rem; line-height:1.18; margin:0 0 .35rem; letter-spacing:-.015em;
   text-align:center;
 }
@@ -710,7 +710,7 @@ html, body, [class*="css"] { font-family:'Inter',-apple-system,'Segoe UI',sans-s
   border:1px solid #2E4E6E !important; border-radius:9px !important;
 }
 .rc-brand{
-  font-family:'Source Serif 4',Georgia,serif; font-size:1.02rem; font-weight:700;
+  font-family:'Playfair Display',Georgia,serif; font-size:1.02rem; font-weight:700;
   color:#fff; line-height:1.25;
 }
 .rc-brand-sub{
@@ -2032,7 +2032,8 @@ with st.sidebar:
     _sess_list = [s for s in _all_sess if not LOCKED_DOMAIN or s.get("domain") == LOCKED_DOMAIN]
 
     st.divider()
-    with st.expander("💬 Past sessions", expanded=False):
+    _sess_label = "🔍 Your property checks" if (_cu.get("role", "user") == "user" and LOCKED_DOMAIN == "RERA") else "💬 Past sessions"
+    with st.expander(_sess_label, expanded=False):
         if _sess_list:
             for _si, _sess in enumerate(_sess_list):
                 _s_title   = _sess.get("title", "Conversation")
@@ -2200,9 +2201,9 @@ with st.sidebar:
             else:
                 st.caption("Enter admin password above to view analytics.")
 
-    # Saved Answers section -- only for signed-in users
+    # Saved Answers section -- compliance officer and admin only
     _cu_sidebar = _current_user()
-    if _cu_sidebar.get("id"):
+    if _sb_is_power_user and _cu_sidebar.get("id"):
         st.divider()
         with st.expander("🔖 Saved Answers", expanded=False):
             if st.button("🔄 Refresh", key="bm_refresh", use_container_width=True):
@@ -2252,16 +2253,43 @@ if store is None:
 
 client = get_client()
 
-# ── Hero banner — always full width ──────────────────────────────────────────
-st.markdown(
-    "<div class='rc-hero'>"
-    f"<h1>{meta['title']}</h1>"
-    f"<p>{meta['lede']} Answers come only from these official documents. Where they "
-    "do not settle a question, the assistant says so rather than guessing, and "
-    "every answer shows the sources it relied on.</p>"
-    "<div class='rc-stats'>"
-    + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"]) +
-    "</div></div>", unsafe_allow_html=True)
+# ── Hero banner — role-branched for user vs compliance/admin ──────────────────
+_hero_cu = _current_user()
+_hero_role = _hero_cu.get("role", "user")
+
+if domain == "RERA" and _hero_role == "user":
+    _hero_html = (
+        "<div class='rc-hero'>"
+        "<h1>Your Personal RERA Guide</h1>"
+        "<p style='font-size:.95rem;font-weight:500;color:#E8F2FF;margin-bottom:.4rem'>"
+        "Buying property in Karnataka? Get instant answers before you sign anything.</p>"
+        "<p style='font-size:.82rem;color:#BDD4ED;line-height:1.6;max-width:68ch;margin:0 auto'>"
+        "Check if a project is K-RERA registered &nbsp;·&nbsp; "
+        "Know your rights as a home buyer &nbsp;·&nbsp; "
+        "Spot red flags in builder documents &nbsp;·&nbsp; "
+        "Understand fair pricing in your area"
+        "</p>"
+        "<p style='font-size:.72rem;color:#8FAECC;margin-top:.8rem;font-style:italic'>"
+        "Every answer is sourced directly from the RERA Act 2016, Karnataka RERA Rules, "
+        "and K-RERA official circulars — not summaries, not opinions."
+        "</p>"
+        "<div class='rc-stats'>"
+        + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"])
+        + "</div></div>"
+    )
+else:
+    _hero_html = (
+        "<div class='rc-hero'>"
+        f"<h1>{meta['title']}</h1>"
+        f"<p>{meta['lede']} Answers come only from these official documents. Where they "
+        "do not settle a question, the assistant says so rather than guessing, and "
+        "every answer shows the sources it relied on.</p>"
+        "<div class='rc-stats'>"
+        + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"])
+        + "</div></div>"
+    )
+
+st.markdown(_hero_html, unsafe_allow_html=True)
 
 
 # ── RERA extra tabs (K-RERA Lookup + Investment Signals + Document Q&A) ───────
