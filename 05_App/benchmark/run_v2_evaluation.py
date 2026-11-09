@@ -1300,7 +1300,10 @@ def main():
     total = len(questions)
     all_response_rows: list[dict] = []
 
+    _loop_start: float | None = None
     for idx, q in enumerate(questions, 1):
+        if idx == 2:                       # start timing after the first (cold) question
+            _loop_start = time.time()
         qid  = str(q.get("question_id", ""))
         tier = q.get("tier", "")
         tier_name = q.get("tier_name", "")
@@ -1311,7 +1314,15 @@ def main():
             print(f"[{idx:3}/{total}] {qid} — SKIP (already done)")
             continue
 
-        print(f"[{idx:3}/{total}] {qid} T{tier} ...", end=" ", flush=True)
+        pct = int(idx / total * 100)
+        # ETA: use rolling avg of elapsed time per completed question
+        if idx > 1 and _loop_start is not None:
+            avg_s = (time.time() - _loop_start) / (idx - 1)
+            eta_s = avg_s * (total - idx + 1)
+            eta_str = f"  ETA ~{int(eta_s)//60}m{int(eta_s)%60:02d}s"
+        else:
+            eta_str = ""
+        print(f"[{idx:3}/{total}] {pct:3d}% {qid} T{tier} ...{eta_str}", end=" ", flush=True)
         t0 = time.time()
 
         row: dict[str, Any] = {
@@ -1401,7 +1412,8 @@ def main():
             for sys_label in systems_to_judge:
                 call_n += 1
                 answer = str(row.get(sys_answer_keys[sys_label], "") or "")
-                print(f"  [{call_n:4}/{total_calls}] {qid} System {sys_label} ...",
+                judge_pct = int(call_n / total_calls * 100)
+                print(f"  [{call_n:4}/{total_calls}] {judge_pct:3d}% {qid} System {sys_label} ...",
                       end=" ", flush=True)
                 t0 = time.time()
                 scores = judge_one(judge_client, q_text, expected, answer)
