@@ -10,6 +10,7 @@ Systems
   A  Base LLM        gpt-5-nano, no retrieval context
   B  Plain RAG       gpt-5-nano + ChromaDB (improved per-doc cap + markers)
   C  Agentic RAG     gpt-5-nano + query decomposition + multi-hop reflection
+                   (full agentic pipeline on ALL tiers in eval_mode — no tier routing)
 
 Changes from V2.3
 -----------------
@@ -49,7 +50,7 @@ Changes from V2.3
   ALL V2.3 WINS PRESERVED:
      - System A: best-effort citation (no MANDATORY REQUIREMENTS).
      - T3 HyDE restored for sub-queries; T4/T5 still raw sub-query text.
-     - Multi-section routing override unchanged.
+     - Multi-section routing override preserved in production path (eval_mode=False).
      - HyDE for T1/T2 plain RAG and reflection re-retrieval unchanged.
 
 Key design choices (unchanged from V2.1)
@@ -557,43 +558,49 @@ def decompose_query(client, query: str) -> list[str]:
 
 
 def answer_system_c(client, store, question: str, domain: str = "RERA",
-                    tier: int = 3) -> dict:
+                    tier: int = 3, eval_mode: bool = True) -> dict:
     """
-    Tier-wise Agentic RAG with HyDE retrieval.
+    Agentic RAG with HyDE retrieval.
 
-    Routing logic (avoids decomposition overhead on simple questions):
-      T1 Factual Recall        (tier=1) → plain RAG + HyDE
-      T2 Applied Compliance    (tier=2) → plain RAG + HyDE
-      T3 Procedural Knowledge  (tier=3) → full agentic pipeline + HyDE
-      T4 Multi-hop Reasoning   (tier=4) → full agentic pipeline + HyDE
-      T5 Adversarial / Trap    (tier=5) → full agentic pipeline + HyDE
+    eval_mode=True  (default for benchmarking):
+        Always runs the full agentic pipeline regardless of tier.
+        This gives a clean isolated measurement of what agentic retrieval
+        adds over plain RAG (System B).  Tier-based routing is a production
+        optimisation for latency/cost — it must NOT be active during eval
+        because T1/T2 questions would silently fall back to plain RAG,
+        making System C indistinguishable from System B on those tiers.
 
-    For T1/T2: decomposing a simple factual question adds LLM overhead and can
-    fragment context that works better as one unified retrieval. Plain RAG is
-    faster and equally accurate for these tiers.
-
-    For T3/T4/T5: full pipeline — decompose, multi-hop HyDE retrieval, reflect,
-    re-retrieve if needed.
+    eval_mode=False (production / app):
+        Tier-wise routing:
+          T1/T2 → plain RAG + HyDE (single-section questions are faster this way)
+          T3/T4/T5 → full agentic pipeline + HyDE
+        Multi-section override: a T1/T2 question naming 2+ RERA sections
+        escalates to the full pipeline regardless.
     """
     steps: list[str] = []
 
-    # ── V2.2: Multi-section routing override ──────────────────────────────────
-    # If a T1/T2 question explicitly names 2+ distinct RERA sections, route to
-    # the full agentic pipeline regardless of the tier label. This costs zero
-    # extra API calls (pure regex) and fixes questions that are "factual" in
-    # label but require synthesising two separate provisions.
-    _sec_refs = set(
-        s.lower() for s in re.findall(r'\bsection\s+\d+(?:\(\w+\))*', question, re.IGNORECASE)
-    )
-    _force_agentic = tier <= 2 and len(_sec_refs) >= 2
-    if _force_agentic:
+    # ── EVAL MODE: always run full agentic pipeline ────────────────────────────
+    if eval_mode:
         steps.append(
-            f"T{tier} question references {len(_sec_refs)} RERA sections "
-            f"({', '.join(sorted(_sec_refs))}): overriding to full agentic pipeline"
+            f"[eval_mode] T{tier} question: full agentic pipeline always "
+            "(tier-based routing disabled for clean benchmark measurement)"
         )
+        # Skip the tier-routing block entirely; fall through to T3/T4/T5 path.
+        _force_agentic = True
+    else:
+        # ── PRODUCTION: tier-based routing ────────────────────────────────────
+        _sec_refs = set(
+            s.lower() for s in re.findall(r'\bsection\s+\d+(?:\(\w+\))*', question, re.IGNORECASE)
+        )
+        _force_agentic = tier <= 2 and len(_sec_refs) >= 2
+        if _force_agentic:
+            steps.append(
+                f"T{tier} question references {len(_sec_refs)} RERA sections "
+                f"({', '.join(sorted(_sec_refs))}): overriding to full agentic pipeline"
+            )
 
-    # ── T1 / T2 : Plain RAG path with HyDE (single-section questions) ─────────
-    if tier <= 2 and not _force_agentic:
+    # ── T1 / T2 : Plain RAG path with HyDE (production only) ──────────────────
+    if not eval_mode and tier <= 2 and not _force_agentic:
         tier_names = {1: "Factual Recall", 2: "Applied Compliance"}
         steps.append(
             f"T{tier} ({tier_names.get(tier, 'simple')}) question: "
