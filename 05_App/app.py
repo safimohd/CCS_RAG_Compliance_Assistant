@@ -1915,18 +1915,30 @@ with st.sidebar:
                           format_func=lambda d: DOMAIN_META[d]["title"])
         st.divider()
 
-    # "How to use" pinned prominently above the filters so first-time
-    # users see it before they start typing.
+    # "How to use" — different text for buyers vs compliance/admin
     _no_msgs = not st.session_state.get("messages")
+    _cu_role_sidebar = _cu.get("role", "user")
     with st.expander("ℹ️ How to use this assistant", expanded=False):
-        st.markdown(
-            "**Ask in plain language.** No legal terms needed.\n\n"
-            "**Use the filter** below to narrow results to your role or "
-            "facility type.\n\n"
-            "**Check the sources.** Every answer lists the exact documents "
-            "and passages it relied on.\n\n"
-            "**Confidence badge** — a warning appears when the match is weak.\n\n"
-            "**Not legal advice.** Always verify with a professional before acting.")
+        if _cu_role_sidebar == "user":
+            st.markdown(
+                "**Upload a brochure or just ask.**\n\n"
+                "Drop a PDF, paste a property URL, or type your question in plain language.\n\n"
+                "**What we check for you:**\n"
+                "- Is the project registered with K-RERA?\n"
+                "- Is the builder quoting a fair price vs the locality average?\n"
+                "- Should you buy or rent at this price?\n"
+                "- What are your rights as a buyer under RERA?\n\n"
+                "**Not legal advice.** Always verify with a lawyer or the K-RERA portal "
+                "before making any payment.")
+        else:
+            st.markdown(
+                "**Ask in plain language.** No legal terms needed.\n\n"
+                "**Use the filters** below to narrow results to your role or "
+                "jurisdiction.\n\n"
+                "**Check the sources.** Every answer lists the exact documents "
+                "and passages it relied on.\n\n"
+                "**Confidence badge** — a warning appears when the match is weak.\n\n"
+                "**Not legal advice.** Always verify with a professional before acting.")
 
     # ── Sidebar filters: compliance officers and admins only ─────────────────
     # Regular home-buyer users get a clean sidebar; they never reach the
@@ -2065,8 +2077,8 @@ with st.sidebar:
             else:
                 st.caption("Sign in to save and resume sessions.")
 
-    # ── Document Q&A history (RERA only) ──────────────────────────────────────
-    if LOCKED_DOMAIN == "RERA":
+    # ── Document Q&A history (RERA only, compliance/admin only) ──────────────
+    if _sb_is_power_user and LOCKED_DOMAIN == "RERA":
         # Fetch the most recent Q&A rows globally (no session_id filter) so
         # history is visible immediately on any fresh page load, not just
         # during the session that created it (session_state is ephemeral).
@@ -2141,50 +2153,50 @@ with st.sidebar:
     st.toggle("🌙 Dark mode", key="dark_mode",
               help="Switch between light and dark theme")
 
-    # Admin/compliance feedback dashboard — visible to admin and compliance_officer roles,
-    # or via password fallback for sessions not yet logged in.
+    # Admin/compliance feedback dashboard — hidden entirely for user role.
     _cu_role = _current_user().get("role", "user")
     _has_dashboard_access = _cu_role in ("admin", "compliance_officer")
-    with st.expander("📊 Feedback analytics"):
-        if not _has_dashboard_access:
-            _admin_pw = st.text_input("Password", type="password",
-                                      key="admin_pw", label_visibility="collapsed",
-                                      placeholder="Admin password")
-            _has_dashboard_access = (_admin_pw == _secret("ADMIN_PASSWORD", "") and bool(_admin_pw))
-        else:
-            _admin_pw = "bypass"  # sentinel so the block below runs
-        if _has_dashboard_access:
-            if True:  # was `if _admin_pw:` — keep indentation matching original
-                _sb_url = _secret("SUPABASE_URL")
-                _sb_key = _secret("SUPABASE_KEY")
-                if not _sb_url or not _sb_key:
-                    st.info("Supabase not configured — no feedback data yet.")
-                else:
-                    try:
-                        import requests as _req  # noqa: PLC0415
-                        _fb_resp = _req.get(
-                            f"{_sb_url}/rest/v1/feedback",
-                            headers={"apikey": _sb_key,
-                                     "Authorization": f"Bearer {_sb_key}"},
-                            params={"select": "*"},
-                            timeout=10,
-                        )
-                        _fb_resp.raise_for_status()
-                        _rows = _fb_resp.json() or []
-                        _total = len(_rows)
-                        _ups = sum(1 for r in _rows if r.get("feedback_type") == "up")
-                        _dns = _total - _ups
-                        _pct = int(_ups / _total * 100) if _total else 0
-                        st.markdown(f"**Total ratings:** {_total}")
-                        st.markdown(f"**👍 Helpful:** {_ups} ({_pct}%)  |  **👎 Not helpful:** {_dns}")
-                        _dn_rows = [r for r in _rows if r.get("feedback_type") == "down"]
-                        if _dn_rows:
-                            st.markdown("**Questions that got thumbs down:**")
-                            for _r in _dn_rows[-10:][::-1]:
-                                st.markdown(
-                                    f"- [{_r.get('domain','')}] {_r.get('question','')[:80]}")
-                    except Exception as _e:
-                        st.error(f"Could not load feedback: {_e}")
+    if _sb_is_power_user:
+        with st.expander("📊 Feedback analytics"):
+            if not _has_dashboard_access:
+                _admin_pw = st.text_input("Password", type="password",
+                                          key="admin_pw", label_visibility="collapsed",
+                                          placeholder="Admin password")
+                _has_dashboard_access = (_admin_pw == _secret("ADMIN_PASSWORD", "") and bool(_admin_pw))
+            else:
+                _admin_pw = "bypass"  # sentinel so the block below runs
+            if _has_dashboard_access:
+                if True:  # was `if _admin_pw:` — keep indentation matching original
+                    _sb_url = _secret("SUPABASE_URL")
+                    _sb_key = _secret("SUPABASE_KEY")
+                    if not _sb_url or not _sb_key:
+                        st.info("Supabase not configured — no feedback data yet.")
+                    else:
+                        try:
+                            import requests as _req  # noqa: PLC0415
+                            _fb_resp = _req.get(
+                                f"{_sb_url}/rest/v1/feedback",
+                                headers={"apikey": _sb_key,
+                                         "Authorization": f"Bearer {_sb_key}"},
+                                params={"select": "*"},
+                                timeout=10,
+                            )
+                            _fb_resp.raise_for_status()
+                            _rows = _fb_resp.json() or []
+                            _total = len(_rows)
+                            _ups = sum(1 for r in _rows if r.get("feedback_type") == "up")
+                            _dns = _total - _ups
+                            _pct = int(_ups / _total * 100) if _total else 0
+                            st.markdown(f"**Total ratings:** {_total}")
+                            st.markdown(f"**👍 Helpful:** {_ups} ({_pct}%)  |  **👎 Not helpful:** {_dns}")
+                            _dn_rows = [r for r in _rows if r.get("feedback_type") == "down"]
+                            if _dn_rows:
+                                st.markdown("**Questions that got thumbs down:**")
+                                for _r in _dn_rows[-10:][::-1]:
+                                    st.markdown(
+                                        f"- [{_r.get('domain','')}] {_r.get('question','')[:80]}")
+                        except Exception as _e:
+                            st.error(f"Could not load feedback: {_e}")
             else:
                 st.caption("Enter admin password above to view analytics.")
 
