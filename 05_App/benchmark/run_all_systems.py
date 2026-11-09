@@ -108,6 +108,23 @@ def _build_v2_cmd(benchmark: Path, limit: int | None, resume: bool,
     return cmd
 
 
+def _print_model_banner() -> None:
+    """Print a clear, permanent record of exactly which models are used."""
+    model      = os.environ.get("LLM_MODEL",   "gpt-5-nano")
+    judge      = os.environ.get("JUDGE_MODEL",  "deepseek-ai/DeepSeek-V4.1-Flash")
+    judge_via  = "Together AI"
+    answer_via = "OpenAI"
+
+    print("\n" + "=" * 65)
+    print("  MODELS IN USE — printed here and in every log file")
+    print("=" * 65)
+    print(f"  System A  Base LLM       {model} via {answer_via} (no retrieval)")
+    print(f"  System B  Plain RAG      {model} via {answer_via} + ChromaDB")
+    print(f"  System C  Agentic RAG    {model} via {answer_via} + query decomp")
+    print(f"  Judge     LLM-as-judge   {judge} via {judge_via}")
+    print("=" * 65 + "\n")
+
+
 def _eta_message(n_questions: int, systems: list[str]) -> None:
     """Print an ETA estimate before starting."""
     # Rough timings (seconds per question for each system, per judge call)
@@ -156,6 +173,8 @@ def main() -> None:
     # ── env / model check ────────────────────────────────────────────────────
     if not _check_env():
         sys.exit(1)
+
+    _print_model_banner()
 
     systems = [args.only_system] if args.only_system else ["A", "B", "C"]
 
