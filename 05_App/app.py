@@ -2982,7 +2982,7 @@ if domain == "RERA":
 
         _OPENAI_KEY = _secret("OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
         _EMBED_MODEL = "text-embedding-3-small"
-        _QA_MODEL    = _secret("LLM_MODEL") or os.environ.get("LLM_MODEL", "gpt-4o-mini")
+        _QA_MODEL    = _secret("LLM_MODEL") or os.environ.get("LLM_MODEL", "gpt-5-nano")
 
         st.subheader("Ask questions about your RERA document")
         st.markdown("Upload any RERA-related PDF — sale agreement, allotment letter, project brochure — and ask questions in plain language.")
