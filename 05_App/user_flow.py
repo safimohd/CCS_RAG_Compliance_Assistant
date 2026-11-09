@@ -494,63 +494,17 @@ def render_user_flow():
     components.html(DEMO_HTML, height=62)
 
     st.markdown("#### Check any Karnataka property in seconds")
-    st.caption("What would you like to do today?")
+    st.caption(
+        "Have a brochure? Drop the PDF. Have a URL? Paste it. No document at all? Just chat and ask anything."
+    )
 
-    # ---- goal card selector ----
-    _GOALS = [
-        {
-            "key": "pdf",
-            "icon": "📄",
-            "title": "I have a brochure",
-            "desc": "Upload a PDF brochure, allotment letter, or any property document",
-            "mode": "Upload a PDF brochure",
-        },
-        {
-            "key": "url",
-            "icon": "🔗",
-            "title": "I found it online",
-            "desc": "Paste a MagicBricks, 99acres, or builder website URL",
-            "mode": "Paste a website URL",
-        },
-        {
-            "key": "chat",
-            "icon": "💬",
-            "title": "I have a question",
-            "desc": "Ask about RERA rules, fair prices, builder reputation, or anything else",
-            "mode": "Just Chat",
-        },
-    ]
-
-    if "uf_goal" not in st.session_state:
-        st.session_state.uf_goal = "chat"
-
-    cols = st.columns(3)
-    for i, g in enumerate(_GOALS):
-        with cols[i]:
-            is_active = st.session_state.uf_goal == g["key"]
-            border = "#1B4F8C" if is_active else "#e5e7eb"
-            bg = "#eef4ff" if is_active else "#fff"
-            st.markdown(
-                f"<div style='background:{bg};border:2px solid {border};border-radius:12px;"
-                f"padding:16px 10px;text-align:center;min-height:110px'>"
-                f"<div style='font-size:1.6rem'>{g['icon']}</div>"
-                f"<div style='font-size:.88rem;font-weight:700;color:#1B4F8C;margin:4px 0 2px'>{g['title']}</div>"
-                f"<div style='font-size:.73rem;color:#6b7280;line-height:1.3'>{g['desc']}</div>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-            if st.button(
-                "Selected" if is_active else "Select",
-                key=f"uf_goal_btn_{g['key']}",
-                type="primary" if is_active else "secondary",
-                use_container_width=True,
-            ):
-                st.session_state.uf_goal = g["key"]
-                st.rerun()
-
-    input_mode = next(g["mode"] for g in _GOALS if g["key"] == st.session_state.uf_goal)
-
-    st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
+    # ---- mode selector ----
+    input_mode = st.radio(
+        "How would you like to get started?",
+        ["Upload a PDF brochure", "Paste a website URL", "Just Chat"],
+        horizontal=True,
+        key="uf_input_mode",
+    )
 
     # ---- chat branch: render and exit early ----
     if input_mode == "Just Chat":
