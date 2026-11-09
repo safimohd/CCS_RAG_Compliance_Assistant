@@ -352,7 +352,7 @@ def _render_chat():
                         model=os.environ.get("LLM_MODEL", "gpt-5-nano"),
                         messages=messages,
                         temperature=0.4,
-                        max_tokens=600,
+                        max_completion_tokens=600,
                     )
                     answer = resp.choices[0].message.content
                 except Exception as e:
