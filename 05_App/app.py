@@ -3061,7 +3061,7 @@ if domain == "RERA":
                     _r = _req_docqa.post(
                         "https://api.openai.com/v1/chat/completions",
                         headers={"Authorization": f"Bearer {_OPENAI_KEY}"},
-                        json={"model": _QA_MODEL, "messages": [{"role": "system", "content": _sys}, {"role": "user", "content": _usr}], "temperature": 0.2},
+                        json={"model": _QA_MODEL, "messages": [{"role": "system", "content": _sys}, {"role": "user", "content": _usr}]},
                         timeout=45,
                     )
                     _r.raise_for_status()

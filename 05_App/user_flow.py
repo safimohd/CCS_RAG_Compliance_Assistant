@@ -90,7 +90,6 @@ def _extract_fields(text: str) -> dict:
                 {"role": "user", "content": text[:6000]},
             ],
             response_format={"type": "json_object"},
-            temperature=0,
         )
         return json.loads(resp.choices[0].message.content)
     except Exception:
@@ -351,7 +350,6 @@ def _render_chat():
                     resp = client.chat.completions.create(
                         model=os.environ.get("LLM_MODEL", "gpt-5-nano"),
                         messages=messages,
-                        temperature=0.4,
                         max_completion_tokens=600,
                     )
                     answer = resp.choices[0].message.content
