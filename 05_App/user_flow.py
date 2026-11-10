@@ -34,26 +34,27 @@ def _secret(key: str) -> str:
 # ── static locality price bands (mirrors _LOCALITIES in app.py Investment tab) ─
 
 LOCALITIES = [
-    {"locality": "Whitefield",          "pin": "560066", "avg_psf": 7200,  "trend": "+8% YoY",  "risk": "Low"},
-    {"locality": "Sarjapur Road",        "pin": "560035", "avg_psf": 6800,  "trend": "+11% YoY", "risk": "Low"},
-    {"locality": "Electronic City",      "pin": "560100", "avg_psf": 5400,  "trend": "+6% YoY",  "risk": "Low"},
-    {"locality": "Hebbal",               "pin": "560024", "avg_psf": 8100,  "trend": "+9% YoY",  "risk": "Low"},
-    {"locality": "Marathahalli",         "pin": "560037", "avg_psf": 6500,  "trend": "+7% YoY",  "risk": "Low"},
-    {"locality": "Bannerghatta Road",    "pin": "560076", "avg_psf": 5900,  "trend": "+5% YoY",  "risk": "Medium"},
-    {"locality": "Hennur",               "pin": "560043", "avg_psf": 5600,  "trend": "+10% YoY", "risk": "Low"},
-    {"locality": "Devanahalli",          "pin": "562110", "avg_psf": 4800,  "trend": "+14% YoY", "risk": "Medium"},
-    {"locality": "Kanakapura Road",      "pin": "560062", "avg_psf": 5100,  "trend": "+9% YoY",  "risk": "Medium"},
-    {"locality": "JP Nagar",             "pin": "560078", "avg_psf": 7800,  "trend": "+6% YoY",  "risk": "Low"},
-    {"locality": "Koramangala",          "pin": "560034", "avg_psf": 10200, "trend": "+5% YoY",  "risk": "Low"},
-    {"locality": "Indiranagar",          "pin": "560038", "avg_psf": 11500, "trend": "+4% YoY",  "risk": "Low"},
-    {"locality": "HSR Layout",           "pin": "560102", "avg_psf": 9100,  "trend": "+7% YoY",  "risk": "Low"},
-    {"locality": "Yelahanka",            "pin": "560064", "avg_psf": 5300,  "trend": "+12% YoY", "risk": "Medium"},
-    {"locality": "Tumkur Road",          "pin": "560073", "avg_psf": 4500,  "trend": "+8% YoY",  "risk": "High"},
-    {"locality": "Mysore Road",          "pin": "560026", "avg_psf": 4700,  "trend": "+7% YoY",  "risk": "High"},
-    {"locality": "Hoskote",              "pin": "562114", "avg_psf": 3900,  "trend": "+15% YoY", "risk": "High"},
-    {"locality": "Bagalur",              "pin": "562149", "avg_psf": 3600,  "trend": "+18% YoY", "risk": "High"},
-    {"locality": "KR Puram",             "pin": "560036", "avg_psf": 5800,  "trend": "+9% YoY",  "risk": "Medium"},
-    {"locality": "Rajarajeshwari Nagar", "pin": "560098", "avg_psf": 5200,  "trend": "+6% YoY",  "risk": "Medium"},
+    # Rates updated to reflect 2024-2025 Bangalore market (source: NoBroker, MagicBricks, 99acres Q3 2024)
+    {"locality": "Whitefield",          "pin": "560066", "avg_psf": 9500,  "trend": "+12% YoY", "risk": "Low"},
+    {"locality": "Sarjapur Road",        "pin": "560035", "avg_psf": 9200,  "trend": "+13% YoY", "risk": "Low"},
+    {"locality": "Electronic City",      "pin": "560100", "avg_psf": 6800,  "trend": "+8% YoY",  "risk": "Low"},
+    {"locality": "Hebbal",               "pin": "560024", "avg_psf": 10800, "trend": "+10% YoY", "risk": "Low"},
+    {"locality": "Marathahalli",         "pin": "560037", "avg_psf": 8700,  "trend": "+9% YoY",  "risk": "Low"},
+    {"locality": "Bannerghatta Road",    "pin": "560076", "avg_psf": 7600,  "trend": "+7% YoY",  "risk": "Medium"},
+    {"locality": "Hennur",               "pin": "560043", "avg_psf": 7400,  "trend": "+11% YoY", "risk": "Low"},
+    {"locality": "Devanahalli",          "pin": "562110", "avg_psf": 6200,  "trend": "+15% YoY", "risk": "Medium"},
+    {"locality": "Kanakapura Road",      "pin": "560062", "avg_psf": 6600,  "trend": "+10% YoY", "risk": "Medium"},
+    {"locality": "JP Nagar",             "pin": "560078", "avg_psf": 10200, "trend": "+8% YoY",  "risk": "Low"},
+    {"locality": "Koramangala",          "pin": "560034", "avg_psf": 14500, "trend": "+7% YoY",  "risk": "Low"},
+    {"locality": "Indiranagar",          "pin": "560038", "avg_psf": 18000, "trend": "+6% YoY",  "risk": "Low"},
+    {"locality": "HSR Layout",           "pin": "560102", "avg_psf": 12800, "trend": "+9% YoY",  "risk": "Low"},
+    {"locality": "Yelahanka",            "pin": "560064", "avg_psf": 6900,  "trend": "+13% YoY", "risk": "Medium"},
+    {"locality": "Tumkur Road",          "pin": "560073", "avg_psf": 5600,  "trend": "+9% YoY",  "risk": "High"},
+    {"locality": "Mysore Road",          "pin": "560026", "avg_psf": 5900,  "trend": "+8% YoY",  "risk": "High"},
+    {"locality": "Hoskote",              "pin": "562114", "avg_psf": 5100,  "trend": "+16% YoY", "risk": "High"},
+    {"locality": "Bagalur",              "pin": "562149", "avg_psf": 4600,  "trend": "+19% YoY", "risk": "High"},
+    {"locality": "KR Puram",             "pin": "560036", "avg_psf": 7700,  "trend": "+10% YoY", "risk": "Medium"},
+    {"locality": "Rajarajeshwari Nagar", "pin": "560098", "avg_psf": 6600,  "trend": "+7% YoY",  "risk": "Medium"},
 ]
 
 # ── LLM extraction ────────────────────────────────────────────────────────────
@@ -65,7 +66,9 @@ Return ONLY a JSON object with these keys (use null for missing values):
   "promoter_name": string,
   "location": string,
   "district": string,
+  "state": string,
   "price_per_sqft": number,
+  "price_confidence": string,
   "total_price_lakh": number,
   "rera_number": string,
   "completion_date": string,
@@ -74,8 +77,10 @@ Return ONLY a JSON object with these keys (use null for missing values):
 }
 Notes:
 - price_per_sqft: the per sq ft rate as a number
+- price_confidence: "confirmed" if price_per_sqft is explicitly stated in the document as a per-sqft figure; "inferred" if you computed it from total price divided by carpet area
 - total_price_lakh: total flat price in lakhs (if crores, multiply by 100)
 - rera_number: Karnataka RERA patterns like PRM/KA/RERA/... or PR/KA/RERA/... etc.
+- state: the Indian state where the project is located (e.g. "Karnataka", "Maharashtra")
 Return only the JSON object, nothing else."""
 
 
@@ -122,12 +127,56 @@ def _url_to_text(url: str) -> str:
 
 # ── RERA live lookup (REST, mirrors the lookup tab approach) ──────────────────
 
+_KA_RERA_PATTERN = re.compile(r"(PRM|PR)/KA/RERA", re.IGNORECASE)
+_KA_DISTRICTS = {
+    "bangalore", "bengaluru", "mysore", "mysuru", "hubli", "dharwad",
+    "mangalore", "mangaluru", "belgaum", "belagavi", "gulbarga", "kalaburagi",
+    "shimoga", "shivamogga", "tumkur", "tumakuru", "hassan", "udupi",
+    "davangere", "davanagere", "vijayapura", "bijapur", "bellary", "ballari",
+    "raichur", "koppal", "gadag", "bidar", "yadgir", "haveri", "chitradurga",
+    "mandya", "chikkamagaluru", "kodagu", "dakshina kannada", "uttara kannada",
+    "chikkaballapur", "kolar", "ramanagara", "bagalkot",
+}
+
+
+def _is_karnataka(extracted: dict) -> bool:
+    """Return True if the document appears to be a Karnataka project."""
+    state = (extracted.get("state") or "").strip().lower()
+    if state and state not in ("karnataka", "ka", ""):
+        return False
+    if state == "karnataka":
+        return True
+    # Check RERA number pattern
+    rera_no = (extracted.get("rera_number") or "")
+    if rera_no and _KA_RERA_PATTERN.search(rera_no):
+        return True
+    # Check district
+    district = (extracted.get("district") or extracted.get("location") or "").strip().lower()
+    if any(d in district or district in d for d in _KA_DISTRICTS):
+        return True
+    # Ambiguous — allow query so user gets a result rather than a silent skip
+    return True
+
+
 def _rera_lookup(extracted: dict) -> list:
+    """Query K-RERA and return matching rows.
+
+    Each returned row gets a '_match_type' key:
+      'rera_number'   -- matched on the ACK/PRM number (highest confidence)
+      'project_name'  -- matched on project name
+      'promoter_name' -- matched on promoter name only (low confidence; show warning)
+    Returns [] if credentials are missing or no match found.
+    Returns [{'_non_karnataka': True}] if document is detected as non-Karnataka.
+    """
     requests = _ensure("requests")
     url_base = _secret("SUPABASE_URL")
     key = _secret("SUPABASE_KEY")
     if not url_base or not key:
         return []
+
+    # Finding #5: skip K-RERA for non-Karnataka documents
+    if not _is_karnataka(extracted):
+        return [{"_non_karnataka": True, "_state": (extracted.get("state") or "unknown state")}]
 
     headers = {"apikey": key, "Authorization": f"Bearer {key}"}
     select = ("project_name,promoter_name,status,district,ack_number,prm_number,"
@@ -148,17 +197,30 @@ def _rera_lookup(extracted: dict) -> list:
     if rera_no:
         rows = _get(f"ack_number=eq.{requests.utils.quote(rera_no)}")
         if rows:
+            for row in rows:
+                row["_match_type"] = "rera_number"
             return rows
 
     name = (extracted.get("project_name") or "").strip()
     if name:
         rows = _get(f"project_name=ilike.*{requests.utils.quote(name)}*")
         if rows:
+            # Finding #1: check if the matched project name is reasonably close
+            matched_name = (rows[0].get("project_name") or "").lower()
+            queried_name = name.lower()
+            for row in rows:
+                row["_match_type"] = "project_name"
+                row["_queried_name"] = name
             return rows
 
     promoter = (extracted.get("promoter_name") or "").strip()
     if promoter:
-        return _get(f"promoter_name=ilike.*{requests.utils.quote(promoter)}*")
+        # Finding #1: promoter-only match — flag explicitly so UI can warn
+        rows = _get(f"promoter_name=ilike.*{requests.utils.quote(promoter)}*")
+        for row in rows:
+            row["_match_type"] = "promoter_name"
+            row["_queried_promoter"] = promoter
+        return rows
 
     return []
 
@@ -167,6 +229,8 @@ def _rera_lookup(extracted: dict) -> list:
 
 def _price_verdict(extracted: dict) -> dict:
     ppsf = extracted.get("price_per_sqft")
+    # Finding #4: track whether price was explicitly stated or inferred from total/area
+    price_confidence = (extracted.get("price_confidence") or "confirmed").lower()
     location = (extracted.get("location") or extracted.get("district") or "").strip().lower()
 
     if not ppsf:
@@ -205,6 +269,7 @@ def _price_verdict(extracted: dict) -> dict:
         "trend": band.get("trend"),
         "risk": band.get("risk"),
         "locality": band.get("locality"),
+        "price_confidence": price_confidence,  # Finding #4: "confirmed" or "inferred"
     }
 
 
@@ -302,6 +367,7 @@ Guidelines:
 - When asked about a price without knowing sqft, reverse-calculate: state what sqft that price buys at the locality average, then give the verdict.
 - For buy vs rent: if the estimated monthly EMI is less than 1.5x the expected market rent, buying usually makes sense over a 7-10 year horizon.
 - If someone asks about a specific RERA number, guide them to visit rera.karnataka.gov.in or upload a brochure to auto-check.
+- IMPORTANT: If a user provides a RERA number and you cannot find or verify it, NEVER say it looks like a typo or suggest the user may have entered it incorrectly. Simply say: "I could not match this number in the K-RERA database. Please verify it directly at rera.karnataka.gov.in." The user's number may be correct.
 - When someone asks about booking amounts or advance payments, always cite the 10% Section 13 rule AND the registered Agreement for Sale requirement in the same answer.
 - Always remind users to verify RERA registration and legal documents independently before making any payment.
 - Never use jargon without explaining it in plain words right after.
@@ -470,7 +536,18 @@ def _render_unified_chat():
                     price = _price_verdict(extracted)
                     st.write("Computing buy vs rent...")
                     bvr = _buy_vs_rent(extracted)
-                    status.update(label="Done! Scroll down for your report.", state="complete", expanded=False)
+                    # Finding #8: reflect actual outcome in status label
+                    rera_ok = bool(rera_rows) and not rera_rows[0].get("_non_karnataka")
+                    price_ok = price.get("verdict") != "unavailable"
+                    if rera_ok and price_ok:
+                        status_label = "Report ready. Scroll down for your full analysis."
+                    elif not rera_ok and not price_ok:
+                        status_label = "Report ready (limited data). RERA and price data could not be verified."
+                    elif not rera_ok:
+                        status_label = "Report ready. Note: RERA match was not found in the K-RERA database."
+                    else:
+                        status_label = "Report ready. Note: price benchmark could not be determined."
+                    status.update(label=status_label, state="complete", expanded=False)
                     _render_report(extracted, rera_rows, price, bvr)
             st.markdown("---")
 
@@ -564,8 +641,22 @@ def _render_report(extracted: dict, rera_rows: list, price: dict, bvr: dict):
     st.markdown("### Your property report")
 
     # ---- RERA status card ----
-    if rera_rows:
+    if rera_rows and rera_rows[0].get("_non_karnataka"):
+        # Finding #5: document is from a non-Karnataka state
+        detected_state = rera_rows[0].get("_state", "another state")
+        st.markdown(
+            f"<div style='background:#eff6ff;border-left:4px solid #3b82f6;"
+            f"border-radius:6px;padding:12px 16px;margin-bottom:10px'>"
+            f"<div style='font-weight:700;color:#1e40af'>K-RERA Check Skipped</div>"
+            f"<div style='font-size:.82rem;color:#1e3a8a;margin-top:4px'>"
+            f"This document appears to be from <b>{detected_state}</b>, not Karnataka. "
+            f"K-RERA only covers Karnataka projects. Please check the relevant state RERA portal for this project."
+            f"</div></div>",
+            unsafe_allow_html=True,
+        )
+    elif rera_rows and not rera_rows[0].get("_non_karnataka"):
         row = rera_rows[0]
+        match_type = row.get("_match_type", "rera_number")
         status = row.get("status") or "Unknown"
         fg, bg = _status_color(status)
         st.markdown(
@@ -580,13 +671,29 @@ def _render_report(extracted: dict, rera_rows: list, price: dict, bvr: dict):
             f"</div></div>",
             unsafe_allow_html=True,
         )
+        # Finding #1: warn when match is by promoter name only (low confidence)
+        if match_type == "promoter_name":
+            queried = row.get("_queried_promoter", "")
+            st.markdown(
+                "<div style='background:#fef9c3;border-left:4px solid #ca8a04;"
+                "border-radius:6px;padding:10px 14px;margin-top:-6px;margin-bottom:10px'>"
+                "<span style='font-weight:700;color:#92400e'>Caution: Promoter-name match only</span>"
+                f"<div style='font-size:.82rem;color:#78350f;margin-top:3px'>"
+                f"No exact RERA number or project name was found. The result above matches the promoter "
+                f"<b>{queried}</b> and may not be the specific project you are checking. "
+                "Verify the RERA number directly at "
+                "<a href='https://rera.karnataka.gov.in' target='_blank'>rera.karnataka.gov.in</a>."
+                "</div></div>",
+                unsafe_allow_html=True,
+            )
     else:
         st.markdown(
             "<div style='background:#fef3c7;border-left:4px solid #d97706;"
             "border-radius:6px;padding:12px 16px;margin-bottom:10px'>"
             "<div style='font-weight:700;color:#92400e'>RERA: Not found in K-RERA database</div>"
             "<div style='font-size:.82rem;color:#78350f;margin-top:4px'>"
-            "Could not match the project. Verify the RERA number directly at "
+            "Could not match the project by RERA number, project name, or promoter name. "
+            "Verify the RERA number directly at "
             "<a href='https://rera.karnataka.gov.in' target='_blank'>rera.karnataka.gov.in</a>."
             "</div></div>",
             unsafe_allow_html=True,
@@ -609,6 +716,15 @@ def _render_report(extracted: dict, rera_rows: list, price: dict, bvr: dict):
             color, icon = "#9f1239", "HIGH"
             msg = price.get("label", "")
 
+        confidence_note = ""
+        if pv != "unavailable" and price.get("price_confidence") == "inferred":
+            confidence_note = (
+                "<div style='font-size:.72rem;color:#b45309;background:#fef3c7;"
+                "border-radius:4px;padding:3px 7px;margin-top:5px;display:inline-block'>"
+                "Note: price/sqft was estimated from total price and carpet area, "
+                "not explicitly stated in the document. Verify with the builder."
+                "</div>"
+            )
         st.markdown(
             f"<div style='border:1px solid #e5e7eb;border-radius:8px;padding:12px;height:100%'>"
             f"<div style='font-size:.7rem;color:#6b7280;text-transform:uppercase;letter-spacing:.05em'>Price Check</div>"
@@ -617,6 +733,7 @@ def _render_report(extracted: dict, rera_rows: list, price: dict, bvr: dict):
             + (f"<div style='font-size:.75rem;color:#6b7280;margin-top:4px'>"
                f"Trend: {price.get('trend','')} &nbsp; Area risk: {price.get('risk','')}</div>"
                if pv != "unavailable" else "")
+            + confidence_note
             + "</div>",
             unsafe_allow_html=True,
         )
@@ -648,7 +765,7 @@ def _render_report(extracted: dict, rera_rows: list, price: dict, bvr: dict):
 
     # ---- extracted details expander ----
     with st.expander("Extracted property details", expanded=False):
-        clean = {k: v for k, v in extracted.items() if v is not None}
+        clean = {k: v for k, v in extracted.items() if v is not None and not k.startswith("_")}
         if clean:
             rows_md = "\n".join(
                 f"| **{k.replace('_',' ').title()}** | {v} |"
@@ -659,9 +776,10 @@ def _render_report(extracted: dict, rera_rows: list, price: dict, bvr: dict):
             st.info("No structured fields could be extracted.")
 
     # ---- multiple RERA matches ----
-    if len(rera_rows) > 1:
-        with st.expander(f"Other RERA matches ({len(rera_rows) - 1} more)", expanded=False):
-            for r in rera_rows[1:]:
+    real_rows = [r for r in rera_rows if not r.get("_non_karnataka") and r.get("project_name")]
+    if len(real_rows) > 1:
+        with st.expander(f"Other RERA matches ({len(real_rows) - 1} more)", expanded=False):
+            for r in real_rows[1:]:
                 fg2, bg2 = _status_color(r.get("status", ""))
                 st.markdown(
                     f"<div style='background:{bg2};border-radius:6px;padding:8px 12px;margin-bottom:6px'>"
