@@ -352,19 +352,38 @@ def _render_chat():
                         messages=messages,
                         max_completion_tokens=600,
                     )
-                    raw = resp.choices[0].message.content
-                    if raw:
-                        answer = raw
-                    else:
-                        finish = resp.choices[0].finish_reason
+                    # Defensive extraction — handles None, empty string, and
+                    # list-of-blocks format used by newer openai SDK versions
+                    try:
+                        raw = resp.choices[0].message.content
+                    except Exception as attr_err:
+                        raw = None
                         answer = (
-                            f"[No content returned by model. finish_reason={finish!r}. "
-                            f"Check Streamlit logs for details.]"
+                            f"[Attribute error accessing content: {attr_err}]\n\n"
+                            f"Full response (first 500 chars): {str(resp)[:500]}"
                         )
+                    else:
+                        if isinstance(raw, list):
+                            # openai v3+ may return content as a list of blocks
+                            parts = [
+                                block.get("text", "") if isinstance(block, dict)
+                                else getattr(block, "text", str(block))
+                                for block in raw
+                            ]
+                            answer = "\n".join(p for p in parts if p)
+                        elif raw:
+                            answer = raw
+                        else:
+                            finish = getattr(resp.choices[0], "finish_reason", "unknown")
+                            answer = (
+                                f"[No content returned. finish_reason={finish!r}]\n\n"
+                                f"Response dump: {str(resp)[:400]}"
+                            )
                 except Exception as e:
-                    answer = f"Sorry, something went wrong. Please try again. ({e})"
+                    answer = f"Sorry, something went wrong. ({type(e).__name__}: {e})"
 
-                st.markdown(answer)
+                # Hard guard: st.markdown(None) renders blank silently
+                st.markdown(answer if answer else f"[answer is empty: {answer!r}]")
                 st.session_state.uf_chat_history.append(
                     {"role": "assistant", "content": answer}
                 )
