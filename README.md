@@ -3,7 +3,7 @@
 **Team:** Safi (Mohammad Safi Ur Rahman) and Sairaj
 **Faculty Advisor:** Prof. Subhabrata Majumdar ("Subho")
 **GitHub:** https://github.com/safimohd/CCS_RAG_Compliance_Assistant
-**Last updated:** November 9, 2026
+**Last updated:** November 10, 2026
 
 ---
 
@@ -195,14 +195,16 @@ Switched judge to `DeepSeek-V4.1-Flash`. Fixed the judge to use `response_format
 
 Added System D: CV-RAG (Claim Verification RAG). System D generates a candidate answer, extracts discrete claims from it, verifies each claim against ChromaDB independently, then synthesises a corrected answer. Implemented in `system_d_cvrag.py`.
 
-**V5 Final RERA scores (out of 8):**
+**V5.1 Final RERA scores (out of 8, n=50):**
 
-| System | Score |
-|--------|-------|
-| A — Vanilla RAG | 3.76 |
-| B — RAG + BM25 | 4.56 |
-| C — Sub-query + Reflection | 4.70 |
-| D — CV-RAG | (scored separately, underperformed C on RERA) |
+| System | Overall | T1 Factual | T2 Applied | T3 Procedural | T4 Multi-hop | T5 Adversarial |
+|--------|---------|------------|------------|---------------|--------------|----------------|
+| A — Vanilla RAG | 4.02 | 3.20 | 4.30 | 3.40 | 4.50 | 4.70 |
+| B — RAG + BM25 | 4.62 | 4.70 | 4.10 | 4.90 | 4.50 | 4.90 |
+| C — Sub-query + Reflection | 4.90 | 5.60 | 5.10 | 4.80 | 4.40 | 4.60 |
+| D — CV-RAG | pending (run in progress) | | | | | |
+
+System C is the current best. All three systems plateau on T4 Multi-hop and T5 Adversarial (4.4-4.7 range); the gap is primarily in T1 Factual retrieval precision.
 
 **Why System D underperformed on RERA:** The K-RERA ChromaDB contains only circulars from 2019 to 2026, not the RERA Act 2016 base text. Claims about foundational provisions (Section 3, Section 11, etc.) cannot be verified against the corpus and get incorrectly flagged as unsupported. This is a corpus coverage issue, not a system design flaw.
 
@@ -214,6 +216,18 @@ Added System D: CV-RAG (Claim Verification RAG). System D generates a candidate 
 5. CC under-credit for explicit uncertainty signalling
 
 86% agreement between human and DeepSeek on the sample. 7 flagged rows.
+
+**November 10 — Blank Response Fix (commit `0d96909`)**
+
+`05_App/user_flow.py` line 355: `resp.choices[0].message.content` returned `None` silently on Streamlit Cloud (openai==3.48.0 installed there). The try block succeeded with no exception, so the error fallback never triggered and the assistant bubble rendered blank. Fix: check for `None` and surface `finish_reason` in the UI when content is empty. Committed and deployed.
+
+**System D benchmark — in progress**
+
+Running System D (CV-RAG) on `Benchmark_RERA_V5.1_Final.xlsx`. Pipeline: generate candidate answer, extract discrete claims, verify each claim against ChromaDB (25,955 chunks), synthesise corrected answer. Judge: DeepSeek-V4.1-Flash via Together AI. Expected runtime ~90 minutes.
+
+```powershell
+python run_v2_evaluation.py --benchmark "..\..\01_Benchmarks\RERA\Benchmark_RERA_V5.1_Final.xlsx" --only-system D
+```
 
 **November 3 — Prof. Majumdar UI Feedback**
 
@@ -380,8 +394,11 @@ python run_v2_evaluation_v24.py results/benchmark_answers_YYYYMMDD.xlsx
 
 | Task | Status |
 |------|--------|
+| Blank response fix in user_flow.py (None content from gpt-5-nano) | Done — commit `0d96909`, Nov 10 |
+| System D benchmark run (CV-RAG, RERA V5.1) | In progress (~90 min) |
 | UI changes from Nov 3 prof feedback (query history, RERA toggle, journey) | In progress |
 | System D RERA score with RERA Act 2016 added to corpus | Pending |
+| Complaint/delay data layer in K-RERA Project Lookup tab | Pending |
 | Final report (PDF, max 10 pages) | Pending |
 | 10-minute presentation deck with live demo | Pending |
 | Repackage and re-upload chroma_db.tar.gz to GitHub Release index-v1 | Pending |
