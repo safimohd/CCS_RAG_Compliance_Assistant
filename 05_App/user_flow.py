@@ -309,23 +309,51 @@ Guidelines:
 
 
 def _run_llm_chat(history: list, system_prompt: str) -> str:
-    """Call OpenAI with the given history and system prompt. Returns answer string."""
+    """Call OpenAI with streaming and return the full answer string.
+
+    gpt-5-nano is a reasoning model: on a non-streaming call it returns
+    message.content=None (reasoning tokens are internal).  Streaming is the
+    only reliable way to get the visible answer, matching how app.py works.
+    """
     from openai import OpenAI
     client = OpenAI(api_key=_secret("OPENAI_API_KEY"))
+    model  = os.environ.get("LLM_MODEL", "gpt-5-nano")
     messages = [{"role": "system", "content": system_prompt}] + history
-    resp = client.chat.completions.create(
-        model=os.environ.get("LLM_MODEL", "gpt-5-nano"),
-        messages=messages,
-        max_completion_tokens=800,
-    )
-    msg = resp.choices[0].message
-    # gpt-5-nano may return content=None when reasoning tokens are used;
-    # fall back through output_text (Responses API) then a safe default.
-    raw = (msg.content
-           or getattr(msg, "output_text", None)
-           or getattr(resp, "output_text", None)
-           or "")
-    return raw.strip() or "No answer was returned. Please try rephrasing."
+
+    # -- streaming path (primary) ------------------------------------------
+    try:
+        stream = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_completion_tokens=800,
+            stream=True,
+        )
+        parts = []
+        for chunk in stream:
+            if chunk.choices:
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    parts.append(delta)
+        answer = "".join(parts).strip()
+        if answer:
+            return answer
+    except Exception:
+        pass  # fall through to blocking call
+
+    # -- blocking fallback (for models/orgs that reject streaming) ----------
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_completion_tokens=800,
+        )
+        answer = (resp.choices[0].message.content or "").strip()
+        if answer:
+            return answer
+    except Exception as e:
+        return f"Sorry, the request failed: {e}"
+
+    return "No answer was returned. Please try rephrasing."
 
 def _render_unified_chat():
     """Single unified chat: optional PDF or URL as context, conversational Q&A below.
