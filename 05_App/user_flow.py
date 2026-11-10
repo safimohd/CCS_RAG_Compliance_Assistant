@@ -34,27 +34,30 @@ def _secret(key: str) -> str:
 # ── static locality price bands (mirrors _LOCALITIES in app.py Investment tab) ─
 
 LOCALITIES = [
-    # Rates updated to reflect 2024-2025 Bangalore market (source: NoBroker, MagicBricks, 99acres Q3 2024)
-    {"locality": "Whitefield",          "pin": "560066", "avg_psf": 9500,  "trend": "+12% YoY", "risk": "Low"},
-    {"locality": "Sarjapur Road",        "pin": "560035", "avg_psf": 9200,  "trend": "+13% YoY", "risk": "Low"},
-    {"locality": "Electronic City",      "pin": "560100", "avg_psf": 6800,  "trend": "+8% YoY",  "risk": "Low"},
-    {"locality": "Hebbal",               "pin": "560024", "avg_psf": 10800, "trend": "+10% YoY", "risk": "Low"},
-    {"locality": "Marathahalli",         "pin": "560037", "avg_psf": 8700,  "trend": "+9% YoY",  "risk": "Low"},
-    {"locality": "Bannerghatta Road",    "pin": "560076", "avg_psf": 7600,  "trend": "+7% YoY",  "risk": "Medium"},
-    {"locality": "Hennur",               "pin": "560043", "avg_psf": 7400,  "trend": "+11% YoY", "risk": "Low"},
-    {"locality": "Devanahalli",          "pin": "562110", "avg_psf": 6200,  "trend": "+15% YoY", "risk": "Medium"},
-    {"locality": "Kanakapura Road",      "pin": "560062", "avg_psf": 6600,  "trend": "+10% YoY", "risk": "Medium"},
-    {"locality": "JP Nagar",             "pin": "560078", "avg_psf": 10200, "trend": "+8% YoY",  "risk": "Low"},
-    {"locality": "Koramangala",          "pin": "560034", "avg_psf": 14500, "trend": "+7% YoY",  "risk": "Low"},
-    {"locality": "Indiranagar",          "pin": "560038", "avg_psf": 18000, "trend": "+6% YoY",  "risk": "Low"},
-    {"locality": "HSR Layout",           "pin": "560102", "avg_psf": 12800, "trend": "+9% YoY",  "risk": "Low"},
-    {"locality": "Yelahanka",            "pin": "560064", "avg_psf": 6900,  "trend": "+13% YoY", "risk": "Medium"},
-    {"locality": "Tumkur Road",          "pin": "560073", "avg_psf": 5600,  "trend": "+9% YoY",  "risk": "High"},
-    {"locality": "Mysore Road",          "pin": "560026", "avg_psf": 5900,  "trend": "+8% YoY",  "risk": "High"},
-    {"locality": "Hoskote",              "pin": "562114", "avg_psf": 5100,  "trend": "+16% YoY", "risk": "High"},
-    {"locality": "Bagalur",              "pin": "562149", "avg_psf": 4600,  "trend": "+19% YoY", "risk": "High"},
-    {"locality": "KR Puram",             "pin": "560036", "avg_psf": 7700,  "trend": "+10% YoY", "risk": "Medium"},
-    {"locality": "Rajarajeshwari Nagar", "pin": "560098", "avg_psf": 6600,  "trend": "+7% YoY",  "risk": "Medium"},
+    # Rates updated to Q2–Q3 2026 Bangalore market
+    # Sources: Anarock Q1/Q2 2026 Bengaluru PDFs, Knight Frank H1 2026 (via PropNewz Oct 2026),
+    #          Square Yards Sep 2026, NoBroker 2026, Housing.com
+    # Three thin-data localities (marked *): Tumkur Road, Rajarajeshwari Nagar, Bagalur (±15% uncertainty)
+    {"locality": "Whitefield",              "pin": "560066", "avg_psf": 14000, "trend": "+12% YoY", "risk": "Low"},
+    {"locality": "Sarjapur Road",           "pin": "560035", "avg_psf": 12000, "trend": "+5% YoY",  "risk": "Medium"},
+    {"locality": "Electronic City",         "pin": "560100", "avg_psf": 8100,  "trend": "+7% YoY",  "risk": "Medium"},
+    {"locality": "Hebbal",                  "pin": "560024", "avg_psf": 15000, "trend": "+18% YoY", "risk": "Low"},
+    {"locality": "Marathahalli",            "pin": "560037", "avg_psf": 14500, "trend": "+15% YoY", "risk": "Medium"},
+    {"locality": "Bannerghatta Road",       "pin": "560076", "avg_psf": 11000, "trend": "+7% YoY",  "risk": "Medium"},
+    {"locality": "Hennur",                  "pin": "560043", "avg_psf": 10800, "trend": "+11% YoY", "risk": "Medium"},
+    {"locality": "Devanahalli",             "pin": "562110", "avg_psf": 10500, "trend": "+8% YoY",  "risk": "High"},
+    {"locality": "Kanakapura Road",         "pin": "560062", "avg_psf": 11400, "trend": "+8% YoY",  "risk": "Medium"},
+    {"locality": "JP Nagar",                "pin": "560078", "avg_psf": 12200, "trend": "+14% YoY", "risk": "Low"},
+    {"locality": "Koramangala",             "pin": "560034", "avg_psf": 23000, "trend": "+12% YoY", "risk": "Low"},
+    {"locality": "Indiranagar",             "pin": "560038", "avg_psf": 18500, "trend": "+12% YoY", "risk": "Low"},
+    {"locality": "HSR Layout",              "pin": "560102", "avg_psf": 17500, "trend": "+25% YoY", "risk": "Low"},
+    {"locality": "Yelahanka",               "pin": "560064", "avg_psf": 10200, "trend": "+18% YoY", "risk": "Medium"},
+    {"locality": "Tumkur Road",             "pin": "560073", "avg_psf": 8250,  "trend": "+10% YoY", "risk": "High"},
+    {"locality": "Mysore Road",             "pin": "560026", "avg_psf": 8300,  "trend": "+8% YoY",  "risk": "Medium"},
+    {"locality": "Hoskote",                 "pin": "562114", "avg_psf": 7000,  "trend": "+9% YoY",  "risk": "High"},
+    {"locality": "Bagalur",                 "pin": "562149", "avg_psf": 9800,  "trend": "+8% YoY",  "risk": "High"},
+    {"locality": "KR Puram",                "pin": "560036", "avg_psf": 11200, "trend": "+20% YoY", "risk": "Medium"},
+    {"locality": "Rajarajeshwari Nagar",    "pin": "560098", "avg_psf": 11200, "trend": "+14% YoY", "risk": "Medium"},
 ]
 
 # ── LLM extraction ────────────────────────────────────────────────────────────
@@ -66,9 +69,7 @@ Return ONLY a JSON object with these keys (use null for missing values):
   "promoter_name": string,
   "location": string,
   "district": string,
-  "state": string,
   "price_per_sqft": number,
-  "price_confidence": string,
   "total_price_lakh": number,
   "rera_number": string,
   "completion_date": string,
@@ -77,10 +78,8 @@ Return ONLY a JSON object with these keys (use null for missing values):
 }
 Notes:
 - price_per_sqft: the per sq ft rate as a number
-- price_confidence: "confirmed" if price_per_sqft is explicitly stated in the document as a per-sqft figure; "inferred" if you computed it from total price divided by carpet area
 - total_price_lakh: total flat price in lakhs (if crores, multiply by 100)
 - rera_number: Karnataka RERA patterns like PRM/KA/RERA/... or PR/KA/RERA/... etc.
-- state: the Indian state where the project is located (e.g. "Karnataka", "Maharashtra")
 Return only the JSON object, nothing else."""
 
 
@@ -127,56 +126,12 @@ def _url_to_text(url: str) -> str:
 
 # ── RERA live lookup (REST, mirrors the lookup tab approach) ──────────────────
 
-_KA_RERA_PATTERN = re.compile(r"(PRM|PR)/KA/RERA", re.IGNORECASE)
-_KA_DISTRICTS = {
-    "bangalore", "bengaluru", "mysore", "mysuru", "hubli", "dharwad",
-    "mangalore", "mangaluru", "belgaum", "belagavi", "gulbarga", "kalaburagi",
-    "shimoga", "shivamogga", "tumkur", "tumakuru", "hassan", "udupi",
-    "davangere", "davanagere", "vijayapura", "bijapur", "bellary", "ballari",
-    "raichur", "koppal", "gadag", "bidar", "yadgir", "haveri", "chitradurga",
-    "mandya", "chikkamagaluru", "kodagu", "dakshina kannada", "uttara kannada",
-    "chikkaballapur", "kolar", "ramanagara", "bagalkot",
-}
-
-
-def _is_karnataka(extracted: dict) -> bool:
-    """Return True if the document appears to be a Karnataka project."""
-    state = (extracted.get("state") or "").strip().lower()
-    if state and state not in ("karnataka", "ka", ""):
-        return False
-    if state == "karnataka":
-        return True
-    # Check RERA number pattern
-    rera_no = (extracted.get("rera_number") or "")
-    if rera_no and _KA_RERA_PATTERN.search(rera_no):
-        return True
-    # Check district
-    district = (extracted.get("district") or extracted.get("location") or "").strip().lower()
-    if any(d in district or district in d for d in _KA_DISTRICTS):
-        return True
-    # Ambiguous — allow query so user gets a result rather than a silent skip
-    return True
-
-
 def _rera_lookup(extracted: dict) -> list:
-    """Query K-RERA and return matching rows.
-
-    Each returned row gets a '_match_type' key:
-      'rera_number'   -- matched on the ACK/PRM number (highest confidence)
-      'project_name'  -- matched on project name
-      'promoter_name' -- matched on promoter name only (low confidence; show warning)
-    Returns [] if credentials are missing or no match found.
-    Returns [{'_non_karnataka': True}] if document is detected as non-Karnataka.
-    """
     requests = _ensure("requests")
     url_base = _secret("SUPABASE_URL")
     key = _secret("SUPABASE_KEY")
     if not url_base or not key:
         return []
-
-    # Finding #5: skip K-RERA for non-Karnataka documents
-    if not _is_karnataka(extracted):
-        return [{"_non_karnataka": True, "_state": (extracted.get("state") or "unknown state")}]
 
     headers = {"apikey": key, "Authorization": f"Bearer {key}"}
     select = ("project_name,promoter_name,status,district,ack_number,prm_number,"
@@ -197,30 +152,17 @@ def _rera_lookup(extracted: dict) -> list:
     if rera_no:
         rows = _get(f"ack_number=eq.{requests.utils.quote(rera_no)}")
         if rows:
-            for row in rows:
-                row["_match_type"] = "rera_number"
             return rows
 
     name = (extracted.get("project_name") or "").strip()
     if name:
         rows = _get(f"project_name=ilike.*{requests.utils.quote(name)}*")
         if rows:
-            # Finding #1: check if the matched project name is reasonably close
-            matched_name = (rows[0].get("project_name") or "").lower()
-            queried_name = name.lower()
-            for row in rows:
-                row["_match_type"] = "project_name"
-                row["_queried_name"] = name
             return rows
 
     promoter = (extracted.get("promoter_name") or "").strip()
     if promoter:
-        # Finding #1: promoter-only match — flag explicitly so UI can warn
-        rows = _get(f"promoter_name=ilike.*{requests.utils.quote(promoter)}*")
-        for row in rows:
-            row["_match_type"] = "promoter_name"
-            row["_queried_promoter"] = promoter
-        return rows
+        return _get(f"promoter_name=ilike.*{requests.utils.quote(promoter)}*")
 
     return []
 
@@ -229,8 +171,6 @@ def _rera_lookup(extracted: dict) -> list:
 
 def _price_verdict(extracted: dict) -> dict:
     ppsf = extracted.get("price_per_sqft")
-    # Finding #4: track whether price was explicitly stated or inferred from total/area
-    price_confidence = (extracted.get("price_confidence") or "confirmed").lower()
     location = (extracted.get("location") or extracted.get("district") or "").strip().lower()
 
     if not ppsf:
@@ -269,7 +209,6 @@ def _price_verdict(extracted: dict) -> dict:
         "trend": band.get("trend"),
         "risk": band.get("risk"),
         "locality": band.get("locality"),
-        "price_confidence": price_confidence,  # Finding #4: "confirmed" or "inferred"
     }
 
 
@@ -367,270 +306,184 @@ Guidelines:
 - When asked about a price without knowing sqft, reverse-calculate: state what sqft that price buys at the locality average, then give the verdict.
 - For buy vs rent: if the estimated monthly EMI is less than 1.5x the expected market rent, buying usually makes sense over a 7-10 year horizon.
 - If someone asks about a specific RERA number, guide them to visit rera.karnataka.gov.in or upload a brochure to auto-check.
-- IMPORTANT: If a user provides a RERA number and you cannot find or verify it, NEVER say it looks like a typo or suggest the user may have entered it incorrectly. Simply say: "I could not match this number in the K-RERA database. Please verify it directly at rera.karnataka.gov.in." The user's number may be correct.
 - When someone asks about booking amounts or advance payments, always cite the 10% Section 13 rule AND the registered Agreement for Sale requirement in the same answer.
 - Always remind users to verify RERA registration and legal documents independently before making any payment.
 - Never use jargon without explaining it in plain words right after.
 - Do not use em dashes anywhere in your response."""
 
 
-def _run_llm_chat(history: list, system_prompt: str) -> str:
-    """Call OpenAI and return the full answer string.
+def _render_chat():
+    """Conversational property advisor for users who do not have a brochure or URL."""
 
-    Uses the same approach as app.py generate(): try streaming first,
-    fall back to blocking if streaming is rejected.
-    """
-    from openai import OpenAI
-    client = OpenAI(api_key=_secret("OPENAI_API_KEY"))
-    model  = "gpt-5-nano"  # hardcoded so LLM_MODEL env var can't override here
-    messages = [{"role": "system", "content": system_prompt}] + history
-
-    stream_error = None
-
-    # -- streaming path (primary) ------------------------------------------
-    try:
-        stream = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            stream=True,
-        )
-        parts = []
-        for chunk in stream:
-            if chunk.choices:
-                delta = chunk.choices[0].delta.content
-                if delta:
-                    parts.append(delta)
-        answer = "".join(parts).strip()
-        if answer:
-            return answer
-        # stream finished but produced nothing — record for diagnostics
-        stream_error = "stream returned 0 content chunks"
-    except Exception as e:
-        stream_error = str(e)
-
-    # -- blocking fallback --------------------------------------------------
-    try:
-        resp = client.chat.completions.create(
-            model=model,
-            messages=messages,
-        )
-        answer = (resp.choices[0].message.content or "").strip()
-        if answer:
-            return answer
-        return f"[No content returned. Stream error: {stream_error}]"
-    except Exception as e:
-        return f"API error: {e} | Stream error: {stream_error}"
-
-def _render_unified_chat():
-    """Single unified chat: optional PDF or URL as context, conversational Q&A below.
-
-    No radio buttons. User can attach a PDF, paste a URL, or just type and go.
-    If a PDF or URL is loaded, it becomes context for the entire conversation.
-    """
-
-    # ---- context attachment strip ------------------------------------------------
     st.markdown(
-        "<div style='background:linear-gradient(135deg,#1e3a5f 0%,#1a5f7a 100%);"
-        "border-radius:12px;padding:20px 24px;margin-bottom:20px;color:#fff'>"
-        "<div style='font-size:1.1rem;font-weight:700;margin-bottom:4px'>Your Property Advisor</div>"
-        "<div style='font-size:.85rem;opacity:.85'>"
-        "Have a brochure? Drop it below. Have a URL? Paste it. No document? Just start chatting."
-        "</div>"
-        "<div style='display:flex;gap:12px;margin-top:14px;flex-wrap:wrap'>"
-        "<div style='background:rgba(255,255,255,.12);border-radius:8px;padding:6px 12px;"
-        "font-size:.78rem'>📄 PDF brochure</div>"
-        "<div style='background:rgba(255,255,255,.12);border-radius:8px;padding:6px 12px;"
-        "font-size:.78rem'>🔗 Property URL</div>"
-        "<div style='background:rgba(255,255,255,.12);border-radius:8px;padding:6px 12px;"
-        "font-size:.78rem'>💬 Just chat</div>"
-        "</div></div>",
+        "<div style='background:#f0fdf4;border-left:4px solid #22c55e;"
+        "border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:.85rem;color:#166534'>"
+        "Ask me anything: RERA registration, fair price for a locality, EMI estimates, "
+        "buy vs rent decisions, or anything else about Bangalore real estate."
+        "</div>",
         unsafe_allow_html=True,
     )
 
-    # Optional context inputs in a compact expander
-    with st.expander("📎 Add context (PDF or URL)", expanded=False):
-        ctx_col1, ctx_col2 = st.columns([1, 1], gap="medium")
-        with ctx_col1:
-            st.markdown("**Upload a PDF brochure**")
-            uploaded = st.file_uploader(
-                "PDF", type=["pdf"], label_visibility="collapsed", key="uf_unified_pdf"
-            )
-        with ctx_col2:
-            st.markdown("**Or paste a property URL**")
-            url_input = st.text_input(
-                "URL", placeholder="https://sobharealty.com/...",
-                label_visibility="collapsed", key="uf_unified_url"
-            )
+    if "uf_chat_history" not in st.session_state:
+        st.session_state.uf_chat_history = []
 
-    # ---- process PDF if newly uploaded ------------------------------------------
-    doc_text   = ""
-    doc_label  = ""
-    doc_source = ""
-
-    if uploaded:
-        pdf_cache_key = f"uf_unified_pdftext_{uploaded.name}_{uploaded.size}"
-        if pdf_cache_key not in st.session_state:
-            with st.spinner("Reading PDF..."):
-                try:
-                    raw = _pdf_to_text(uploaded.read())
-                    st.session_state[pdf_cache_key] = raw[:14000]
-                    st.session_state["uf_unified_context_key"] = pdf_cache_key
-                    st.session_state["uf_unified_context_label"] = f"📄 {uploaded.name}"
-                    st.session_state["uf_unified_context_source"] = "pdf"
-                    st.session_state["uf_unified_history"] = []  # reset chat on new doc
-                except Exception as e:
-                    st.error(f"Could not read PDF: {e}")
-        else:
-            st.session_state["uf_unified_context_key"] = pdf_cache_key
-            st.session_state["uf_unified_context_label"] = f"📄 {uploaded.name}"
-            st.session_state["uf_unified_context_source"] = "pdf"
-
-    elif url_input and url_input.startswith("http"):
-        url_cache_key = f"uf_unified_urltext_{url_input[:80]}"
-        if url_cache_key not in st.session_state:
-            with st.spinner("Fetching page..."):
-                try:
-                    raw = _url_to_text(url_input)
-                    st.session_state[url_cache_key] = raw[:14000]
-                    st.session_state["uf_unified_context_key"] = url_cache_key
-                    st.session_state["uf_unified_context_label"] = f"🔗 {url_input[:60]}..."
-                    st.session_state["uf_unified_context_source"] = "url"
-                    st.session_state["uf_unified_history"] = []
-                except Exception as e:
-                    st.error(f"Could not fetch URL: {e}")
-        else:
-            st.session_state["uf_unified_context_key"] = url_cache_key
-            st.session_state["uf_unified_context_label"] = f"🔗 {url_input[:60]}..."
-            st.session_state["uf_unified_context_source"] = "url"
-
-    # Read active context from session
-    active_key   = st.session_state.get("uf_unified_context_key")
-    doc_text     = st.session_state.get(active_key, "") if active_key else ""
-    doc_label    = st.session_state.get("uf_unified_context_label", "")
-    doc_source   = st.session_state.get("uf_unified_context_source", "")
-
-    # ---- context status pill + full report button --------------------------------
-    if doc_text:
-        pill_col, btn_col = st.columns([3, 1])
-        pill_col.markdown(
-            f"<div style='background:#eff6ff;border:1px solid #bfdbfe;border-radius:20px;"
-            f"display:inline-block;padding:4px 14px;font-size:.8rem;color:#1e40af;"
-            f"margin-bottom:8px'>Context loaded: <b>{doc_label}</b> "
-            f"({len(doc_text):,} chars)</div>",
-            unsafe_allow_html=True,
-        )
-        if btn_col.button("Run full report", type="primary", key="uf_run_report"):
-            st.session_state["uf_unified_run_report"] = True
-
-        # ---- run full due diligence pipeline if requested ----------------------
-        if st.session_state.pop("uf_unified_run_report", False):
-            with st.status("Running property due diligence...", expanded=True) as status:
-                st.write("Identifying project details with AI...")
-                extracted = _extract_fields(doc_text)
-                if not extracted:
-                    st.error("Could not extract property details from this document.")
-                else:
-                    st.write("Checking K-RERA live database...")
-                    rera_rows = _rera_lookup(extracted)
-                    st.write("Analysing price against locality benchmarks...")
-                    price = _price_verdict(extracted)
-                    st.write("Computing buy vs rent...")
-                    bvr = _buy_vs_rent(extracted)
-                    # Finding #8: reflect actual outcome in status label
-                    rera_ok = bool(rera_rows) and not rera_rows[0].get("_non_karnataka")
-                    price_ok = price.get("verdict") != "unavailable"
-                    if rera_ok and price_ok:
-                        status_label = "Report ready. Scroll down for your full analysis."
-                    elif not rera_ok and not price_ok:
-                        status_label = "Report ready (limited data). RERA and price data could not be verified."
-                    elif not rera_ok:
-                        status_label = "Report ready. Note: RERA match was not found in the K-RERA database."
-                    else:
-                        status_label = "Report ready. Note: price benchmark could not be determined."
-                    status.update(label=status_label, state="complete", expanded=False)
-                    _render_report(extracted, rera_rows, price, bvr)
-            st.markdown("---")
-
-    # ---- build system prompt (with or without doc context) ----------------------
-    def _system(text: str = "") -> str:
-        base = _build_chat_system()
-        if not text:
-            return base
-        source_label = "property brochure" if doc_source == "pdf" else "property website"
-        return (
-            base
-            + f"\n\n---\n\nThe user has provided the following {source_label} as context. "
-            "Use it as your primary source when answering questions about this specific property. "
-            "Always cross-check registration status against K-RERA rules.\n\n"
-            f"DOCUMENT CONTENT:\n{text}"
-        )
-
-    # ---- chat history -----------------------------------------------------------
-    if "uf_unified_history" not in st.session_state:
-        st.session_state.uf_unified_history = []
-
-    # Render existing messages
-    for msg in st.session_state.uf_unified_history:
+    # render existing history
+    for msg in st.session_state.uf_chat_history:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # Placeholder suggestions when chat is empty
-    if not st.session_state.uf_unified_history:
-        suggestions = [
-            "Is this project RERA registered?",
-            "Is the price fair for this area?",
-            "Should I buy or rent here?",
-            "What red flags should I look for?",
-        ] if doc_text else [
-            "What is a fair price in Whitefield?",
-            "What is the 10% rule under RERA?",
-            "Should I buy or rent in Bangalore?",
-            "How do I verify RERA registration?",
-        ]
-        st.markdown(
-            "<div style='color:#9ca3af;font-size:.8rem;margin-bottom:6px'>Try asking:</div>",
-            unsafe_allow_html=True,
-        )
-        s_cols = st.columns(2)
-        for i, sug in enumerate(suggestions):
-            if s_cols[i % 2].button(sug, key=f"uf_sug_{i}", use_container_width=True):
-                st.session_state["uf_unified_pending"] = sug
-                st.rerun()
-
-    # Pick up a suggestion click
+    # new message input
     user_input = st.chat_input(
-        "Ask about price, RERA status, builder reputation, buy vs rent..."
+        "e.g. Is Sobha Developers RERA registered? What is a fair price in Whitefield?"
     )
-    if not user_input:
-        user_input = st.session_state.pop("uf_unified_pending", None)
 
     if user_input:
-        st.session_state.uf_unified_history.append({"role": "user", "content": user_input})
+        st.session_state.uf_chat_history.append({"role": "user", "content": user_input})
         with st.chat_message("user"):
             st.markdown(user_input)
 
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 try:
-                    answer = _run_llm_chat(
-                        st.session_state.uf_unified_history,
-                        _system(doc_text),
+                    from openai import OpenAI
+                    client = OpenAI(api_key=_secret("OPENAI_API_KEY"))
+                    messages = (
+                        [{"role": "system", "content": _build_chat_system()}]
+                        + st.session_state.uf_chat_history
                     )
+                    resp = client.chat.completions.create(
+                        model=os.environ.get("LLM_MODEL", "gpt-5-nano"),
+                        messages=messages,
+                        max_tokens=800,
+                    )
+                    raw = resp.choices[0].message.content
+                    if raw:
+                        answer = raw
+                    else:
+                        finish = resp.choices[0].finish_reason
+                        answer = (
+                            f"[No content returned by model. finish_reason={finish!r}. "
+                            f"Check Streamlit logs for details.]"
+                        )
                 except Exception as e:
-                    answer = f"Sorry, something went wrong. ({e})"
+                    answer = f"Sorry, something went wrong. Please try again. ({e})"
+
                 st.markdown(answer)
-                st.session_state.uf_unified_history.append(
+                st.session_state.uf_chat_history.append(
                     {"role": "assistant", "content": answer}
                 )
 
-    if st.session_state.get("uf_unified_history"):
+    if st.session_state.get("uf_chat_history"):
         st.button(
-            "Clear chat", key="uf_clear_unified", type="secondary",
-            on_click=lambda: st.session_state.update(
-                uf_unified_history=[],
-                uf_unified_context_key=None,
-                uf_unified_context_label="",
-            ),
+            "Clear chat", key="uf_clear_chat", type="secondary",
+            on_click=lambda: st.session_state.update(uf_chat_history=[]),
+        )
+
+def _render_pdf_chat():
+    """Combined mode: upload a PDF brochure, then chat with it conversationally.
+
+    The PDF is extracted once and injected as context into every chat turn,
+    so the user can ask follow-up questions naturally without re-uploading.
+    """
+    st.markdown(
+        "<div style='background:#eff6ff;border-left:4px solid #3b82f6;"
+        "border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:.85rem;color:#1e3a8a'>"
+        "Upload your property brochure, then ask questions about it in the chat below."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # PDF upload widget -- persists until user clears it
+    uploaded = st.file_uploader(
+        "Upload PDF brochure", type=["pdf"],
+        label_visibility="visible", key="uf_pdfchat_pdf"
+    )
+
+    # Extract and cache text as soon as a PDF is uploaded
+    if uploaded:
+        pdf_key = f"uf_pdfchat_text_{uploaded.name}_{uploaded.size}"
+        if pdf_key not in st.session_state:
+            with st.spinner("Reading PDF..."):
+                try:
+                    raw = _pdf_to_text(uploaded.read())
+                    st.session_state[pdf_key] = raw[:12000]  # cap at ~3k tokens
+                    st.session_state["uf_pdfchat_active_key"] = pdf_key
+                    st.session_state["uf_pdfchat_filename"] = uploaded.name
+                    # Reset chat history when a new PDF is loaded
+                    st.session_state["uf_pdfchat_history"] = []
+                except Exception as e:
+                    st.error(f"Could not read PDF: {e}")
+                    return
+        else:
+            st.session_state["uf_pdfchat_active_key"] = pdf_key
+            st.session_state["uf_pdfchat_filename"] = uploaded.name
+
+    active_key = st.session_state.get("uf_pdfchat_active_key")
+    pdf_text   = st.session_state.get(active_key, "") if active_key else ""
+    fname      = st.session_state.get("uf_pdfchat_filename", "")
+
+    if pdf_text:
+        st.caption(f"Loaded: **{fname}** ({len(pdf_text):,} chars extracted)")
+    else:
+        st.info("Upload a PDF above to get started, or switch to 'Just Chat' for general questions.")
+        return
+
+    # Build a system prompt that embeds the PDF text as context
+    def _build_pdf_chat_system(doc_text: str) -> str:
+        return (
+            _build_chat_system()
+            + f"\n\n---\n\nThe user has uploaded the following property brochure. "
+            f"Use it as your primary source when answering questions about this specific project. "
+            f"Always cross-check registration status against K-RERA rules.\n\n"
+            f"BROCHURE CONTENT:\n{doc_text}"
+        )
+
+    if "uf_pdfchat_history" not in st.session_state:
+        st.session_state.uf_pdfchat_history = []
+
+    # Render existing conversation
+    for msg in st.session_state.uf_pdfchat_history:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    user_input = st.chat_input(
+        "Ask anything about this brochure: price, RERA status, amenities, red flags..."
+    )
+
+    if user_input:
+        st.session_state.uf_pdfchat_history.append({"role": "user", "content": user_input})
+        with st.chat_message("user"):
+            st.markdown(user_input)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Analysing brochure..."):
+                try:
+                    from openai import OpenAI
+                    client = OpenAI(api_key=_secret("OPENAI_API_KEY"))
+                    messages = (
+                        [{"role": "system", "content": _build_pdf_chat_system(pdf_text)}]
+                        + st.session_state.uf_pdfchat_history
+                    )
+                    resp = client.chat.completions.create(
+                        model=os.environ.get("LLM_MODEL", "gpt-5-nano"),
+                        messages=messages,
+                        max_tokens=800,
+                    )
+                    raw = resp.choices[0].message.content
+                    answer = raw if raw else "[No response returned. Try rephrasing.]"
+                except Exception as e:
+                    answer = f"Sorry, something went wrong. ({e})"
+
+                st.markdown(answer)
+                st.session_state.uf_pdfchat_history.append(
+                    {"role": "assistant", "content": answer}
+                )
+
+    if st.session_state.get("uf_pdfchat_history"):
+        col1, col2 = st.columns([1, 5])
+        col1.button(
+            "Clear chat", key="uf_clear_pdfchat", type="secondary",
+            on_click=lambda: st.session_state.update(uf_pdfchat_history=[]),
         )
 
 
@@ -641,22 +494,8 @@ def _render_report(extracted: dict, rera_rows: list, price: dict, bvr: dict):
     st.markdown("### Your property report")
 
     # ---- RERA status card ----
-    if rera_rows and rera_rows[0].get("_non_karnataka"):
-        # Finding #5: document is from a non-Karnataka state
-        detected_state = rera_rows[0].get("_state", "another state")
-        st.markdown(
-            f"<div style='background:#eff6ff;border-left:4px solid #3b82f6;"
-            f"border-radius:6px;padding:12px 16px;margin-bottom:10px'>"
-            f"<div style='font-weight:700;color:#1e40af'>K-RERA Check Skipped</div>"
-            f"<div style='font-size:.82rem;color:#1e3a8a;margin-top:4px'>"
-            f"This document appears to be from <b>{detected_state}</b>, not Karnataka. "
-            f"K-RERA only covers Karnataka projects. Please check the relevant state RERA portal for this project."
-            f"</div></div>",
-            unsafe_allow_html=True,
-        )
-    elif rera_rows and not rera_rows[0].get("_non_karnataka"):
+    if rera_rows:
         row = rera_rows[0]
-        match_type = row.get("_match_type", "rera_number")
         status = row.get("status") or "Unknown"
         fg, bg = _status_color(status)
         st.markdown(
@@ -671,29 +510,13 @@ def _render_report(extracted: dict, rera_rows: list, price: dict, bvr: dict):
             f"</div></div>",
             unsafe_allow_html=True,
         )
-        # Finding #1: warn when match is by promoter name only (low confidence)
-        if match_type == "promoter_name":
-            queried = row.get("_queried_promoter", "")
-            st.markdown(
-                "<div style='background:#fef9c3;border-left:4px solid #ca8a04;"
-                "border-radius:6px;padding:10px 14px;margin-top:-6px;margin-bottom:10px'>"
-                "<span style='font-weight:700;color:#92400e'>Caution: Promoter-name match only</span>"
-                f"<div style='font-size:.82rem;color:#78350f;margin-top:3px'>"
-                f"No exact RERA number or project name was found. The result above matches the promoter "
-                f"<b>{queried}</b> and may not be the specific project you are checking. "
-                "Verify the RERA number directly at "
-                "<a href='https://rera.karnataka.gov.in' target='_blank'>rera.karnataka.gov.in</a>."
-                "</div></div>",
-                unsafe_allow_html=True,
-            )
     else:
         st.markdown(
             "<div style='background:#fef3c7;border-left:4px solid #d97706;"
             "border-radius:6px;padding:12px 16px;margin-bottom:10px'>"
             "<div style='font-weight:700;color:#92400e'>RERA: Not found in K-RERA database</div>"
             "<div style='font-size:.82rem;color:#78350f;margin-top:4px'>"
-            "Could not match the project by RERA number, project name, or promoter name. "
-            "Verify the RERA number directly at "
+            "Could not match the project. Verify the RERA number directly at "
             "<a href='https://rera.karnataka.gov.in' target='_blank'>rera.karnataka.gov.in</a>."
             "</div></div>",
             unsafe_allow_html=True,
@@ -716,15 +539,6 @@ def _render_report(extracted: dict, rera_rows: list, price: dict, bvr: dict):
             color, icon = "#9f1239", "HIGH"
             msg = price.get("label", "")
 
-        confidence_note = ""
-        if pv != "unavailable" and price.get("price_confidence") == "inferred":
-            confidence_note = (
-                "<div style='font-size:.72rem;color:#b45309;background:#fef3c7;"
-                "border-radius:4px;padding:3px 7px;margin-top:5px;display:inline-block'>"
-                "Note: price/sqft was estimated from total price and carpet area, "
-                "not explicitly stated in the document. Verify with the builder."
-                "</div>"
-            )
         st.markdown(
             f"<div style='border:1px solid #e5e7eb;border-radius:8px;padding:12px;height:100%'>"
             f"<div style='font-size:.7rem;color:#6b7280;text-transform:uppercase;letter-spacing:.05em'>Price Check</div>"
@@ -733,7 +547,6 @@ def _render_report(extracted: dict, rera_rows: list, price: dict, bvr: dict):
             + (f"<div style='font-size:.75rem;color:#6b7280;margin-top:4px'>"
                f"Trend: {price.get('trend','')} &nbsp; Area risk: {price.get('risk','')}</div>"
                if pv != "unavailable" else "")
-            + confidence_note
             + "</div>",
             unsafe_allow_html=True,
         )
@@ -765,7 +578,7 @@ def _render_report(extracted: dict, rera_rows: list, price: dict, bvr: dict):
 
     # ---- extracted details expander ----
     with st.expander("Extracted property details", expanded=False):
-        clean = {k: v for k, v in extracted.items() if v is not None and not k.startswith("_")}
+        clean = {k: v for k, v in extracted.items() if v is not None}
         if clean:
             rows_md = "\n".join(
                 f"| **{k.replace('_',' ').title()}** | {v} |"
@@ -776,10 +589,9 @@ def _render_report(extracted: dict, rera_rows: list, price: dict, bvr: dict):
             st.info("No structured fields could be extracted.")
 
     # ---- multiple RERA matches ----
-    real_rows = [r for r in rera_rows if not r.get("_non_karnataka") and r.get("project_name")]
-    if len(real_rows) > 1:
-        with st.expander(f"Other RERA matches ({len(real_rows) - 1} more)", expanded=False):
-            for r in real_rows[1:]:
+    if len(rera_rows) > 1:
+        with st.expander(f"Other RERA matches ({len(rera_rows) - 1} more)", expanded=False):
+            for r in rera_rows[1:]:
                 fg2, bg2 = _status_color(r.get("status", ""))
                 st.markdown(
                     f"<div style='background:{bg2};border-radius:6px;padding:8px 12px;margin-bottom:6px'>"
@@ -794,9 +606,92 @@ def _render_report(extracted: dict, rera_rows: list, price: dict, bvr: dict):
 # ── main entry point ──────────────────────────────────────────────────────────
 
 def render_user_flow():
-    """Render the unified property advisor: chat + optional PDF/URL context."""
+    """Render the full user-facing property due diligence pipeline."""
 
     # pipeline animation strip
     components.html(DEMO_HTML, height=62)
 
-    _render_unified_chat()
+    st.markdown("#### Check any Karnataka property in seconds")
+    st.caption(
+        "Have a brochure? Drop the PDF. Have a URL? Paste it. No document at all? Just chat and ask anything."
+    )
+
+    # ---- mode selector ----
+    input_mode = st.radio(
+        "How would you like to get started?",
+        ["PDF + Chat", "Upload a PDF brochure", "Paste a website URL", "Just Chat"],
+        horizontal=True,
+        key="uf_input_mode",
+    )
+
+    # ---- PDF + Chat: upload and converse with the document ----
+    if input_mode == "PDF + Chat":
+        _render_pdf_chat()
+        return
+
+    # ---- plain chat branch: render and exit early ----
+    if input_mode == "Just Chat":
+        _render_chat()
+        return
+
+    # ---- document / URL branch ----
+    pdf_bytes = None
+    url_text = None
+
+    if input_mode == "Upload a PDF brochure":
+        uploaded = st.file_uploader(
+            "Upload PDF", type=["pdf"],
+            label_visibility="collapsed", key="uf_pdf"
+        )
+        if uploaded:
+            pdf_bytes = uploaded.read()
+    else:
+        url_input = st.text_input(
+            "Property URL", placeholder="https://...", key="uf_url"
+        )
+        if url_input and url_input.startswith("http"):
+            url_text = url_input
+
+    run = st.button("Run due diligence", type="primary", key="uf_run",
+                    disabled=(pdf_bytes is None and url_text is None))
+
+    if not run:
+        return
+
+    # ---- pipeline execution ----
+    with st.status("Running property due diligence...", expanded=True) as status:
+
+        st.write("Extracting text...")
+        try:
+            if pdf_bytes:
+                raw_text = _pdf_to_text(pdf_bytes)
+            else:
+                raw_text = _url_to_text(url_text)
+        except Exception as e:
+            st.error(f"Could not read the source: {e}")
+            return
+
+        if not raw_text.strip():
+            st.error("No text could be extracted. Try a different source.")
+            return
+
+        st.write("Identifying project details with AI...")
+        extracted = _extract_fields(raw_text)
+
+        if not extracted:
+            st.error("AI extraction returned no data. The document may not be a property brochure.")
+            return
+
+        st.write("Checking K-RERA live database...")
+        rera_rows = _rera_lookup(extracted)
+
+        st.write("Analysing price against locality benchmarks...")
+        price = _price_verdict(extracted)
+
+        st.write("Computing buy vs rent...")
+        bvr = _buy_vs_rent(extracted)
+
+        status.update(label="Done! Scroll down for your report.", state="complete", expanded=False)
+
+    # ---- show report ----
+    _render_report(extracted, rera_rows, price, bvr)
