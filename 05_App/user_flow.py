@@ -352,7 +352,15 @@ def _render_chat():
                         messages=messages,
                         max_completion_tokens=600,
                     )
-                    answer = resp.choices[0].message.content
+                    raw = resp.choices[0].message.content
+                    if raw:
+                        answer = raw
+                    else:
+                        finish = resp.choices[0].finish_reason
+                        answer = (
+                            f"[No content returned by model. finish_reason={finish!r}. "
+                            f"Check Streamlit logs for details.]"
+                        )
                 except Exception as e:
                     answer = f"Sorry, something went wrong. Please try again. ({e})"
 
