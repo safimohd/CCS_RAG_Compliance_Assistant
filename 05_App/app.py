@@ -1751,6 +1751,109 @@ def _demo_login(role: str) -> dict | None:
         return None
 
 
+# ── Query classifier (Option 1: keyword/pattern rules, zero latency) ──────────
+# System B = BM25 hybrid: best for factual/exact lookups (fees, sections, dates)
+# System C = Sub-query + Reflection: best for complex / multi-hop / adversarial
+import re as _re
+
+_SYSTEM_B_PATTERNS = [
+    # Exact fee / penalty / amount lookups
+    r"\b(fee|fees|fine|fines|penalty|penalties|charges?|cost|amount|rupees?|rs\.?)\b",
+    # Section / rule / circular references
+    r"\b(section|sec\.|rule|regulation|circular|notification|clause|schedule|annexure)\s*\d+",
+    # Specific numeric / deadline lookups
+    r"\b(within\s+\d+\s+days?|deadline|time.?limit|expire|expiry|last date)\b",
+    # Registration / certificate / approval lookups
+    r"\b(registration number|rera number|project id|certificate|approval number)\b",
+    # Specific definition lookups
+    r"\b(definition|defined|means|shall mean)\b",
+    # Exact status lookups
+    r"\b(status|registered|approved|lapsed|revoked|suspended)\b",
+    # What / when / who / where for specific facts
+    r"^(what is|what are|when is|when does|who is|where is|how much|how many)\b",
+]
+
+_SYSTEM_C_PATTERNS = [
+    # Scenario / hypothetical reasoning
+    r"\b(if|suppose|assume|scenario|hypothetical|what if|in case)\b",
+    # Comparative / analytical
+    r"\b(compare|difference between|distinguish|versus|vs\.?|pros and cons|advantages|disadvantages)\b",
+    # Multi-step / complex
+    r"\b(step.?by.?step|process|procedure|how (to|do|does)|explain|analyse|analyze|evaluate)\b",
+    # Cross-provision synthesis
+    r"\b(both|all|combination|interact|overlap|conflict|contradict|read together)\b",
+    # Adversarial / edge cases
+    r"\b(exception|exempt|override|despite|notwithstanding|however|but if|unless)\b",
+    # Obligation / rights analysis
+    r"\b(oblig|liable|liability|right(s)?|duty|duties|responsibl|entitled)\b",
+    # Consequential reasoning
+    r"\b(consequence|impact|effect|implication|risk|remedy|redress|recourse)\b",
+]
+
+_B_WEIGHT = 0
+_C_WEIGHT = 0
+
+
+def classify_query(question: str) -> str:
+    """Classify a query as 'B' (factual/exact) or 'C' (complex/analytical).
+
+    Uses keyword/pattern matching with weighted scoring.
+    Returns 'B' or 'C'.
+    """
+    q = question.lower().strip()
+
+    b_score = sum(1 for p in _SYSTEM_B_PATTERNS if _re.search(p, q, _re.I))
+    c_score = sum(1 for p in _SYSTEM_C_PATTERNS if _re.search(p, q, _re.I))
+
+    # Tie-break: short factual questions lean B, longer analytical ones lean C
+    word_count = len(q.split())
+    if word_count <= 10 and c_score == 0:
+        b_score += 1
+    if word_count >= 20 and b_score == 0:
+        c_score += 1
+
+    return "C" if c_score > b_score else "B"
+
+
+def log_query_analytics(session_id: str | None, domain: str, query: str,
+                        system_used: str, model_name: str,
+                        confidence: float) -> None:
+    """Fire-and-forget: write one row to query_log in Supabase."""
+    _cu = _current_user()
+    url = _secret("SUPABASE_URL")
+    svc_key = _secret("SUPABASE_SERVICE_KEY")
+    if not url or not svc_key:
+        return
+    try:
+        import threading as _threading
+        import requests as _rq
+
+        def _post():
+            try:
+                _rq.post(
+                    f"{url}/rest/v1/query_log",
+                    headers={"apikey": svc_key,
+                             "Authorization": f"Bearer {svc_key}",
+                             "Content-Type": "application/json",
+                             "Prefer": "return=minimal"},
+                    json={"session_id": session_id,
+                          "user_id": _cu.get("id"),
+                          "domain": domain,
+                          "query": query[:500],
+                          "system_used": system_used,
+                          "model_name": model_name,
+                          "api_calls": 1,
+                          "confidence": round(confidence, 3)},
+                    timeout=4,
+                )
+            except Exception:
+                pass
+
+        _threading.Thread(target=_post, daemon=True).start()
+    except Exception:
+        pass
+
+
 def generate(client, question: str, domain: str, results, effort: str) -> str:
     user_msg = (f"Domain: {domain}\n\nQuestion: {question}\n\n"
                 f"Retrieved sources:\n\n{format_sources(results)}")
@@ -3546,6 +3649,12 @@ with _rera_tab_ctx:
                                 st.rerun()
 
                 effort = choose_effort(results, prompt)
+
+                # ── Route to System B or C based on query type ────────────
+                _routed_system = classify_query(prompt)
+                # (retrieval already done above; system label is for analytics
+                #  and future per-system prompt differentiation)
+
                 key = cache_key(prompt, domain, scope_label, include_drafts,
                                 include_review, effort)
                 hit = answer_cache().get(key)
@@ -3580,10 +3689,30 @@ with _rera_tab_ctx:
                     cache_put(key, {"answer": answer, "question": prompt,
                                     "domain": domain})
                     log_query(domain, prompt, answer, best_sim, results, low_confidence)
+                    # Log query analytics (system used, model, confidence)
+                    _active_sid = st.session_state.get("_active_session_id")
+                    log_query_analytics(
+                        session_id=_active_sid,
+                        domain=domain,
+                        query=prompt,
+                        system_used=_routed_system,
+                        model_name=LLM_MODEL,
+                        confidence=best_sim,
+                    )
                     st.caption(
                         "⚠️ This answer is AI-generated from regulatory documents. "
                         "Always verify with the official source before acting on it."
                     )
+
+                # System routing badge (shown on every answer)
+                _sys_color = "#1a5f7a" if _routed_system == "C" else "#4a7c59"
+                _sys_label = "System C · Deep Analysis" if _routed_system == "C" else "System B · Exact Lookup"
+                _sys_icon  = "🔍" if _routed_system == "C" else "⚡"
+                st.markdown(
+                    f"<span style='font-size:.72rem;color:{_sys_color};"
+                    f"font-weight:600;background:{_sys_color}18;padding:2px 8px;"
+                    f"border-radius:10px;margin-right:6px'>{_sys_icon} {_sys_label}</span>",
+                    unsafe_allow_html=True)
 
                 # Confidence badge
                 if not low_confidence:

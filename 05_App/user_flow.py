@@ -375,6 +375,114 @@ def _render_chat():
             on_click=lambda: st.session_state.update(uf_chat_history=[]),
         )
 
+def _render_pdf_chat():
+    """Combined mode: upload a PDF brochure, then chat with it conversationally.
+
+    The PDF is extracted once and injected as context into every chat turn,
+    so the user can ask follow-up questions naturally without re-uploading.
+    """
+    st.markdown(
+        "<div style='background:#eff6ff;border-left:4px solid #3b82f6;"
+        "border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:.85rem;color:#1e3a8a'>"
+        "Upload your property brochure, then ask questions about it in the chat below."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # PDF upload widget -- persists until user clears it
+    uploaded = st.file_uploader(
+        "Upload PDF brochure", type=["pdf"],
+        label_visibility="visible", key="uf_pdfchat_pdf"
+    )
+
+    # Extract and cache text as soon as a PDF is uploaded
+    if uploaded:
+        pdf_key = f"uf_pdfchat_text_{uploaded.name}_{uploaded.size}"
+        if pdf_key not in st.session_state:
+            with st.spinner("Reading PDF..."):
+                try:
+                    raw = _pdf_to_text(uploaded.read())
+                    st.session_state[pdf_key] = raw[:12000]  # cap at ~3k tokens
+                    st.session_state["uf_pdfchat_active_key"] = pdf_key
+                    st.session_state["uf_pdfchat_filename"] = uploaded.name
+                    # Reset chat history when a new PDF is loaded
+                    st.session_state["uf_pdfchat_history"] = []
+                except Exception as e:
+                    st.error(f"Could not read PDF: {e}")
+                    return
+        else:
+            st.session_state["uf_pdfchat_active_key"] = pdf_key
+            st.session_state["uf_pdfchat_filename"] = uploaded.name
+
+    active_key = st.session_state.get("uf_pdfchat_active_key")
+    pdf_text   = st.session_state.get(active_key, "") if active_key else ""
+    fname      = st.session_state.get("uf_pdfchat_filename", "")
+
+    if pdf_text:
+        st.caption(f"Loaded: **{fname}** ({len(pdf_text):,} chars extracted)")
+    else:
+        st.info("Upload a PDF above to get started, or switch to 'Just Chat' for general questions.")
+        return
+
+    # Build a system prompt that embeds the PDF text as context
+    def _build_pdf_chat_system(doc_text: str) -> str:
+        return (
+            _build_chat_system()
+            + f"\n\n---\n\nThe user has uploaded the following property brochure. "
+            f"Use it as your primary source when answering questions about this specific project. "
+            f"Always cross-check registration status against K-RERA rules.\n\n"
+            f"BROCHURE CONTENT:\n{doc_text}"
+        )
+
+    if "uf_pdfchat_history" not in st.session_state:
+        st.session_state.uf_pdfchat_history = []
+
+    # Render existing conversation
+    for msg in st.session_state.uf_pdfchat_history:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    user_input = st.chat_input(
+        "Ask anything about this brochure: price, RERA status, amenities, red flags..."
+    )
+
+    if user_input:
+        st.session_state.uf_pdfchat_history.append({"role": "user", "content": user_input})
+        with st.chat_message("user"):
+            st.markdown(user_input)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Analysing brochure..."):
+                try:
+                    from openai import OpenAI
+                    client = OpenAI(api_key=_secret("OPENAI_API_KEY"))
+                    messages = (
+                        [{"role": "system", "content": _build_pdf_chat_system(pdf_text)}]
+                        + st.session_state.uf_pdfchat_history
+                    )
+                    resp = client.chat.completions.create(
+                        model=os.environ.get("LLM_MODEL", "gpt-5-nano"),
+                        messages=messages,
+                        max_tokens=800,
+                    )
+                    raw = resp.choices[0].message.content
+                    answer = raw if raw else "[No response returned. Try rephrasing.]"
+                except Exception as e:
+                    answer = f"Sorry, something went wrong. ({e})"
+
+                st.markdown(answer)
+                st.session_state.uf_pdfchat_history.append(
+                    {"role": "assistant", "content": answer}
+                )
+
+    if st.session_state.get("uf_pdfchat_history"):
+        col1, col2 = st.columns([1, 5])
+        col1.button(
+            "Clear chat", key="uf_clear_pdfchat", type="secondary",
+            on_click=lambda: st.session_state.update(uf_pdfchat_history=[]),
+        )
+
+
 # ── report renderer ───────────────────────────────────────────────────────────
 
 def _render_report(extracted: dict, rera_rows: list, price: dict, bvr: dict):
@@ -507,12 +615,17 @@ def render_user_flow():
     # ---- mode selector ----
     input_mode = st.radio(
         "How would you like to get started?",
-        ["Upload a PDF brochure", "Paste a website URL", "Just Chat"],
+        ["PDF + Chat", "Upload a PDF brochure", "Paste a website URL", "Just Chat"],
         horizontal=True,
         key="uf_input_mode",
     )
 
-    # ---- chat branch: render and exit early ----
+    # ---- PDF + Chat: upload and converse with the document ----
+    if input_mode == "PDF + Chat":
+        _render_pdf_chat()
+        return
+
+    # ---- plain chat branch: render and exit early ----
     if input_mode == "Just Chat":
         _render_chat()
         return
