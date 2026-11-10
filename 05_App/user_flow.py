@@ -350,7 +350,7 @@ def _render_chat():
                     resp = client.chat.completions.create(
                         model=os.environ.get("LLM_MODEL", "gpt-5-nano"),
                         messages=messages,
-                        max_completion_tokens=4000,
+                        max_tokens=800,
                     )
                     raw = resp.choices[0].message.content
                     if raw:
