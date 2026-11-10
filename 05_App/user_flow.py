@@ -279,6 +279,184 @@ DEMO_HTML = """
 """
 
 
+# ── direct RERA DB search (used by sidebar and chat intent detection) ─────────
+
+def _search_rera_db(query: str, search_by: str = "auto", limit: int = 5) -> list:
+    """Search rera_projects by project name, promoter, pin code, or RERA number.
+
+    search_by: "auto" | "name" | "promoter" | "pin" | "rera"
+    Returns list of project dicts (empty list on failure).
+    """
+    requests = _ensure("requests")
+    url_base = _secret("SUPABASE_URL")
+    key = _secret("SUPABASE_KEY")
+    if not url_base or not key or not query.strip():
+        return []
+
+    headers = {"apikey": key, "Authorization": f"Bearer {key}"}
+    select = ("project_name,promoter_name,status,district,ack_number,prm_number,"
+              "completion_date,lapse_date,total_units,sold_units,"
+              "no_of_towers,approving_authority,pin_code,total_carpet_area_sqmt")
+    q = query.strip()
+
+    def _get(params: str) -> list:
+        try:
+            r = requests.get(
+                f"{url_base}/rest/v1/rera_projects?{params}&select={select}&limit={limit}",
+                headers=headers, timeout=10
+            )
+            return r.json() if r.status_code == 200 and isinstance(r.json(), list) else []
+        except Exception:
+            return []
+
+    if search_by == "rera" or (search_by == "auto" and re.search(r"(PRM|PR)/KA/RERA", q, re.I)):
+        rows = _get(f"ack_number=ilike.*{requests.utils.quote(q)}*")
+        if rows:
+            return rows
+
+    if search_by == "pin" or (search_by == "auto" and re.match(r"^\d{6}$", q)):
+        return _get(f"pin_code=eq.{requests.utils.quote(q)}")
+
+    if search_by == "promoter":
+        return _get(f"promoter_name=ilike.*{requests.utils.quote(q)}*")
+
+    if search_by == "name":
+        return _get(f"project_name=ilike.*{requests.utils.quote(q)}*")
+
+    # auto: try project name first, then promoter
+    rows = _get(f"project_name=ilike.*{requests.utils.quote(q)}*")
+    if rows:
+        return rows
+    return _get(f"promoter_name=ilike.*{requests.utils.quote(q)}*")
+
+
+def _format_db_rows_for_llm(rows: list) -> str:
+    """Format DB rows as a compact context block for the LLM."""
+    if not rows:
+        return ""
+    lines = ["[Live K-RERA database results]"]
+    for r in rows[:5]:
+        sold = r.get("sold_units") or ""
+        total = r.get("total_units") or ""
+        units_str = f"{sold}/{total} units sold" if sold and total else ""
+        parts = [
+            r.get("project_name", "Unknown project"),
+            f"Status: {r.get('status', 'unknown')}",
+            f"Promoter: {r.get('promoter_name', '')}",
+            f"RERA#: {r.get('ack_number', '')}",
+            f"District: {r.get('district', '')}",
+            f"PIN: {r.get('pin_code', '')}",
+            f"Completion: {r.get('completion_date', '')}",
+            f"Lapse date: {r.get('lapse_date', '')}",
+        ]
+        if units_str:
+            parts.append(units_str)
+        lines.append("  " + " | ".join(p for p in parts if p.split(": ", 1)[-1]))
+    return "\n".join(lines)
+
+
+def _detect_entity_in_message(msg: str) -> dict:
+    """Extract a project name, builder name, or pin code from a chat message.
+
+    Returns {"query": str, "type": "name"|"promoter"|"pin"|"rera"|"none"}
+    """
+    # RERA number pattern
+    if re.search(r"(PRM|PR)/KA/RERA", msg, re.I):
+        m = re.search(r"((?:PRM|PR)/KA/RERA[^\s,]+)", msg, re.I)
+        return {"query": m.group(1) if m else "", "type": "rera"}
+
+    # 6-digit pin code
+    m = re.search(r"\b(5[0-9]{5})\b", msg)
+    if m:
+        return {"query": m.group(1), "type": "pin"}
+
+    # Signals that the user is asking about a specific project or builder
+    project_signals = [
+        "project", "apartment", "flat", "society", "residency", "residences",
+        "habitat", "gardens", "towers", "heights", "enclave", "villa", "layout",
+        "is registered", "rera registered", "track record", "how many projects",
+        "trustworthy", "reputed", "reliable", "developer", "builder", "promoter"
+    ]
+    msg_lower = msg.lower()
+    if not any(sig in msg_lower for sig in project_signals):
+        return {"query": "", "type": "none"}
+
+    # Try to extract a quoted or capitalised proper noun (project/builder name)
+    # Look for quoted strings first
+    m = re.search(r'["‘’“”]([^"\']+)["‘’“”]', msg)
+    if m:
+        return {"query": m.group(1).strip(), "type": "name"}
+
+    # Look for known builder keywords followed by a name
+    builder_patterns = [
+        r'\b(Prestige\s+\w+(?:\s+\w+)?)',
+        r'\b(Sobha\s+\w+(?:\s+\w+)?)',
+        r'\b(Brigade\s+\w+(?:\s+\w+)?)',
+        r'\b(Godrej\s+\w+(?:\s+\w+)?)',
+        r'\b(Puravankara\s+\w+(?:\s+\w+)?)',
+        r'\b(Provident\s+\w+(?:\s+\w+)?)',
+        r'\b(Mantri\s+\w+(?:\s+\w+)?)',
+        r'\b(Embassy\s+\w+(?:\s+\w+)?)',
+        r'\b(Salarpuria\s+\w+(?:\s+\w+)?)',
+        r'\b(Shriram\s+\w+(?:\s+\w+)?)',
+        r'\b(TVS\s+\w+(?:\s+\w+)?)',
+    ]
+    for pat in builder_patterns:
+        m = re.search(pat, msg, re.I)
+        if m:
+            matched = m.group(1).strip()
+            # If the message is about a builder generally (not a specific project), search by promoter
+            if any(w in msg_lower for w in ["how many", "track record", "trustworthy", "reliable", "builder", "developer", "promoter"]):
+                builder_name = matched.split()[0]  # e.g. "Prestige"
+                return {"query": builder_name, "type": "promoter"}
+            return {"query": matched, "type": "name"}
+
+    return {"query": "", "type": "none"}
+
+
+def _sidebar_project_search():
+    """Sidebar widget: search K-RERA DB by project name, builder, pin code, or RERA number."""
+    with st.sidebar:
+        st.markdown("### Project Lookup")
+        st.caption("Search the K-RERA database directly.")
+
+        search_query = st.text_input(
+            "Project / Builder / PIN / RERA#",
+            placeholder="e.g. Prestige Lakeside or 560066",
+            key="sidebar_search_query"
+        )
+        search_btn = st.button("Search", key="sidebar_search_btn", type="primary")
+
+        if search_btn and search_query.strip():
+            with st.spinner("Searching K-RERA..."):
+                rows = _search_rera_db(search_query.strip(), search_by="auto", limit=8)
+
+            if not rows:
+                st.warning("No matching projects found in K-RERA database.")
+            else:
+                st.success(f"Found {len(rows)} project(s)")
+                for r in rows:
+                    fg, bg = _status_color(r.get("status", ""))
+                    sold = r.get("sold_units") or ""
+                    total = r.get("total_units") or ""
+                    units_str = f"{sold}/{total} units sold" if sold and total else ""
+                    st.markdown(
+                        f"<div style='background:{bg};border-radius:8px;padding:10px 12px;margin-bottom:8px'>"
+                        f"<div style='font-weight:700;color:{fg};font-size:.9rem'>{r.get('project_name','')}</div>"
+                        f"<div style='font-size:.78rem;color:#374151;margin-top:3px'>"
+                        f"Status: <b>{r.get('status','')}</b> | {r.get('promoter_name','')}"
+                        f"</div>"
+                        f"<div style='font-size:.75rem;color:#6b7280;margin-top:2px'>"
+                        f"RERA: {r.get('ack_number','')} | PIN: {r.get('pin_code','')}"
+                        f"</div>"
+                        f"<div style='font-size:.75rem;color:#6b7280'>"
+                        f"Completion: {r.get('completion_date','')} | {units_str}"
+                        f"</div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+
+
 # ── conversational advisor ────────────────────────────────────────────────────
 
 def _build_chat_system() -> str:
@@ -347,8 +525,33 @@ def _render_chat():
                 try:
                     from openai import OpenAI
                     client = OpenAI(api_key=_secret("OPENAI_API_KEY"))
+
+                    # --- Live DB lookup: detect project / builder / pin in the message ---
+                    entity = _detect_entity_in_message(user_input)
+                    db_context = ""
+                    if entity["type"] != "none" and entity["query"]:
+                        db_rows = _search_rera_db(
+                            entity["query"],
+                            search_by=entity["type"],
+                            limit=5,
+                        )
+                        if db_rows:
+                            db_context = _format_db_rows_for_llm(db_rows)
+
+                    # Build system prompt, optionally injecting DB results for this turn
+                    system_content = _build_chat_system()
+                    if db_context:
+                        system_content = (
+                            system_content
+                            + "\n\n"
+                            + db_context
+                            + "\n\nUse the above live database results to answer the user's "
+                            "question accurately. Quote RERA numbers, status, and completion "
+                            "dates from these results when relevant."
+                        )
+
                     messages = (
-                        [{"role": "system", "content": _build_chat_system()}]
+                        [{"role": "system", "content": system_content}]
                         + st.session_state.uf_chat_history
                     )
                     resp = client.chat.completions.create(
@@ -607,6 +810,9 @@ def _render_report(extracted: dict, rera_rows: list, price: dict, bvr: dict):
 
 def render_user_flow():
     """Render the full user-facing property due diligence pipeline."""
+
+    # Sidebar: Project Lookup widget (always visible)
+    _sidebar_project_search()
 
     # pipeline animation strip
     components.html(DEMO_HTML, height=62)
