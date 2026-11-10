@@ -309,23 +309,23 @@ Guidelines:
 
 
 def _run_llm_chat(history: list, system_prompt: str) -> str:
-    """Call OpenAI with streaming and return the full answer string.
+    """Call OpenAI and return the full answer string.
 
-    gpt-5-nano is a reasoning model: on a non-streaming call it returns
-    message.content=None (reasoning tokens are internal).  Streaming is the
-    only reliable way to get the visible answer, matching how app.py works.
+    Uses the same approach as app.py generate(): try streaming first,
+    fall back to blocking if streaming is rejected.
     """
     from openai import OpenAI
     client = OpenAI(api_key=_secret("OPENAI_API_KEY"))
-    model  = os.environ.get("LLM_MODEL", "gpt-5-nano")
+    model  = "gpt-5-nano"  # hardcoded so LLM_MODEL env var can't override here
     messages = [{"role": "system", "content": system_prompt}] + history
+
+    stream_error = None
 
     # -- streaming path (primary) ------------------------------------------
     try:
         stream = client.chat.completions.create(
             model=model,
             messages=messages,
-            max_completion_tokens=800,
             stream=True,
         )
         parts = []
@@ -337,23 +337,23 @@ def _run_llm_chat(history: list, system_prompt: str) -> str:
         answer = "".join(parts).strip()
         if answer:
             return answer
-    except Exception:
-        pass  # fall through to blocking call
+        # stream finished but produced nothing — record for diagnostics
+        stream_error = "stream returned 0 content chunks"
+    except Exception as e:
+        stream_error = str(e)
 
-    # -- blocking fallback (for models/orgs that reject streaming) ----------
+    # -- blocking fallback --------------------------------------------------
     try:
         resp = client.chat.completions.create(
             model=model,
             messages=messages,
-            max_completion_tokens=800,
         )
         answer = (resp.choices[0].message.content or "").strip()
         if answer:
             return answer
+        return f"[No content returned. Stream error: {stream_error}]"
     except Exception as e:
-        return f"Sorry, the request failed: {e}"
-
-    return "No answer was returned. Please try rephrasing."
+        return f"API error: {e} | Stream error: {stream_error}"
 
 def _render_unified_chat():
     """Single unified chat: optional PDF or URL as context, conversational Q&A below.
