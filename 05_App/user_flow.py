@@ -308,178 +308,218 @@ Guidelines:
 - Do not use em dashes anywhere in your response."""
 
 
-def _render_chat():
-    """Conversational property advisor for users who do not have a brochure or URL."""
+def _run_llm_chat(history: list, system_prompt: str) -> str:
+    """Call OpenAI with the given history and system prompt. Returns answer string."""
+    from openai import OpenAI
+    client = OpenAI(api_key=_secret("OPENAI_API_KEY"))
+    messages = [{"role": "system", "content": system_prompt}] + history
+    resp = client.chat.completions.create(
+        model=os.environ.get("LLM_MODEL", "gpt-5-nano"),
+        messages=messages,
+        max_tokens=800,
+    )
+    raw = resp.choices[0].message.content
+    return raw.strip() if raw else "[No response returned. Try rephrasing your question.]"
 
+def _render_unified_chat():
+    """Single unified chat: optional PDF or URL as context, conversational Q&A below.
+
+    No radio buttons. User can attach a PDF, paste a URL, or just type and go.
+    If a PDF or URL is loaded, it becomes context for the entire conversation.
+    """
+
+    # ---- context attachment strip ------------------------------------------------
     st.markdown(
-        "<div style='background:#f0fdf4;border-left:4px solid #22c55e;"
-        "border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:.85rem;color:#166534'>"
-        "Ask me anything: RERA registration, fair price for a locality, EMI estimates, "
-        "buy vs rent decisions, or anything else about Bangalore real estate."
-        "</div>",
+        "<div style='background:linear-gradient(135deg,#1e3a5f 0%,#1a5f7a 100%);"
+        "border-radius:12px;padding:20px 24px;margin-bottom:20px;color:#fff'>"
+        "<div style='font-size:1.1rem;font-weight:700;margin-bottom:4px'>Your Property Advisor</div>"
+        "<div style='font-size:.85rem;opacity:.85'>"
+        "Have a brochure? Drop it below. Have a URL? Paste it. No document? Just start chatting."
+        "</div>"
+        "<div style='display:flex;gap:12px;margin-top:14px;flex-wrap:wrap'>"
+        "<div style='background:rgba(255,255,255,.12);border-radius:8px;padding:6px 12px;"
+        "font-size:.78rem'>📄 PDF brochure</div>"
+        "<div style='background:rgba(255,255,255,.12);border-radius:8px;padding:6px 12px;"
+        "font-size:.78rem'>🔗 Property URL</div>"
+        "<div style='background:rgba(255,255,255,.12);border-radius:8px;padding:6px 12px;"
+        "font-size:.78rem'>💬 Just chat</div>"
+        "</div></div>",
         unsafe_allow_html=True,
     )
 
-    if "uf_chat_history" not in st.session_state:
-        st.session_state.uf_chat_history = []
+    # Optional context inputs in a compact expander
+    with st.expander("📎 Add context (PDF or URL)", expanded=False):
+        ctx_col1, ctx_col2 = st.columns([1, 1], gap="medium")
+        with ctx_col1:
+            st.markdown("**Upload a PDF brochure**")
+            uploaded = st.file_uploader(
+                "PDF", type=["pdf"], label_visibility="collapsed", key="uf_unified_pdf"
+            )
+        with ctx_col2:
+            st.markdown("**Or paste a property URL**")
+            url_input = st.text_input(
+                "URL", placeholder="https://sobharealty.com/...",
+                label_visibility="collapsed", key="uf_unified_url"
+            )
 
-    # render existing history
-    for msg in st.session_state.uf_chat_history:
+    # ---- process PDF if newly uploaded ------------------------------------------
+    doc_text   = ""
+    doc_label  = ""
+    doc_source = ""
+
+    if uploaded:
+        pdf_cache_key = f"uf_unified_pdftext_{uploaded.name}_{uploaded.size}"
+        if pdf_cache_key not in st.session_state:
+            with st.spinner("Reading PDF..."):
+                try:
+                    raw = _pdf_to_text(uploaded.read())
+                    st.session_state[pdf_cache_key] = raw[:14000]
+                    st.session_state["uf_unified_context_key"] = pdf_cache_key
+                    st.session_state["uf_unified_context_label"] = f"📄 {uploaded.name}"
+                    st.session_state["uf_unified_context_source"] = "pdf"
+                    st.session_state["uf_unified_history"] = []  # reset chat on new doc
+                except Exception as e:
+                    st.error(f"Could not read PDF: {e}")
+        else:
+            st.session_state["uf_unified_context_key"] = pdf_cache_key
+            st.session_state["uf_unified_context_label"] = f"📄 {uploaded.name}"
+            st.session_state["uf_unified_context_source"] = "pdf"
+
+    elif url_input and url_input.startswith("http"):
+        url_cache_key = f"uf_unified_urltext_{url_input[:80]}"
+        if url_cache_key not in st.session_state:
+            with st.spinner("Fetching page..."):
+                try:
+                    raw = _url_to_text(url_input)
+                    st.session_state[url_cache_key] = raw[:14000]
+                    st.session_state["uf_unified_context_key"] = url_cache_key
+                    st.session_state["uf_unified_context_label"] = f"🔗 {url_input[:60]}..."
+                    st.session_state["uf_unified_context_source"] = "url"
+                    st.session_state["uf_unified_history"] = []
+                except Exception as e:
+                    st.error(f"Could not fetch URL: {e}")
+        else:
+            st.session_state["uf_unified_context_key"] = url_cache_key
+            st.session_state["uf_unified_context_label"] = f"🔗 {url_input[:60]}..."
+            st.session_state["uf_unified_context_source"] = "url"
+
+    # Read active context from session
+    active_key   = st.session_state.get("uf_unified_context_key")
+    doc_text     = st.session_state.get(active_key, "") if active_key else ""
+    doc_label    = st.session_state.get("uf_unified_context_label", "")
+    doc_source   = st.session_state.get("uf_unified_context_source", "")
+
+    # ---- context status pill + full report button --------------------------------
+    if doc_text:
+        pill_col, btn_col = st.columns([3, 1])
+        pill_col.markdown(
+            f"<div style='background:#eff6ff;border:1px solid #bfdbfe;border-radius:20px;"
+            f"display:inline-block;padding:4px 14px;font-size:.8rem;color:#1e40af;"
+            f"margin-bottom:8px'>Context loaded: <b>{doc_label}</b> "
+            f"({len(doc_text):,} chars)</div>",
+            unsafe_allow_html=True,
+        )
+        if btn_col.button("Run full report", type="primary", key="uf_run_report"):
+            st.session_state["uf_unified_run_report"] = True
+
+        # ---- run full due diligence pipeline if requested ----------------------
+        if st.session_state.pop("uf_unified_run_report", False):
+            with st.status("Running property due diligence...", expanded=True) as status:
+                st.write("Identifying project details with AI...")
+                extracted = _extract_fields(doc_text)
+                if not extracted:
+                    st.error("Could not extract property details from this document.")
+                else:
+                    st.write("Checking K-RERA live database...")
+                    rera_rows = _rera_lookup(extracted)
+                    st.write("Analysing price against locality benchmarks...")
+                    price = _price_verdict(extracted)
+                    st.write("Computing buy vs rent...")
+                    bvr = _buy_vs_rent(extracted)
+                    status.update(label="Done! Scroll down for your report.", state="complete", expanded=False)
+                    _render_report(extracted, rera_rows, price, bvr)
+            st.markdown("---")
+
+    # ---- build system prompt (with or without doc context) ----------------------
+    def _system(text: str = "") -> str:
+        base = _build_chat_system()
+        if not text:
+            return base
+        source_label = "property brochure" if doc_source == "pdf" else "property website"
+        return (
+            base
+            + f"\n\n---\n\nThe user has provided the following {source_label} as context. "
+            "Use it as your primary source when answering questions about this specific property. "
+            "Always cross-check registration status against K-RERA rules.\n\n"
+            f"DOCUMENT CONTENT:\n{text}"
+        )
+
+    # ---- chat history -----------------------------------------------------------
+    if "uf_unified_history" not in st.session_state:
+        st.session_state.uf_unified_history = []
+
+    # Render existing messages
+    for msg in st.session_state.uf_unified_history:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # new message input
+    # Placeholder suggestions when chat is empty
+    if not st.session_state.uf_unified_history:
+        suggestions = [
+            "Is this project RERA registered?",
+            "Is the price fair for this area?",
+            "Should I buy or rent here?",
+            "What red flags should I look for?",
+        ] if doc_text else [
+            "What is a fair price in Whitefield?",
+            "What is the 10% rule under RERA?",
+            "Should I buy or rent in Bangalore?",
+            "How do I verify RERA registration?",
+        ]
+        st.markdown(
+            "<div style='color:#9ca3af;font-size:.8rem;margin-bottom:6px'>Try asking:</div>",
+            unsafe_allow_html=True,
+        )
+        s_cols = st.columns(2)
+        for i, sug in enumerate(suggestions):
+            if s_cols[i % 2].button(sug, key=f"uf_sug_{i}", use_container_width=True):
+                st.session_state["uf_unified_pending"] = sug
+                st.rerun()
+
+    # Pick up a suggestion click
     user_input = st.chat_input(
-        "e.g. Is Sobha Developers RERA registered? What is a fair price in Whitefield?"
+        "Ask about price, RERA status, builder reputation, buy vs rent..."
     )
+    if not user_input:
+        user_input = st.session_state.pop("uf_unified_pending", None)
 
     if user_input:
-        st.session_state.uf_chat_history.append({"role": "user", "content": user_input})
+        st.session_state.uf_unified_history.append({"role": "user", "content": user_input})
         with st.chat_message("user"):
             st.markdown(user_input)
 
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 try:
-                    from openai import OpenAI
-                    client = OpenAI(api_key=_secret("OPENAI_API_KEY"))
-                    messages = (
-                        [{"role": "system", "content": _build_chat_system()}]
-                        + st.session_state.uf_chat_history
+                    answer = _run_llm_chat(
+                        st.session_state.uf_unified_history,
+                        _system(doc_text),
                     )
-                    resp = client.chat.completions.create(
-                        model=os.environ.get("LLM_MODEL", "gpt-5-nano"),
-                        messages=messages,
-                        max_tokens=800,
-                    )
-                    raw = resp.choices[0].message.content
-                    if raw:
-                        answer = raw
-                    else:
-                        finish = resp.choices[0].finish_reason
-                        answer = (
-                            f"[No content returned by model. finish_reason={finish!r}. "
-                            f"Check Streamlit logs for details.]"
-                        )
-                except Exception as e:
-                    answer = f"Sorry, something went wrong. Please try again. ({e})"
-
-                st.markdown(answer)
-                st.session_state.uf_chat_history.append(
-                    {"role": "assistant", "content": answer}
-                )
-
-    if st.session_state.get("uf_chat_history"):
-        st.button(
-            "Clear chat", key="uf_clear_chat", type="secondary",
-            on_click=lambda: st.session_state.update(uf_chat_history=[]),
-        )
-
-def _render_pdf_chat():
-    """Combined mode: upload a PDF brochure, then chat with it conversationally.
-
-    The PDF is extracted once and injected as context into every chat turn,
-    so the user can ask follow-up questions naturally without re-uploading.
-    """
-    st.markdown(
-        "<div style='background:#eff6ff;border-left:4px solid #3b82f6;"
-        "border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:.85rem;color:#1e3a8a'>"
-        "Upload your property brochure, then ask questions about it in the chat below."
-        "</div>",
-        unsafe_allow_html=True,
-    )
-
-    # PDF upload widget -- persists until user clears it
-    uploaded = st.file_uploader(
-        "Upload PDF brochure", type=["pdf"],
-        label_visibility="visible", key="uf_pdfchat_pdf"
-    )
-
-    # Extract and cache text as soon as a PDF is uploaded
-    if uploaded:
-        pdf_key = f"uf_pdfchat_text_{uploaded.name}_{uploaded.size}"
-        if pdf_key not in st.session_state:
-            with st.spinner("Reading PDF..."):
-                try:
-                    raw = _pdf_to_text(uploaded.read())
-                    st.session_state[pdf_key] = raw[:12000]  # cap at ~3k tokens
-                    st.session_state["uf_pdfchat_active_key"] = pdf_key
-                    st.session_state["uf_pdfchat_filename"] = uploaded.name
-                    # Reset chat history when a new PDF is loaded
-                    st.session_state["uf_pdfchat_history"] = []
-                except Exception as e:
-                    st.error(f"Could not read PDF: {e}")
-                    return
-        else:
-            st.session_state["uf_pdfchat_active_key"] = pdf_key
-            st.session_state["uf_pdfchat_filename"] = uploaded.name
-
-    active_key = st.session_state.get("uf_pdfchat_active_key")
-    pdf_text   = st.session_state.get(active_key, "") if active_key else ""
-    fname      = st.session_state.get("uf_pdfchat_filename", "")
-
-    if pdf_text:
-        st.caption(f"Loaded: **{fname}** ({len(pdf_text):,} chars extracted)")
-    else:
-        st.info("Upload a PDF above to get started, or switch to 'Just Chat' for general questions.")
-        return
-
-    # Build a system prompt that embeds the PDF text as context
-    def _build_pdf_chat_system(doc_text: str) -> str:
-        return (
-            _build_chat_system()
-            + f"\n\n---\n\nThe user has uploaded the following property brochure. "
-            f"Use it as your primary source when answering questions about this specific project. "
-            f"Always cross-check registration status against K-RERA rules.\n\n"
-            f"BROCHURE CONTENT:\n{doc_text}"
-        )
-
-    if "uf_pdfchat_history" not in st.session_state:
-        st.session_state.uf_pdfchat_history = []
-
-    # Render existing conversation
-    for msg in st.session_state.uf_pdfchat_history:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-
-    user_input = st.chat_input(
-        "Ask anything about this brochure: price, RERA status, amenities, red flags..."
-    )
-
-    if user_input:
-        st.session_state.uf_pdfchat_history.append({"role": "user", "content": user_input})
-        with st.chat_message("user"):
-            st.markdown(user_input)
-
-        with st.chat_message("assistant"):
-            with st.spinner("Analysing brochure..."):
-                try:
-                    from openai import OpenAI
-                    client = OpenAI(api_key=_secret("OPENAI_API_KEY"))
-                    messages = (
-                        [{"role": "system", "content": _build_pdf_chat_system(pdf_text)}]
-                        + st.session_state.uf_pdfchat_history
-                    )
-                    resp = client.chat.completions.create(
-                        model=os.environ.get("LLM_MODEL", "gpt-5-nano"),
-                        messages=messages,
-                        max_tokens=800,
-                    )
-                    raw = resp.choices[0].message.content
-                    answer = raw if raw else "[No response returned. Try rephrasing.]"
                 except Exception as e:
                     answer = f"Sorry, something went wrong. ({e})"
-
                 st.markdown(answer)
-                st.session_state.uf_pdfchat_history.append(
+                st.session_state.uf_unified_history.append(
                     {"role": "assistant", "content": answer}
                 )
 
-    if st.session_state.get("uf_pdfchat_history"):
-        col1, col2 = st.columns([1, 5])
-        col1.button(
-            "Clear chat", key="uf_clear_pdfchat", type="secondary",
-            on_click=lambda: st.session_state.update(uf_pdfchat_history=[]),
+    if st.session_state.get("uf_unified_history"):
+        st.button(
+            "Clear chat", key="uf_clear_unified", type="secondary",
+            on_click=lambda: st.session_state.update(
+                uf_unified_history=[],
+                uf_unified_context_key=None,
+                uf_unified_context_label="",
+            ),
         )
 
 
@@ -602,92 +642,9 @@ def _render_report(extracted: dict, rera_rows: list, price: dict, bvr: dict):
 # ── main entry point ──────────────────────────────────────────────────────────
 
 def render_user_flow():
-    """Render the full user-facing property due diligence pipeline."""
+    """Render the unified property advisor: chat + optional PDF/URL context."""
 
     # pipeline animation strip
     components.html(DEMO_HTML, height=62)
 
-    st.markdown("#### Check any Karnataka property in seconds")
-    st.caption(
-        "Have a brochure? Drop the PDF. Have a URL? Paste it. No document at all? Just chat and ask anything."
-    )
-
-    # ---- mode selector ----
-    input_mode = st.radio(
-        "How would you like to get started?",
-        ["PDF + Chat", "Upload a PDF brochure", "Paste a website URL", "Just Chat"],
-        horizontal=True,
-        key="uf_input_mode",
-    )
-
-    # ---- PDF + Chat: upload and converse with the document ----
-    if input_mode == "PDF + Chat":
-        _render_pdf_chat()
-        return
-
-    # ---- plain chat branch: render and exit early ----
-    if input_mode == "Just Chat":
-        _render_chat()
-        return
-
-    # ---- document / URL branch ----
-    pdf_bytes = None
-    url_text = None
-
-    if input_mode == "Upload a PDF brochure":
-        uploaded = st.file_uploader(
-            "Upload PDF", type=["pdf"],
-            label_visibility="collapsed", key="uf_pdf"
-        )
-        if uploaded:
-            pdf_bytes = uploaded.read()
-    else:
-        url_input = st.text_input(
-            "Property URL", placeholder="https://...", key="uf_url"
-        )
-        if url_input and url_input.startswith("http"):
-            url_text = url_input
-
-    run = st.button("Run due diligence", type="primary", key="uf_run",
-                    disabled=(pdf_bytes is None and url_text is None))
-
-    if not run:
-        return
-
-    # ---- pipeline execution ----
-    with st.status("Running property due diligence...", expanded=True) as status:
-
-        st.write("Extracting text...")
-        try:
-            if pdf_bytes:
-                raw_text = _pdf_to_text(pdf_bytes)
-            else:
-                raw_text = _url_to_text(url_text)
-        except Exception as e:
-            st.error(f"Could not read the source: {e}")
-            return
-
-        if not raw_text.strip():
-            st.error("No text could be extracted. Try a different source.")
-            return
-
-        st.write("Identifying project details with AI...")
-        extracted = _extract_fields(raw_text)
-
-        if not extracted:
-            st.error("AI extraction returned no data. The document may not be a property brochure.")
-            return
-
-        st.write("Checking K-RERA live database...")
-        rera_rows = _rera_lookup(extracted)
-
-        st.write("Analysing price against locality benchmarks...")
-        price = _price_verdict(extracted)
-
-        st.write("Computing buy vs rent...")
-        bvr = _buy_vs_rent(extracted)
-
-        status.update(label="Done! Scroll down for your report.", state="complete", expanded=False)
-
-    # ---- show report ----
-    _render_report(extracted, rera_rows, price, bvr)
+    _render_unified_chat()
