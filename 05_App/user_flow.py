@@ -318,8 +318,14 @@ def _run_llm_chat(history: list, system_prompt: str) -> str:
         messages=messages,
         max_completion_tokens=800,
     )
-    raw = resp.choices[0].message.content
-    return raw.strip() if raw else "[No response returned. Try rephrasing your question.]"
+    msg = resp.choices[0].message
+    # gpt-5-nano may return content=None when reasoning tokens are used;
+    # fall back through output_text (Responses API) then a safe default.
+    raw = (msg.content
+           or getattr(msg, "output_text", None)
+           or getattr(resp, "output_text", None)
+           or "")
+    return raw.strip() or "No answer was returned. Please try rephrasing."
 
 def _render_unified_chat():
     """Single unified chat: optional PDF or URL as context, conversational Q&A below.
