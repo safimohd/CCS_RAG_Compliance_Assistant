@@ -316,7 +316,7 @@ def _run_llm_chat(history: list, system_prompt: str) -> str:
     resp = client.chat.completions.create(
         model=os.environ.get("LLM_MODEL", "gpt-5-nano"),
         messages=messages,
-        max_tokens=800,
+        max_completion_tokens=800,
     )
     raw = resp.choices[0].message.content
     return raw.strip() if raw else "[No response returned. Try rephrasing your question.]"
