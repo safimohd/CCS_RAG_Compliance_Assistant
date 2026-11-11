@@ -79,7 +79,7 @@ def _log_rera_query(question: str, answer_snippet: str, session_id: str) -> None
 
 
 def _fetch_rera_user_history(limit: int = 15) -> list:
-    """Fetch recent RERA user queries from the queries table."""
+    """Fetch recent RERA user queries from the queries table (legacy, kept for internal use)."""
     url = _secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL", "")
     key = _secret("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY", "")
     if not url or not key:
@@ -92,7 +92,7 @@ def _fetch_rera_user_history(limit: int = 15) -> list:
             params={
                 "bot": "eq.RERA",
                 "user_role": "eq.user",
-                "select": "question,created_at",
+                "select": "question,created_at,session_id",
                 "order": "created_at.desc",
                 "limit": str(limit),
             },
@@ -105,8 +105,90 @@ def _fetch_rera_user_history(limit: int = 15) -> list:
                 q = (r.get("question") or "").strip()
                 if q and q not in seen:
                     seen.add(q)
-                    out.append({"question": q, "created_at": r.get("created_at", "")})
+                    out.append({
+                        "question": q,
+                        "created_at": r.get("created_at", ""),
+                        "session_id": r.get("session_id", ""),
+                    })
             return out
+        return []
+    except Exception:
+        return []
+
+
+def _fetch_rera_sessions(limit: int = 5) -> list:
+    """Return up to `limit` distinct recent sessions with a preview and message count.
+
+    Groups raw query rows by session_id in Python since PostgREST has no GROUP BY.
+    Each session entry: {session_id, preview, created_at, count}
+    """
+    url = _secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL", "")
+    key = _secret("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY", "")
+    if not url or not key:
+        return []
+    try:
+        import requests as _req
+        # Fetch more rows than needed so we can collect enough distinct sessions
+        resp = _req.get(
+            f"{url}/rest/v1/queries",
+            headers={"apikey": key, "Authorization": f"Bearer {key}"},
+            params={
+                "bot": "eq.RERA",
+                "user_role": "eq.user",
+                "select": "question,created_at,session_id",
+                "order": "created_at.desc",
+                "limit": "100",
+            },
+            timeout=5,
+        )
+        if not resp.ok:
+            return []
+        rows = resp.json()
+        # Group by session_id; keep the earliest question as the session preview
+        from collections import OrderedDict
+        sessions: dict = OrderedDict()
+        for r in rows:
+            sid = (r.get("session_id") or "").strip()
+            if not sid:
+                continue
+            q = (r.get("question") or "").strip()
+            ts = r.get("created_at", "")
+            if sid not in sessions:
+                sessions[sid] = {"session_id": sid, "preview": q, "created_at": ts, "count": 1}
+            else:
+                sessions[sid]["count"] += 1
+                # Keep the earliest timestamp as the session start time
+                if ts < sessions[sid]["created_at"]:
+                    sessions[sid]["created_at"] = ts
+                    sessions[sid]["preview"] = q
+        # sessions are already newest-first (ordered by created_at desc on first seen)
+        return list(sessions.values())[:limit]
+    except Exception:
+        return []
+
+
+def _fetch_session_messages(session_id: str) -> list:
+    """Fetch all Q&A pairs for a session, oldest first, to restore chat history."""
+    url = _secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL", "")
+    key = _secret("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY", "")
+    if not url or not key:
+        return []
+    try:
+        import requests as _req
+        resp = _req.get(
+            f"{url}/rest/v1/queries",
+            headers={"apikey": key, "Authorization": f"Bearer {key}"},
+            params={
+                "session_id": f"eq.{session_id}",
+                "bot": "eq.RERA",
+                "user_role": "eq.user",
+                "select": "question,answer_snippet,created_at",
+                "order": "created_at.asc",
+            },
+            timeout=5,
+        )
+        if resp.ok:
+            return resp.json()
         return []
     except Exception:
         return []
@@ -1042,11 +1124,33 @@ def _render_chat():
                     session_id=st.session_state.get("uf_session_id", ""),
                 )
 
-    if st.session_state.get("uf_chat_history"):
+    # ── New Chat / Clear Chat buttons ─────────────────────────────────────────
+    _btn_col1, _btn_col2 = st.columns([1, 1])
+
+    def _start_new_chat():
+        import uuid as _u
+        st.session_state["uf_chat_history"] = []
+        st.session_state["uf_session_id"] = str(_u.uuid4())
+
+    with _btn_col1:
         st.button(
-            "Clear chat", key="uf_clear_chat", type="secondary",
-            on_click=lambda: st.session_state.update(uf_chat_history=[]),
+            "✦ New Chat",
+            key="uf_new_chat",
+            type="primary",
+            use_container_width=True,
+            on_click=_start_new_chat,
+            help="Start a fresh conversation with a new session",
         )
+    with _btn_col2:
+        if st.session_state.get("uf_chat_history"):
+            st.button(
+                "🗑 Clear Chat",
+                key="uf_clear_chat",
+                type="secondary",
+                use_container_width=True,
+                on_click=lambda: st.session_state.update(uf_chat_history=[]),
+                help="Clear messages but keep this session",
+            )
 
 
 # ── Compliance Officer: 4-tab view ────────────────────────────────────────────
@@ -1976,21 +2080,27 @@ def main():
         _sidebar_project_search()
         _sidebar_document_context()
 
-        # ── Recent query history panel — bottom of sidebar ─────────────────
+        # ── Past sessions panel — bottom of sidebar ────────────────────────
         with st.sidebar:
             st.markdown("<hr style='margin:4px 0 8px;opacity:.15'>", unsafe_allow_html=True)
             st.markdown(
                 "<div style='margin-bottom:6px;font-size:11px;color:#9ca3af;"
                 "text-transform:uppercase;letter-spacing:.06em;font-weight:600'>"
-                "Recent Queries</div>",
+                "Past Sessions</div>",
                 unsafe_allow_html=True,
             )
-            _hist = _fetch_rera_user_history(limit=5)
-            if _hist:
-                for _h in _hist:
-                    _q = _h["question"]
-                    _short = _q[:50] + "…" if len(_q) > 50 else _q
-                    _raw_dt = _h.get("created_at", "")
+            _sessions = _fetch_rera_sessions(limit=5)
+            # Exclude the current active session from the list
+            _active_sid = st.session_state.get("uf_session_id", "")
+            _sessions = [s for s in _sessions if s["session_id"] != _active_sid]
+
+            if _sessions:
+                for _s in _sessions:
+                    _sid = _s["session_id"]
+                    _preview = _s["preview"]
+                    _short = _preview[:45] + "…" if len(_preview) > 45 else _preview
+                    _cnt = _s.get("count", 1)
+                    _raw_dt = _s.get("created_at", "")
                     try:
                         from datetime import datetime as _dt
                         _date_str = _dt.fromisoformat(
@@ -1998,20 +2108,41 @@ def main():
                         ).strftime("%d %b")
                     except Exception:
                         _date_str = ""
-                    # Clickable button — injects the full question into chat
-                    _btn_label = f"{_short}  ·  {_date_str}" if _date_str else _short
+                    _msg_label = f"{_cnt} msg{'s' if _cnt != 1 else ''}"
+                    _btn_label = f"{_short}"
+                    _btn_help = (
+                        f"{_preview}\n\n{_msg_label}  ·  {_date_str}"
+                        if _date_str else f"{_preview}\n\n{_msg_label}"
+                    )
+                    # Sub-label row: date + message count
+                    st.markdown(
+                        f"<div style='font-size:.68rem;color:#6b7280;margin-bottom:1px'>"
+                        f"{_date_str} &nbsp;·&nbsp; {_msg_label}</div>",
+                        unsafe_allow_html=True,
+                    )
                     if st.button(
                         _btn_label,
-                        key=f"hist_btn_{abs(hash(_q))}",
+                        key=f"sess_btn_{_sid[:8]}",
                         use_container_width=True,
-                        help=_q,
+                        help=_btn_help,
                     ):
-                        st.session_state["uf_inject_query"] = _q
+                        # Restore session: load all Q&A pairs as chat history
+                        _msgs = _fetch_session_messages(_sid)
+                        _restored = []
+                        for _m in _msgs:
+                            _q_text = (_m.get("question") or "").strip()
+                            _a_text = (_m.get("answer_snippet") or "").strip()
+                            if _q_text:
+                                _restored.append({"role": "user", "content": _q_text})
+                            if _a_text:
+                                _restored.append({"role": "assistant", "content": _a_text})
+                        st.session_state["uf_chat_history"] = _restored
+                        st.session_state["uf_session_id"] = _sid
                         st.rerun()
             else:
                 st.markdown(
                     "<p style='font-size:.78rem;color:#9ca3af;margin:2px 0 8px'>"
-                    "No recent queries yet.</p>",
+                    "No past sessions yet.</p>",
                     unsafe_allow_html=True,
                 )
 
