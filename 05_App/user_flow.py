@@ -859,12 +859,17 @@ def _render_unified_chat():
                     resp = client.chat.completions.create(
                         model=os.environ.get("LLM_MODEL", "gpt-5-nano"),
                         messages=messages,
-                        max_completion_tokens=1500,
                     )
                     raw = resp.choices[0].message.content
-                    answer = raw if (raw is not None and raw.strip()) else "I couldn't generate a response. Please try rephrasing your question."
+                    finish = resp.choices[0].finish_reason
+                    if raw and raw.strip():
+                        answer = raw
+                    else:
+                        n_msg = len(messages)
+                        sys_len = len(messages[0]["content"])
+                        answer = f"[Model returned no content. finish_reason={finish!r}, messages={n_msg}, system_chars={sys_len}]"
                 except Exception as e:
-                    answer = f"Sorry, something went wrong. Please try again. ({e})"
+                    answer = f"Sorry, something went wrong. ({e})"
 
                 st.markdown(answer)
                 st.session_state.uf_chat_history.append(
