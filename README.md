@@ -242,11 +242,11 @@ Priority agreed: complete UI changes first, then return to evaluation.
 
 **November 2026 — Investment Signals Tab**
 
-A new Investment Signals tab was added to `app.py` with live 2026 price data sourced from NoBroker, 99acres, and MagicBricks (anchored to November 2026). The tab covers 25 Bangalore localities across 5 zones (Central, East, North, South, West) and contains three sub-tabs:
+A new Investment Signals tab was added to `app.py` with live 2026 price data sourced from NoBroker, 99acres, and MagicBricks (anchored to November 2026). The tab covers 20 Bangalore localities across 5 zones (Central, East, North, South, West) and contains three sub-tabs:
 
 1. **Fair Price Checker** — compares a quoted price per sq ft against the locality band (±15% tolerance). Returns FAIR / PREMIUM / BELOW MARKET verdict with reasoning.
 2. **Buy vs Rent vs Invest** — calculates monthly EMI at 8.5% interest over 20 years, compares against comparable rental yield, and returns break-even years. Helps a buyer decide whether to purchase or rent.
-3. **Locality Explorer** — table view of all 25 localities with zone, average PSF, trend indicator, CAGR estimate, and risk rating (Low/Medium/High).
+3. **Locality Explorer** — table view of all 20 localities with zone, average PSF, trend indicator, CAGR estimate, and risk rating (Low/Medium/High).
 
 Each locality record stores: `avg_psf`, `trend` (Rising/Stable/Cooling), `zone`, CAGR scaling factor, and risk rating. Sources cited inline per locality.
 
@@ -460,7 +460,7 @@ python run_v2_evaluation_v24.py results/benchmark_answers_YYYYMMDD.xlsx
 | Domain separation: `user_flow_rera.py` created as standalone RERA codebase | Done — commit `b4d0fbc`, Nov 11 |
 | RERA chat UX overhaul: sidebar upload, multi-PDF + URL, always-visible chat | Done — in `user_flow_rera.py` |
 | Investment Signals tab: Fair Price, Buy vs Rent, Locality Explorer | Done — in `app.py` |
-| 2026-anchored PSF data for 25 Bangalore localities (NoBroker, 99acres, MagicBricks) | Done — in `app.py` |
+| 2026-anchored PSF data for 20 Bangalore localities (NoBroker, 99acres, MagicBricks) | Done — in `app.py` |
 | Fix `max_completion_tokens` bug causing silent blank responses | Done — in `user_flow_rera.py` only |
 | System D benchmark run (CV-RAG, RERA V5.1) | In progress (~90 min) |
 | UI changes from Nov 3 prof feedback (query history, RERA toggle, journey) | In progress |
