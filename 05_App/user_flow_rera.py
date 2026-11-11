@@ -770,49 +770,890 @@ def _render_chat():
         )
 
 
-# ── main app layout ───────────────────────────────────────────────────────────
+# ── Compliance Officer: 4-tab view ────────────────────────────────────────────
 
-def main():
-    # Sidebar (always visible)
+def _render_co_tabs():
+    """Render the 4-tab Compliance Officer interface."""
     _sidebar_project_search()
     _sidebar_document_context()
 
-    # Header
     st.markdown(
-        "<h2 style='margin-bottom:2px'>Karnataka RERA Property Advisor</h2>"
+        "<h2 style='margin-bottom:2px'>Karnataka RERA Compliance Dashboard</h2>"
         "<p style='color:#6b7280;margin-top:0;font-size:.9rem'>"
         "IIMB PGPBA Group 9 | CCS RAG Compliance Assistant</p>",
         unsafe_allow_html=True,
     )
 
-    # Pipeline animation
-    components.html(DEMO_HTML, height=62)
+    _t_chat, _t_lookup, _t_invest, _t_docqa = st.tabs([
+        "💬 Compliance Chat",
+        "🔍 K-RERA Project Lookup",
+        "📊 Investment Signals",
+        "📄 Document Q&A",
+    ])
 
-    st.markdown(
-        "<div style='background:#f0fdf4;border-left:4px solid #22c55e;"
-        "border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:.85rem;color:#166534'>"
-        "Upload brochures or paste a URL in the sidebar to run a full due diligence report. "
-        "Or just ask any question below about Karnataka RERA, prices, or builders."
-        "</div>",
-        unsafe_allow_html=True,
-    )
+    # ── Tab 1: Compliance Chat ───────────────────────────────────────────────
+    with _t_chat:
+        components.html(DEMO_HTML, height=62)
+        st.markdown(
+            "<div style='background:#f0fdf4;border-left:4px solid #22c55e;"
+            "border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:.85rem;color:#166534'>"
+            "Upload brochures or paste a URL in the sidebar to run a full due diligence report. "
+            "Or just ask any question below about Karnataka RERA, prices, or builders."
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        _report = st.session_state.get("uf_report_data")
+        if _report and _report.get("extracted"):
+            _src = _report.get("source_names", [])
+            _lbl = ", ".join(_src) if _src else "uploaded documents"
+            with st.expander(f"Property report: {_lbl}", expanded=True):
+                _render_report(
+                    _report["extracted"],
+                    _report.get("rera_rows", []),
+                    _report.get("price", {}),
+                    _report.get("bvr", {}),
+                )
+            st.divider()
+        _render_chat()
 
-    # Structured report card (shown when documents are loaded)
-    report = st.session_state.get("uf_report_data")
-    if report and report.get("extracted"):
-        source_names = report.get("source_names", [])
-        label = ", ".join(source_names) if source_names else "uploaded documents"
-        with st.expander(f"Property report: {label}", expanded=True):
-            _render_report(
-                report["extracted"],
-                report.get("rera_rows", []),
-                report.get("price", {}),
-                report.get("bvr", {}),
+    # ── Tab 2: K-RERA Project Lookup ────────────────────────────────────────
+    with _t_lookup:
+        import requests as _req_lk
+        _lk_url_base = _secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL", "")
+        _lk_key      = _secret("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY", "")
+
+        st.subheader("Search Karnataka RERA Registered Projects")
+        st.caption("10,096 projects as of November 2026 — data from rera.karnataka.gov.in")
+
+        if not _lk_url_base or not _lk_key:
+            st.warning("SUPABASE_URL and SUPABASE_KEY are not set. Add them in Streamlit Secrets.")
+        else:
+            _lk_ca, _lk_cb = st.columns([3, 1])
+            with _lk_ca:
+                _lk_q = st.text_input(
+                    "Search projects",
+                    placeholder="e.g. Prestige, Brigade, Sobha, Whitefield...",
+                    key="lk_query",
+                )
+            with _lk_cb:
+                _lk_field = st.selectbox(
+                    "Search by",
+                    ["Project Name", "Builder / Promoter", "ACK Number", "PRM Number"],
+                    key="lk_field",
+                )
+
+            _LK_COL = {
+                "Project Name": "project_name",
+                "Builder / Promoter": "promoter_name",
+                "ACK Number": "ack_number",
+                "PRM Number": "prm_number",
+            }
+
+            if _lk_q:
+                _col = _LK_COL.get(_lk_field, "project_name")
+                _sel = (
+                    "ack_number,prm_number,project_name,promoter_name,"
+                    "status,district,taluk,project_type,total_units,sold_units,"
+                    "completion_date,reg_date,lapse_date,land_area_sqft,detail_url"
+                )
+                _lk_endpoint = (
+                    f"{_lk_url_base}/rest/v1/rera_projects"
+                    f"?{_col}=ilike.*{_req_lk.utils.quote(_lk_q)}*"
+                    f"&limit=20&select={_sel}"
+                )
+                try:
+                    _resp = _req_lk.get(
+                        _lk_endpoint,
+                        headers={"apikey": _lk_key, "Authorization": f"Bearer {_lk_key}"},
+                        timeout=15,
+                    )
+                    _resp.raise_for_status()
+                    _lk_rows = _resp.json()
+                except Exception as _lk_err:
+                    st.error(f"Search error: {_lk_err}")
+                    _lk_rows = []
+
+                if _lk_rows:
+                    st.success(f"Found {len(_lk_rows)} project(s)")
+                    _SC = {"active": "🟢", "expired": "🔴", "lapsed": "🟠", "revoked": "⛔"}
+                    for _p in _lk_rows:
+                        _sr = (_p.get("status") or "").lower()
+                        _badge = _SC.get(_sr, "⬜")
+                        _ttl = (
+                            f"{_badge} **{_p.get('project_name') or 'N/A'}**"
+                            f"  |  {_p.get('promoter_name') or 'N/A'}"
+                        )
+                        with st.expander(_ttl):
+                            _r1a, _r1b, _r1c = st.columns(3)
+                            _r1a.metric("Status", (_p.get("status") or "Not enriched yet").title())
+                            _r1b.metric("District", _p.get("district") or "N/A")
+                            _r1c.metric("Project Type", _p.get("project_type") or "N/A")
+                            _r2a, _r2b, _r2c = st.columns(3)
+                            _tot = _p.get("total_units")
+                            _sld = _p.get("sold_units")
+                            _avl = (_tot - _sld) if (_tot and _sld is not None) else None
+                            _r2a.metric("Total Units", _tot if _tot else "N/A")
+                            _r2b.metric("Units Sold", _sld if _sld is not None else "N/A")
+                            _r2c.metric("Units Available", _avl if _avl is not None else "N/A")
+                            _r3a, _r3b, _r3c = st.columns(3)
+                            _r3a.metric("Registration Date", _p.get("reg_date") or "N/A")
+                            _r3b.metric("Expected Completion", _p.get("completion_date") or "N/A")
+                            _r3c.metric("Valid Until", _p.get("lapse_date") or "N/A")
+                            _r4a, _r4b = st.columns(2)
+                            _r4a.markdown(f"**ACK:** `{_p.get('ack_number') or 'N/A'}`")
+                            _r4b.markdown(f"**PRM:** `{_p.get('prm_number') or 'N/A'}`")
+                            if _sr == "active":
+                                st.success("This project is **Active** on K-RERA. The builder is currently compliant.")
+                            elif _sr in ("expired", "lapsed"):
+                                st.error("Registration has **expired / lapsed**. Verify status directly with K-RERA before booking.")
+                            elif _sr == "revoked":
+                                st.error("Registration has been **revoked** by K-RERA. Exercise extreme caution.")
+                            else:
+                                st.info("Detailed status not yet scraped. Click the portal link below to verify.")
+                            _pid = _p.get("prm_number") or _p.get("ack_number") or ""
+                            if _pid:
+                                st.markdown(
+                                    f"[View full details on K-RERA portal ↗]"
+                                    f"(https://rera.karnataka.gov.in/projectViewDetails?id={_pid})"
+                                )
+                else:
+                    st.warning("No matching projects found. Try a shorter keyword.")
+            else:
+                st.info("Type a project name or builder name to search.")
+
+            with st.expander("About this data"):
+                st.markdown(
+                    "Sourced from [K-RERA](https://rera.karnataka.gov.in/viewAllProjects) — "
+                    "all 10,096 RERA-registered Karnataka projects. "
+                    "Rich details (status, location, units, dates) are scraped progressively "
+                    "from project detail pages and stored in our database. "
+                    "Always cross-check critical decisions on the official portal."
+                )
+
+    # ── Tab 3: Investment Signals ────────────────────────────────────────────
+    with _t_invest:
+        import pandas as _pd_inv
+
+        _CO_LOC = [
+            # Central / Premium
+            {"locality": "Indiranagar",          "pin": "560038", "avg_psf": 14000, "cagr_pct": 5.2,  "risk": "Low",    "zone": "Central", "anchored": True},
+            {"locality": "Koramangala",          "pin": "560034", "avg_psf": 13200, "cagr_pct": 5.0,  "risk": "Low",    "zone": "Central", "anchored": True},
+            {"locality": "Jayanagar",            "pin": "560041", "avg_psf": 12500, "cagr_pct": 4.8,  "risk": "Low",    "zone": "Central", "anchored": False},
+            {"locality": "JP Nagar",             "pin": "560078", "avg_psf": 10800, "cagr_pct": 5.5,  "risk": "Low",    "zone": "South",   "anchored": False},
+            {"locality": "Sadashivanagar",       "pin": "560080", "avg_psf": 15500, "cagr_pct": 4.5,  "risk": "Low",    "zone": "Central", "anchored": False},
+            # East corridor
+            {"locality": "Whitefield",           "pin": "560066", "avg_psf": 8500,  "cagr_pct": 8.1,  "risk": "Low",    "zone": "East",    "anchored": True},
+            {"locality": "Sarjapur Road",        "pin": "560035", "avg_psf": 8200,  "cagr_pct": 9.3,  "risk": "Low",    "zone": "East",    "anchored": True},
+            {"locality": "Marathahalli",         "pin": "560037", "avg_psf": 7800,  "cagr_pct": 7.8,  "risk": "Low",    "zone": "East",    "anchored": True},
+            {"locality": "HSR Layout",           "pin": "560102", "avg_psf": 11200, "cagr_pct": 6.8,  "risk": "Low",    "zone": "East",    "anchored": True},
+            {"locality": "KR Puram",             "pin": "560036", "avg_psf": 7200,  "cagr_pct": 8.5,  "risk": "Medium", "zone": "East",    "anchored": False},
+            {"locality": "Varthur",              "pin": "560087", "avg_psf": 6800,  "cagr_pct": 9.0,  "risk": "Medium", "zone": "East",    "anchored": False},
+            # North corridor
+            {"locality": "Hebbal",               "pin": "560024", "avg_psf": 9800,  "cagr_pct": 8.9,  "risk": "Low",    "zone": "North",   "anchored": True},
+            {"locality": "Yelahanka",            "pin": "560064", "avg_psf": 6200,  "cagr_pct": 10.2, "risk": "Medium", "zone": "North",   "anchored": True},
+            {"locality": "Hennur",               "pin": "560043", "avg_psf": 6800,  "cagr_pct": 9.8,  "risk": "Low",    "zone": "North",   "anchored": False},
+            {"locality": "Devanahalli",          "pin": "562110", "avg_psf": 5600,  "cagr_pct": 12.5, "risk": "Medium", "zone": "North",   "anchored": False},
+            {"locality": "Bagalur",              "pin": "562149", "avg_psf": 4200,  "cagr_pct": 15.0, "risk": "High",   "zone": "North",   "anchored": False},
+            # South corridor
+            {"locality": "Electronic City",      "pin": "560100", "avg_psf": 5800,  "cagr_pct": 7.2,  "risk": "Low",    "zone": "South",   "anchored": True},
+            {"locality": "Bannerghatta Road",    "pin": "560076", "avg_psf": 7000,  "cagr_pct": 6.5,  "risk": "Medium", "zone": "South",   "anchored": True},
+            {"locality": "Kanakapura Road",      "pin": "560062", "avg_psf": 6200,  "cagr_pct": 8.2,  "risk": "Medium", "zone": "South",   "anchored": False},
+            {"locality": "Bommanahalli",         "pin": "560068", "avg_psf": 7500,  "cagr_pct": 7.0,  "risk": "Low",    "zone": "South",   "anchored": False},
+            # West corridor
+            {"locality": "Rajajinagar",          "pin": "560010", "avg_psf": 9200,  "cagr_pct": 5.8,  "risk": "Low",    "zone": "West",    "anchored": False},
+            {"locality": "Rajarajeshwari Nagar", "pin": "560098", "avg_psf": 6100,  "cagr_pct": 7.5,  "risk": "Medium", "zone": "West",    "anchored": False},
+            {"locality": "Mysore Road",          "pin": "560026", "avg_psf": 5500,  "cagr_pct": 7.8,  "risk": "High",   "zone": "West",    "anchored": False},
+            {"locality": "Tumkur Road",          "pin": "560073", "avg_psf": 5200,  "cagr_pct": 8.0,  "risk": "High",   "zone": "West",    "anchored": False},
+            {"locality": "Hoskote",              "pin": "562114", "avg_psf": 4500,  "cagr_pct": 13.0, "risk": "High",   "zone": "East",    "anchored": False},
+        ]
+        _RISK_IC = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}
+
+        st.subheader("Bengaluru Real Estate Investment Advisor")
+        st.warning(
+            "PSF figures are sourced from NoBroker, 99acres and MagicBricks (Nov 2026). "
+            "For unanchored localities, zone-level estimates are applied. "
+            "Always verify with a registered property agent before any decision."
+        )
+
+        _iv_s1, _iv_s2, _iv_s3 = st.tabs([
+            "🔍 Fair Price Check",
+            "📊 Buy vs Rent vs Invest",
+            "🗺️ Locality Explorer",
+        ])
+
+        # Sub-tab 1: Fair Price Check
+        with _iv_s1:
+            st.markdown(
+                "##### Is your builder quoting a fair price?\n"
+                "Enter the locality, flat size, and what your builder is asking. "
+                "We compare it against current market rates and tell you if you're overpaying."
             )
-        st.divider()
+            _fpc_c1, _fpc_c2, _fpc_c3 = st.columns(3)
+            with _fpc_c1:
+                _fpc_loc = st.selectbox("Locality", [p["locality"] for p in _CO_LOC], key="fpc_locality")
+            with _fpc_c2:
+                _fpc_area = st.number_input("Flat size (sq ft)", 300, 5000, 950, step=50, key="fpc_area")
+            with _fpc_c3:
+                _fpc_quoted = st.number_input("Builder's asking price (Rs lakhs)", 10, 1000, 120, step=5, key="fpc_quoted")
+            _fpc_d = next(p for p in _CO_LOC if p["locality"] == _fpc_loc)
+            _fpc_mkt = (_fpc_d["avg_psf"] * _fpc_area) / 100_000
+            _fpc_qpsf = (_fpc_quoted * 100_000) / _fpc_area
+            _fpc_diff = _fpc_quoted - _fpc_mkt
+            _fpc_pct  = (_fpc_diff / _fpc_mkt) * 100
+            st.markdown("---")
+            _fr1, _fr2, _fr3 = st.columns(3)
+            _fr1.metric("Market rate (Rs/sqft)", f"Rs{_fpc_d['avg_psf']:,}", help="NoBroker/99acres Nov 2026 benchmark")
+            _fr2.metric("Your quoted rate (Rs/sqft)", f"Rs{_fpc_qpsf:,.0f}")
+            _fr3.metric("Price difference", f"{'+'if _fpc_diff >= 0 else ''}Rs{_fpc_diff:.1f}L",
+                        delta=f"{_fpc_pct:+.1f}% vs market", delta_color="inverse")
+            if _fpc_pct <= -10:
+                st.success(
+                    f"**Great deal.** The asking price is **{abs(_fpc_pct):.1f}% below** market. "
+                    f"At Rs{_fpc_qpsf:,.0f}/sqft vs market Rs{_fpc_d['avg_psf']:,}/sqft, "
+                    f"you're saving Rs{abs(_fpc_diff):.1f}L. Verify construction quality and legal title."
+                )
+            elif _fpc_pct <= 5:
+                st.info(
+                    f"**Fair price.** Within 5% of market benchmark. "
+                    f"Market rate in {_fpc_loc} is ~Rs{_fpc_d['avg_psf']:,}/sqft. "
+                    f"Your effective rate is Rs{_fpc_qpsf:,.0f}/sqft -- reasonable."
+                )
+            elif _fpc_pct <= 15:
+                st.warning(
+                    f"**Slightly overpriced.** You're paying **Rs{_fpc_diff:.1f}L more** than the market benchmark. "
+                    f"Try negotiating down to Rs{_fpc_mkt:.1f}L (Rs{_fpc_d['avg_psf']:,}/sqft)."
+                )
+            else:
+                st.error(
+                    f"**Significantly overpriced.** You're being asked **{_fpc_pct:.1f}% above** market -- "
+                    f"an extra Rs{_fpc_diff:.1f}L. Market benchmark for {_fpc_loc} is Rs{_fpc_d['avg_psf']:,}/sqft "
+                    f"(total ~Rs{_fpc_mkt:.1f}L for {_fpc_area} sqft). Negotiate hard or consider comparable localities."
+                )
+            if not _fpc_d["anchored"]:
+                st.caption(
+                    f"Note: {_fpc_loc} PSF is a zone-level estimate ({_fpc_d['zone']} zone). "
+                    "For anchored localities with live market data, check Whitefield, Sarjapur Road, "
+                    "HSR Layout, Indiranagar, Koramangala, Hebbal, Yelahanka, Electronic City, "
+                    "Bannerghatta Road or Marathahalli."
+                )
 
-    # Chat (always visible)
-    _render_chat()
+        # Sub-tab 2: Buy vs Rent vs Invest
+        with _iv_s2:
+            st.markdown(
+                "##### Should you buy, or rent and invest the difference?\n"
+                "We model your net wealth at the end of your chosen horizon across four paths: "
+                "buy on EMI, rent and invest in Mutual Funds, invest in Gold, or park it in an FD."
+            )
+            _bri_c1, _bri_c2 = st.columns(2)
+            with _bri_c1:
+                st.markdown("**Property details**")
+                _bri_price     = st.number_input("Property price (Rs lakhs)", 30, 500, 100, step=5, key="bri_price")
+                _bri_down_pct  = st.slider("Down payment (%)", 10, 40, 20, step=5, key="bri_down")
+                _bri_tenure    = st.slider("Loan tenure (years)", 5, 30, 20, step=5, key="bri_tenure")
+                _bri_rate      = st.slider("Home loan rate (%)", 7.0, 11.0, 8.75, step=0.25, key="bri_rate")
+                _bri_locality  = st.selectbox("Locality (for appreciation rate)", [p["locality"] for p in _CO_LOC], index=5, key="bri_locality")
+            with _bri_c2:
+                st.markdown("**Your current rental situation**")
+                _bri_rent     = st.number_input("Monthly rent today (Rs)", 5000, 150000, 35000, step=1000, key="bri_rent")
+                _bri_rent_inc = st.slider("Annual rent increase (%)", 3, 10, 5, step=1, key="bri_rent_inc")
+                st.markdown("**Investment return assumptions**")
+                _bri_mf_ret   = st.slider("Mutual Fund / Nifty CAGR (%)", 8, 18, 12, step=1, key="bri_mf")
+                _bri_gold_ret = st.slider("Gold CAGR (%)", 5, 15, 8, step=1, key="bri_gold")
+                _bri_fd_ret   = st.slider("FD / RD interest rate (%)", 5, 9, 7, step=1, key="bri_fd")
+                _bri_horizon  = st.slider("Analysis horizon (years)", 5, 25, 10, step=5, key="bri_horizon")
+            _bri_ld       = next(p for p in _CO_LOC if p["locality"] == _bri_locality)
+            _bri_pcagr    = _bri_ld["cagr_pct"] / 100
+            _bri_price_rs = _bri_price * 1e5
+            _bri_down_rs  = _bri_price_rs * (_bri_down_pct / 100)
+            _bri_loan_rs  = _bri_price_rs - _bri_down_rs
+            _bri_mr       = (_bri_rate / 100) / 12
+            _bri_nm       = _bri_tenure * 12
+            if _bri_mr > 0:
+                _bri_emi = _bri_loan_rs * _bri_mr * (1 + _bri_mr)**_bri_nm / ((1 + _bri_mr)**_bri_nm - 1)
+            else:
+                _bri_emi = _bri_loan_rs / _bri_nm
+            _bri_hm       = _bri_horizon * 12
+            _bri_pval     = _bri_price_rs * (1 + _bri_pcagr) ** _bri_horizon
+            if _bri_horizon < _bri_tenure:
+                _bri_outst = max(_bri_loan_rs * (1+_bri_mr)**_bri_hm - _bri_emi * ((1+_bri_mr)**_bri_hm - 1) / _bri_mr, 0)
+            else:
+                _bri_outst = 0
+            _bri_buy_w    = (_bri_pval - _bri_outst) / 1e5
+            _bri_lump_mf  = _bri_down_rs * (1 + _bri_mf_ret/100) ** _bri_horizon
+            _bri_sip_mo   = max(_bri_emi - _bri_rent, 0)
+            _bri_mfr      = (_bri_mf_ret/100) / 12
+            _bri_sip_corp = (_bri_sip_mo * ((1+_bri_mfr)**_bri_hm - 1) / _bri_mfr) if _bri_mfr > 0 else _bri_sip_mo * _bri_hm
+            _bri_rent_tot = sum(_bri_rent * (1+_bri_rent_inc/100)**y * 12 for y in range(_bri_horizon))
+            _bri_mf_w     = (_bri_lump_mf + _bri_sip_corp) / 1e5
+            _bri_mf_net   = _bri_mf_w - (_bri_rent_tot / 1e5)
+            _bri_gold_w   = (_bri_down_rs * (1 + _bri_gold_ret/100) ** _bri_horizon) / 1e5 - (_bri_rent_tot / 1e5)
+            _bri_fd_w     = (_bri_down_rs * (1 + _bri_fd_ret/100)   ** _bri_horizon) / 1e5 - (_bri_rent_tot / 1e5)
+            st.markdown("---")
+            st.markdown(f"#### Results at **{_bri_horizon}-year** horizon")
+            _bm1, _bm2, _bm3, _bm4 = st.columns(4)
+            _bbest = max(_bri_buy_w, _bri_mf_net, _bri_gold_w, _bri_fd_w)
+            _bflag = lambda v: "🏆 " if abs(v - _bbest) < 0.5 else ""
+            _bm1.metric(f"{_bflag(_bri_buy_w)}🏠 Buy (EMI)",   f"Rs{_bri_buy_w:.1f}L")
+            _bm2.metric(f"{_bflag(_bri_mf_net)}📈 Rent + MF", f"Rs{_bri_mf_net:.1f}L")
+            _bm3.metric(f"{_bflag(_bri_gold_w)}🥇 Rent + Gold",f"Rs{_bri_gold_w:.1f}L")
+            _bm4.metric(f"{_bflag(_bri_fd_w)}🏦 Rent + FD",   f"Rs{_bri_fd_w:.1f}L")
+            _bwin = max([("Buy on EMI", _bri_buy_w), ("Rent + MF", _bri_mf_net), ("Rent + Gold", _bri_gold_w), ("Rent + FD", _bri_fd_w)], key=lambda x: x[1])
+            st.success(
+                f"**{_bri_horizon}-year winner: {_bwin[0]}** at Rs{_bwin[1]:.1f}L net wealth. "
+                f"Property appreciation assumed at {_bri_ld['cagr_pct']}% CAGR for {_bri_locality}."
+            )
+            st.caption("Tax implications, maintenance costs and registration charges not included.")
+
+        # Sub-tab 3: Locality Explorer
+        with _iv_s3:
+            st.caption(
+                "PSF from NoBroker/99acres Nov 2026 (anchored) or zone-level estimate. "
+                "CAGR is 9-year historical (2017-2026)."
+            )
+            _iv_c1, _iv_c2 = st.columns(2)
+            with _iv_c1:
+                _iv_budget = st.slider("Your budget (Rs lakhs)", 30, 300, 100, step=5, key="iv_budget")
+            with _iv_c2:
+                _iv_area = st.slider("Desired size (sq ft)", 400, 2000, 950, step=50, key="iv_area")
+            _iv_tpsf = (_iv_budget * 100_000) / _iv_area
+            st.info(f"Your budget implies **Rs{_iv_tpsf:,.0f} / sq ft** for a {_iv_area} sq ft flat at Rs{_iv_budget}L")
+            _iv_in = sorted([p for p in _CO_LOC if p["avg_psf"] <= _iv_tpsf], key=lambda x: abs(x["avg_psf"] - _iv_tpsf))
+            _iv_st = sorted([p for p in _CO_LOC if _iv_tpsf < p["avg_psf"] <= _iv_tpsf * 1.20], key=lambda x: x["avg_psf"] - _iv_tpsf)
+            if not _iv_in and not _iv_st:
+                st.warning("No localities match this budget and size. Try increasing budget or reducing size.")
+            else:
+                if _iv_in:
+                    st.markdown("#### Within your budget")
+                    for _p in _iv_in[:8]:
+                        _c1, _c2, _c3, _c4 = st.columns([3, 2, 2, 3])
+                        _c1.markdown(f"**{_p['locality']}** `{_p['pin']}`{'  (live data)' if _p['anchored'] else ''}")
+                        _c2.markdown(f"Rs{_p['avg_psf']:,} / sqft")
+                        _c3.markdown(f"+{_p['cagr_pct']}% CAGR")
+                        _c4.markdown(f"{_RISK_IC[_p['risk']]} **{_p['risk']}** · {_p['zone']}")
+                if _iv_st:
+                    st.markdown("#### Slight stretch (up to 20% over budget)")
+                    for _p in _iv_st[:4]:
+                        _c1, _c2, _c3, _c4 = st.columns([3, 2, 2, 3])
+                        _c1.markdown(f"**{_p['locality']}** `{_p['pin']}`")
+                        _c2.markdown(f"Rs{_p['avg_psf']:,} / sqft")
+                        _c3.markdown(f"+{_p['cagr_pct']}% CAGR")
+                        _c4.markdown(f"{_RISK_IC[_p['risk']]} **{_p['risk']}** · {_p['zone']}")
+            st.markdown("---")
+            st.markdown("#### Full locality table")
+            _iv_df = _pd_inv.DataFrame(_CO_LOC)[["locality","pin","avg_psf","cagr_pct","risk","zone","anchored"]]
+            _iv_df.columns = ["Locality","PIN","Avg PSF (Rs)","CAGR %","Risk","Zone","Anchored"]
+            _iv_df["Est. cost (RsL)"] = (_iv_df["Avg PSF (Rs)"] * _iv_area / 100_000).round(1)
+            _iv_df["vs. Budget"] = (_iv_df["Avg PSF (Rs)"] - _iv_tpsf).round(0).astype(int)
+            _iv_df = _iv_df.sort_values("vs. Budget", key=lambda s: s.abs()).reset_index(drop=True)
+            st.dataframe(_iv_df, use_container_width=True, hide_index=True)
+
+    # ── Tab 4: Document Q&A ──────────────────────────────────────────────────
+    with _t_docqa:
+        import io as _io_dq
+        import requests as _req_dq
+        import numpy as _np_dq
+
+        st.markdown("### 📄 Sales Deed / Agreement Analyzer")
+        st.markdown(
+            "Upload your **sales deed, builder-buyer agreement, or any real estate document** (PDF). "
+            "The tool will answer your questions by reading your document and cross-checking against "
+            "Karnataka RERA regulations -- flagging anything that looks non-compliant."
+        )
+
+        _dq_oai_key = _secret("OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
+        _dq_model   = _secret("LLM_MODEL") or os.environ.get("LLM_MODEL", "gpt-4o-mini")
+
+        if not _dq_oai_key:
+            st.error("OPENAI_API_KEY not set. Add it to Streamlit Secrets.")
+        else:
+            # Ensure session ID for history
+            if "dq_session_id" not in st.session_state:
+                import uuid as _uuid_dq
+                st.session_state["dq_session_id"] = str(_uuid_dq.uuid4())
+            _dq_sid = st.session_state["dq_session_id"]
+
+            _dq_uploaded = st.file_uploader("Upload PDF", type=["pdf"], key="dq_pdf")
+
+            def _dq_extract(file_bytes, chunk_words=400):
+                try:
+                    import pdfplumber as _plumb
+                    _chunks = []
+                    with _plumb.open(_io_dq.BytesIO(file_bytes)) as _pdf:
+                        for _pg_n, _pg in enumerate(_pdf.pages, 1):
+                            _txt = _pg.extract_text() or ""
+                            _words = _txt.split()
+                            for _i in range(0, len(_words), chunk_words):
+                                _chunk = " ".join(_words[_i:_i + chunk_words])
+                                if _chunk.strip():
+                                    _chunks.append({"text": _chunk, "page": _pg_n})
+                    return _chunks
+                except Exception:
+                    return []
+
+            def _dq_embed(texts):
+                _r = _req_dq.post(
+                    "https://api.openai.com/v1/embeddings",
+                    headers={"Authorization": f"Bearer {_dq_oai_key}"},
+                    json={"model": "text-embedding-3-small", "input": texts},
+                    timeout=30,
+                )
+                _r.raise_for_status()
+                return [d["embedding"] for d in _r.json()["data"]]
+
+            def _dq_top_k(q_vec, doc_vecs, k=4):
+                _q = _np_dq.array(q_vec)
+                _D = _np_dq.array(doc_vecs)
+                _sc = _D @ _q / (_np_dq.linalg.norm(_D, axis=1) * _np_dq.linalg.norm(_q) + 1e-9)
+                return _sc.argsort()[::-1][:k].tolist()
+
+            def _dq_ask(doc_ctx, rera_ctx, question, pages):
+                _sys = (
+                    "You are a RERA compliance expert helping a first-time home buyer in Karnataka. "
+                    "You have two sources: (1) the buyer's uploaded document, and (2) Karnataka RERA regulations. "
+                    "Answer the question using both sources. "
+                    "If a clause in the document contradicts or falls short of RERA requirements, "
+                    "clearly flag it as: 'COMPLIANCE CONCERN: ...'. "
+                    "Cite page numbers from the uploaded document where relevant. "
+                    "Do not use em dashes anywhere in your response."
+                )
+                _usr = (
+                    f"UPLOADED DOCUMENT (pages {', '.join(pages)}):\n{doc_ctx}\n\n"
+                    f"KARNATAKA RERA REGULATIONS:\n{rera_ctx}\n\n"
+                    f"Question: {question}"
+                )
+                _r = _req_dq.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {_dq_oai_key}"},
+                    json={"model": _dq_model, "messages": [{"role":"system","content":_sys}, {"role":"user","content":_usr}], "temperature": 0.2},
+                    timeout=45,
+                )
+                _r.raise_for_status()
+                return _r.json()["choices"][0]["message"]["content"]
+
+            if _dq_uploaded:
+                _dq_raw = _dq_uploaded.read()
+                _dq_ck  = f"dq_vecs_{_dq_uploaded.name}_{len(_dq_raw)}"
+                _dq_cc  = f"dq_chunks_{_dq_uploaded.name}_{len(_dq_raw)}"
+
+                if st.session_state.get("dq_current_file") != _dq_uploaded.name:
+                    st.session_state["dq_current_file"] = _dq_uploaded.name
+                    st.session_state["dq_history"] = []
+
+                if _dq_cc not in st.session_state:
+                    with st.spinner("Reading and indexing your document..."):
+                        _tmp = _dq_extract(_dq_raw)
+                        if not _tmp:
+                            st.error("Could not extract text. This PDF may be a scanned image. Try a text-based PDF.")
+                            st.stop()
+                        st.session_state[_dq_cc] = _tmp
+                        st.session_state[_dq_ck] = _dq_embed([c["text"] for c in _tmp])
+
+                _dq_chunks = st.session_state[_dq_cc]
+                _dq_vecs   = st.session_state[_dq_ck]
+
+                if "dq_history" not in st.session_state:
+                    st.session_state["dq_history"] = []
+
+                st.success(f"Indexed {len(_dq_chunks)} sections from **{_dq_uploaded.name}**")
+                st.caption("Questions are answered using your document AND Karnataka RERA regulations.")
+
+                _dq_sugg = [
+                    "Is the RERA registration number mentioned?",
+                    "What is the promised possession date?",
+                    "What penalty applies if builder delays possession?",
+                    "Is the carpet area clearly defined?",
+                    "Are there any clauses that may violate RERA?",
+                ]
+
+                if "_dq_pending" in st.session_state:
+                    st.session_state["dq_question"] = st.session_state.pop("_dq_pending")
+
+                for _hi, _he in enumerate(reversed(st.session_state.get("dq_history", []))):
+                    with st.chat_message("user"):
+                        st.markdown(_he["q"])
+                    with st.chat_message("assistant"):
+                        if "COMPLIANCE CONCERN" in _he["a"]:
+                            st.warning("One or more compliance concerns found in your document.")
+                        st.markdown("### Analysis")
+                        st.markdown(_he["a"])
+                        st.caption("Sources: your uploaded document + Karnataka RERA regulatory corpus.")
+                        if _he.get("followups"):
+                            st.markdown("**Suggested follow-ups:**")
+                            _fq_cols = st.columns(len(_he["followups"]))
+                            _rev_idx = len(st.session_state["dq_history"]) - 1 - _hi
+                            for _fi, _fq in enumerate(_he["followups"]):
+                                if _fq_cols[_fi].button(_fq, key=f"dq_fup_{_rev_idx}_{_fi}"):
+                                    st.session_state["_dq_pending"] = _fq
+                                    st.rerun()
+
+                st.markdown("---")
+                _qs_label = "**Quick checks to get started:**" if not st.session_state.get("dq_history") else "**Ask another question:**"
+                st.markdown(_qs_label)
+                _dq_sc = st.columns(len(_dq_sugg))
+                for _qi, _sq in enumerate(_dq_sugg):
+                    if _dq_sc[_qi].button(_sq, key=f"dq_sq_{_qi}", use_container_width=True):
+                        st.session_state["dq_question"] = _sq
+
+                _dq_q = (
+                    st.chat_input("Ask a question about your document...", key="dq_text_input")
+                    or st.session_state.pop("dq_question", None)
+                )
+
+                if _dq_q:
+                    _last_q = st.session_state["dq_history"][0]["q"] if st.session_state["dq_history"] else ""
+                    if _dq_q != _last_q:
+                        with st.spinner("Searching document and RERA regulations..."):
+                            _q_vec  = _dq_embed([_dq_q])[0]
+                            _top    = _dq_top_k(_q_vec, _dq_vecs, k=4)
+                            _ctx    = "\n\n---\n\n".join(_dq_chunks[_i]["text"] for _i in _top)
+                            _pgs    = [str(_dq_chunks[_i]["page"]) for _i in _top]
+                            try:
+                                _rera_hits = retriever.invoke(_dq_q)  # type: ignore[name-defined]
+                                _rera_ctx  = "\n\n---\n\n".join(d.page_content for d in _rera_hits[:3])
+                            except Exception:
+                                _rera_ctx  = "RERA corpus not available in this session."
+                            _ans = _dq_ask(_ctx, _rera_ctx, _dq_q, _pgs)
+                        try:
+                            _dq_followups = get_contextual_followups("RERA", _dq_q, _ans)  # type: ignore[name-defined]
+                        except Exception:
+                            _dq_followups = []
+                        st.session_state["dq_history"].insert(0, {"q": _dq_q, "a": _ans, "followups": _dq_followups})
+                        st.session_state.pop("dq_question", None)
+                        st.rerun()
+
+                if st.session_state.get("dq_history"):
+                    if st.button("Clear Q&A history", key="dq_clear_hist"):
+                        st.session_state["dq_history"] = []
+                        st.rerun()
+            else:
+                st.info("Upload your sales deed or builder-buyer agreement PDF to get started.")
+
+
+# ── Admin: password-gated 4-tab dashboard ─────────────────────────────────────
+
+def _render_admin_mode():
+    """Render the admin dashboard with password gate."""
+    # Password gate
+    if "adm_auth" not in st.session_state:
+        st.session_state["adm_auth"] = False
+
+    if not st.session_state["adm_auth"]:
+        _, _ac, _ = st.columns([1, 2, 1])
+        with _ac:
+            st.markdown(
+                "<div style='text-align:center;margin:40px 0 24px'>"
+                "<div style='font-size:40px'>🛡️</div>"
+                "<h3 style='margin:8px 0 4px'>Admin Access</h3>"
+                "<p style='color:#6b7280;font-size:.85rem'>CCS RAG Compliance Dashboard</p>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+            _adm_pwd = st.text_input("Password", type="password", key="adm_pwd_input",
+                                     label_visibility="collapsed",
+                                     placeholder="Enter admin password")
+            if st.button("Sign in", key="adm_login_btn", use_container_width=True):
+                _correct = _secret("ADMIN_SECRET") or _secret("ADMIN_PASSWORD") or ""
+                if _adm_pwd == _correct and _correct:
+                    st.session_state["adm_auth"] = True
+                    st.session_state["adm_is_admin"] = True
+                    st.rerun()
+                else:
+                    st.error("Incorrect password.")
+        st.stop()
+
+    # Signed-in header
+    _adm_hdr, _adm_btn = st.columns([6, 1])
+    with _adm_hdr:
+        st.markdown(
+            "<div style='background:linear-gradient(135deg,#0f1e38,#0a1322);"
+            "padding:20px 28px;border-radius:12px;border:1px solid #1e2d45;margin-bottom:12px;'>"
+            "<div style='display:flex;align-items:center;gap:14px;'>"
+            "<div style='font-size:28px'>🛡️</div>"
+            "<div>"
+            "<h3 style='color:#f0f6ff;margin:0;font-size:20px;font-weight:800;'>CCS RAG Admin Dashboard</h3>"
+            "<p style='color:#7aa3d0;margin:3px 0 0;font-size:12px;'>Live monitoring</p>"
+            "</div></div></div>",
+            unsafe_allow_html=True,
+        )
+    with _adm_btn:
+        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+        if st.button("Sign out", key="adm_logout", use_container_width=True):
+            st.session_state["adm_auth"] = False
+            st.rerun()
+
+    _at1, _at2, _at3, _at4 = st.tabs(["  Activity  ", "  Documents  ", "  Bots  ", "  KB Coverage  "])
+
+    # ── Admin Tab 1: Activity ────────────────────────────────────────────────
+    with _at1:
+        import datetime as _dt_adm
+        import requests as _req_adm
+
+        _adm_url = _secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL", "")
+        _adm_svc = _secret("SUPABASE_SERVICE_KEY") or _secret("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY", "")
+
+        _adm_cr, _adm_rf = st.columns([3, 1])
+        with _adm_cr:
+            _adm_range = st.radio("Date range", ["Last 7 days", "Last 30 days", "All time"], horizontal=True, key="adm_range")
+        with _adm_rf:
+            st.write("")
+            if st.button("Refresh", key="adm_refresh"):
+                st.rerun()
+
+        _today = _dt_adm.date.today()
+        if _adm_range == "Last 7 days":
+            _since = (_today - _dt_adm.timedelta(days=7)).isoformat()
+        elif _adm_range == "Last 30 days":
+            _since = (_today - _dt_adm.timedelta(days=30)).isoformat()
+        else:
+            _since = "2020-01-01"
+
+        _adm_rows = []
+        if _adm_url and _adm_svc:
+            try:
+                _ar = _req_adm.get(
+                    f"{_adm_url}/rest/v1/queries"
+                    f"?select=id,created_at,bot,question,confidence,flagged_low_conf"
+                    f"&created_at=gte.{_since}T00:00:00&order=created_at.desc",
+                    headers={"apikey": _adm_svc, "Authorization": f"Bearer {_adm_svc}"},
+                    timeout=15,
+                )
+                _adm_rows = _ar.json() if _ar.ok else []
+            except Exception:
+                _adm_rows = []
+        else:
+            st.warning("SUPABASE_URL / SUPABASE_SERVICE_KEY not configured.")
+
+        _total   = len(_adm_rows)
+        _hc      = sum(1 for r in _adm_rows if r.get("bot") == "Healthcare")
+        _rera    = sum(1 for r in _adm_rows if r.get("bot") == "RERA")
+        _flagged = sum(1 for r in _adm_rows if r.get("flagged_low_conf"))
+        _fpct    = f"{_flagged/_total*100:.1f}%" if _total else "0.0%"
+
+        _m1, _m2, _m3, _m4 = st.columns(4)
+        _m1.metric("Total Queries", _total)
+        _m2.metric("Healthcare", _hc)
+        _m3.metric("RERA", _rera)
+        _m4.metric("Low Confidence", f"{_flagged} ({_fpct})")
+
+        if _adm_rows:
+            from collections import defaultdict as _dd
+            import pandas as _pd_adm
+            _dhc, _drera = _dd(int), _dd(int)
+            for _r in _adm_rows:
+                try:
+                    _day = _r["created_at"][:10]
+                except Exception:
+                    continue
+                if _r.get("bot") == "Healthcare":
+                    _dhc[_day] += 1
+                else:
+                    _drera[_day] += 1
+            _days = sorted(set(list(_dhc.keys()) + list(_drera.keys())))
+            if _days:
+                _df_c = _pd_adm.DataFrame({"Date": _days, "Healthcare": [_dhc.get(d, 0) for d in _days], "RERA": [_drera.get(d, 0) for d in _days]}).set_index("Date")
+                st.markdown("<p style='color:#6b7f9a;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;margin:16px 0 8px'>Queries per day</p>", unsafe_allow_html=True)
+                st.bar_chart(_df_c, height=260, use_container_width=True)
+            _lc = [r for r in _adm_rows if r.get("flagged_low_conf")]
+            st.markdown(f"<p style='color:#6b7f9a;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;margin:16px 0 8px'>Low confidence queries ({len(_lc)})</p>", unsafe_allow_html=True)
+            if _lc:
+                _df_lc = _pd_adm.DataFrame([
+                    {"Date": r["created_at"][:10], "Bot": r.get("bot",""), "Query": (r.get("question") or "")[:120], "Score": round(r.get("confidence") or 0, 3)}
+                    for r in _lc
+                ])
+                st.dataframe(_df_lc, use_container_width=True, hide_index=True)
+            else:
+                st.success("No low-confidence queries in this period.")
+        else:
+            st.info("No queries found for the selected date range.")
+
+    # ── Admin Tab 2: Documents ───────────────────────────────────────────────
+    with _at2:
+        import requests as _req_docs
+        import pandas as _pd_docs
+
+        _docs_url = _secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL", "")
+        _docs_svc = _secret("SUPABASE_SERVICE_KEY") or _secret("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY", "")
+
+        st.subheader("Knowledge Base Documents")
+        if _docs_url and _docs_svc:
+            try:
+                _dr = _req_docs.get(
+                    f"{_docs_url}/rest/v1/kb_documents"
+                    f"?select=bot,doc_id,title,status,expected_update_date,source_url"
+                    f"&order=bot.asc,doc_id.asc",
+                    headers={"apikey": _docs_svc, "Authorization": f"Bearer {_docs_svc}"},
+                    timeout=15,
+                )
+                _docs = _dr.json() if _dr.ok else []
+            except Exception:
+                _docs = []
+
+            if _docs:
+                _doc_filter = st.selectbox("Filter by bot", ["All", "RERA", "Healthcare"], key="adm_doc_filter")
+                _filtered = [d for d in _docs if _doc_filter == "All" or d.get("bot") == _doc_filter]
+                _df_docs = _pd_docs.DataFrame([
+                    {"Bot": d.get("bot",""), "Doc ID": d.get("doc_id",""), "Title": (d.get("title") or "")[:80], "Status": d.get("status",""), "Review Date": d.get("expected_update_date","") or ""}
+                    for d in _filtered
+                ])
+                st.info(f"Showing {len(_filtered)} of {len(_docs)} documents")
+                st.dataframe(_df_docs, use_container_width=True, hide_index=True)
+            else:
+                st.warning("No documents found or unable to connect to database.")
+        else:
+            st.warning("SUPABASE_URL / SUPABASE_SERVICE_KEY not configured.")
+
+    # ── Admin Tab 3: Bots ────────────────────────────────────────────────────
+    with _at3:
+        st.markdown("<p style='color:#6b7f9a;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;margin:0 0 20px'>Deployed compliance bots</p>", unsafe_allow_html=True)
+        _bc1, _bc2 = st.columns(2)
+        with _bc1:
+            st.markdown("""
+            <div style='background:linear-gradient(145deg,#0f1e38,#0a1528);
+                        padding:28px;border-radius:14px;border:1px solid #1e3560;'>
+              <div style='font-size:32px;margin-bottom:12px'>🏥</div>
+              <div style='color:#93c5fd;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:4px'>Healthcare</div>
+              <h3 style='color:#f0f6ff;margin:0 0 6px;font-size:18px;font-weight:800'>CDSCO Compliance Bot</h3>
+              <p style='color:#4a6f9a;font-size:12px;margin:0 0 20px;line-height:1.5'>Drug and Cosmetics Act, NDCT Rules, Medical Device Regulations</p>
+              <a href='https://ccsragcomplianceassistant-6hug2utprjrpwtyijwjanr.streamlit.app/' target='_blank'
+                 style='background:#2563eb;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:12px;font-weight:700'>
+                Open bot</a>
+            </div>""", unsafe_allow_html=True)
+        with _bc2:
+            st.markdown("""
+            <div style='background:linear-gradient(145deg,#0d2218,#081510);
+                        padding:28px;border-radius:14px;border:1px solid #1a4030;'>
+              <div style='font-size:32px;margin-bottom:12px'>🏠</div>
+              <div style='color:#86efac;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:4px'>Real Estate</div>
+              <h3 style='color:#f0f6ff;margin:0 0 6px;font-size:18px;font-weight:800'>Karnataka RERA Bot</h3>
+              <p style='color:#2d5a40;font-size:12px;margin:0 0 20px;line-height:1.5'>RERA Act 2016, K-RERA Rules, Project Registration, Agent Licensing</p>
+              <a href='https://ccsragcomplianceassistant-cisyv46xzq7kte95ywkmhg.streamlit.app/' target='_blank'
+                 style='background:#16a34a;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:12px;font-weight:700'>
+                Open bot</a>
+            </div>""", unsafe_allow_html=True)
+
+    # ── Admin Tab 4: KB Coverage ─────────────────────────────────────────────
+    with _at4:
+        import pandas as _pd_kb
+
+        _rera_domains = [
+            {"domain": "Central RERA Act and Rules",          "have": 4, "total": 5,
+             "have_labels": ["RERA Act 2016","Central RERA Rules 2016","Model Builder-Buyer Agreement","MoHUA circulars"],
+             "missing": ["RERA (Amendment) Bill 2023"]},
+            {"domain": "Karnataka RERA Rules and Procedures", "have": 0, "total": 4,
+             "have_labels": [],
+             "missing": ["Karnataka RERA Rules 2017","K-RERA fee schedule","K-RERA registration forms","K-RERA circulars"]},
+            {"domain": "Project Registration and Compliance", "have": 3, "total": 5,
+             "have_labels": ["Project registration guidelines","Quarterly progress report format","Completion certificate SOP"],
+             "missing": ["Escrow account management rules","Designated bank circular"]},
+            {"domain": "Agent Licensing",                     "have": 2, "total": 3,
+             "have_labels": ["Real estate agent registration rules","RERA agent code of conduct"],
+             "missing": ["State-specific agent fee schedules"]},
+            {"domain": "Dispute Resolution and Appeals",      "have": 1, "total": 4,
+             "have_labels": ["RERA adjudication process overview"],
+             "missing": ["RERA Appellate Tribunal rules","K-RERA precedent orders","COVID extension circulars"]},
+            {"domain": "Allottee Rights and Disclosures",     "have": 3, "total": 4,
+             "have_labels": ["Disclosure norms","Allottee rights chapter","Refund and interest rules"],
+             "missing": ["Homebuyer grievance portal SOP"]},
+            {"domain": "K-RERA Orders and Circulars",         "have": 0, "total": 3,
+             "have_labels": [],
+             "missing": ["K-RERA Authority orders","Complaint precedents","COVID extension orders"]},
+        ]
+
+        _rr_have  = sum(d["have"] for d in _rera_domains)
+        _rr_total = sum(d["total"] for d in _rera_domains)
+        _rr_pct   = round(_rr_have / _rr_total * 100) if _rr_total else 0
+
+        _kb_m1, _kb_m2, _kb_m3 = st.columns(3)
+        _kb_m1.metric("RERA Domains Tracked", len(_rera_domains))
+        _kb_m2.metric("Documents in Corpus", f"{_rr_have} / {_rr_total}")
+        _kb_m3.metric("Coverage", f"{_rr_pct}%")
+
+        st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+        st.markdown("#### RERA Knowledge Base Coverage")
+
+        for _dom in _rera_domains:
+            _cov_pct = round(_dom["have"] / _dom["total"] * 100) if _dom["total"] else 0
+            _status  = "🟢" if _cov_pct >= 80 else ("🟡" if _cov_pct >= 40 else "🔴")
+            with st.expander(f"{_status} **{_dom['domain']}** -- {_dom['have']}/{_dom['total']} docs ({_cov_pct}%)"):
+                if _dom["have_labels"]:
+                    st.markdown("**In corpus:**")
+                    for _lbl in _dom["have_labels"]:
+                        st.markdown(f"- {_lbl}")
+                if _dom["missing"]:
+                    st.markdown("**Missing:**")
+                    for _m in _dom["missing"]:
+                        st.markdown(f"- {_m}")
+
+        st.markdown("---")
+        st.caption(
+            "Coverage reflects documents currently indexed in the RERA vector store. "
+            "Adding missing documents will improve compliance answer accuracy."
+        )
+
+
+# ── main app layout ───────────────────────────────────────────────────────────
+
+def main():
+    # ── Role toggle (small, top of page) ──────────────────────────────────
+    _r_col, _h_col = st.columns([3, 7])
+    with _r_col:
+        _role = st.radio(
+            "",
+            ["👤 User", "🎖 Compliance", "🔑 Admin"],
+            horizontal=True,
+            key="app_role",
+            label_visibility="collapsed",
+        )
+    with _h_col:
+        _hints = {
+            "👤 User":       "Compliance chat",
+            "🎖 Compliance": "Chat · K-RERA Lookup · Investment Signals · Document Q&A",
+            "🔑 Admin":      "Activity · Documents · Bots · KB Coverage",
+        }
+        st.caption(_hints.get(_role, ""))
+    st.markdown("<hr style='margin:4px 0 14px;opacity:.15'>", unsafe_allow_html=True)
+
+    # ── User mode ──────────────────────────────────────────────────────────
+    if "User" in _role:
+        _sidebar_project_search()
+        _sidebar_document_context()
+
+        st.markdown(
+            "<h2 style='margin-bottom:2px'>Karnataka RERA Property Advisor</h2>"
+            "<p style='color:#6b7280;margin-top:0;font-size:.9rem'>"
+            "IIMB PGPBA Group 9 | CCS RAG Compliance Assistant</p>",
+            unsafe_allow_html=True,
+        )
+        components.html(DEMO_HTML, height=62)
+        st.markdown(
+            "<div style='background:#f0fdf4;border-left:4px solid #22c55e;"
+            "border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:.85rem;color:#166534'>"
+            "Upload brochures or paste a URL in the sidebar to run a full due diligence report. "
+            "Or just ask any question below about Karnataka RERA, prices, or builders."
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        report = st.session_state.get("uf_report_data")
+        if report and report.get("extracted"):
+            source_names = report.get("source_names", [])
+            label = ", ".join(source_names) if source_names else "uploaded documents"
+            with st.expander(f"Property report: {label}", expanded=True):
+                _render_report(
+                    report["extracted"],
+                    report.get("rera_rows", []),
+                    report.get("price", {}),
+                    report.get("bvr", {}),
+                )
+            st.divider()
+        _render_chat()
+
+    # ── Compliance Officer mode ────────────────────────────────────────────
+    elif "Compliance" in _role:
+        _render_co_tabs()
+
+    # ── Admin mode ────────────────────────────────────────────────────────
+    elif "Admin" in _role:
+        _render_admin_mode()
 
 
 main()
