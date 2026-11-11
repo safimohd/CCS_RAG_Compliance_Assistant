@@ -842,6 +842,16 @@ def _render_unified_chat():
                             db_context = _format_db_rows_for_llm(db_rows)
 
                     system_content = _build_chat_system()
+
+                    # Inject uploaded document context if available
+                    doc_context = st.session_state.get("uf_doc_context", "")
+                    if doc_context:
+                        system_content = (
+                            system_content
+                            + "\n\n[Uploaded document context — answer questions using this]\n"
+                            + doc_context[:8000]
+                        )
+
                     if db_context:
                         system_content = (
                             system_content
@@ -883,75 +893,120 @@ def _render_unified_chat():
             on_click=lambda: st.session_state.update(uf_chat_history=[]),
         )
 
+# ── sidebar document context ──────────────────────────────────────────────────
+
+def _sidebar_document_context():
+    """Sidebar widget: upload multiple PDFs or a URL as persistent chat context."""
+    with st.sidebar:
+        st.markdown("### Attach Documents")
+        st.caption("Upload brochure(s) or paste a URL. Chat below will use them.")
+
+        uploaded_files = st.file_uploader(
+            "PDF brochure(s)",
+            type=["pdf"],
+            accept_multiple_files=True,
+            key="sidebar_pdf_files",
+            label_visibility="collapsed",
+        )
+        url_input = st.text_input(
+            "Property URL",
+            placeholder="https://...",
+            key="sidebar_url_input",
+        )
+
+        process_btn = st.button(
+            "Process & load into chat", key="sidebar_process_btn", type="primary"
+        )
+
+        if process_btn:
+            texts = []
+            with st.spinner("Processing..."):
+                if uploaded_files:
+                    for f in uploaded_files:
+                        try:
+                            t = _pdf_to_text(f.read())
+                            if t and t.strip():
+                                texts.append(f"[From: {f.name}]\n{t.strip()}")
+                        except Exception:
+                            pass
+                if url_input and url_input.startswith("http"):
+                    try:
+                        t = _url_to_text(url_input)
+                        if t and t.strip():
+                            texts.append(f"[From: {url_input}]\n{t.strip()}")
+                    except Exception:
+                        pass
+
+            if texts:
+                combined = "\n\n---\n\n".join(texts)
+                st.session_state.uf_doc_context = combined
+
+                # Run structured pipeline on first document for the report card
+                try:
+                    extracted = _extract_fields(texts[0])
+                    rera_rows = _rera_lookup(extracted) if extracted else []
+                    price = _price_verdict(extracted) if extracted else {}
+                    bvr = _buy_vs_rent(extracted) if extracted else {}
+                    st.session_state.uf_report_data = {
+                        "extracted": extracted,
+                        "rera_rows": rera_rows,
+                        "price": price,
+                        "bvr": bvr,
+                        "source_names": [
+                            (f.name if hasattr(f, "name") else url_input)
+                            for f in (uploaded_files or [url_input])
+                        ],
+                    }
+                except Exception:
+                    st.session_state.uf_report_data = None
+
+                st.success(f"{len(texts)} document(s) loaded. Ask questions in the chat below.")
+            else:
+                st.warning("No text could be extracted. Try a different file or URL.")
+
+        # Show active context badge + clear button
+        if st.session_state.get("uf_doc_context"):
+            n = len(st.session_state.get("uf_report_data", {}).get("source_names", []))
+            st.markdown(
+                f"<div style='font-size:.78rem;color:#166534;background:#dcfce7;"
+                f"border-radius:4px;padding:4px 8px;margin-top:4px'>"
+                f"Context active ({n} doc{'s' if n!=1 else ''})</div>",
+                unsafe_allow_html=True,
+            )
+            if st.button("Clear documents", key="sidebar_clear_docs", type="secondary"):
+                st.session_state.pop("uf_doc_context", None)
+                st.session_state.pop("uf_report_data", None)
+                st.rerun()
+
+
 # ── main entry point ──────────────────────────────────────────────────────────
 
 def render_user_flow():
     """Render the full user-facing property due diligence pipeline."""
 
-    # Sidebar: Project Lookup widget (always visible)
+    # Sidebar: Project Lookup + Document Context (always visible)
     _sidebar_project_search()
+    _sidebar_document_context()
 
     # pipeline animation strip
     components.html(DEMO_HTML, height=62)
 
     st.markdown("#### Check any Karnataka property in seconds")
     st.caption(
-        "Chat below. Optionally attach a PDF brochure or paste a property URL for a full due diligence report."
+        "Ask anything below. Use the sidebar to attach PDF brochures or a URL for a full due diligence report."
     )
 
-    # ---- optional document inputs ----
-    with st.expander("Attach a brochure or URL (optional)", expanded=False):
-        col_pdf, col_url = st.columns([1, 1])
-        with col_pdf:
-            uploaded = st.file_uploader(
-                "Upload PDF brochure", type=["pdf"],
-                label_visibility="visible", key="uf_pdf"
+    # ---- show structured report card if documents were processed ----
+    report = st.session_state.get("uf_report_data")
+    if report and report.get("extracted"):
+        with st.expander("Your property report", expanded=True):
+            _render_report(
+                report["extracted"],
+                report.get("rera_rows", []),
+                report.get("price", {}),
+                report.get("bvr", {}),
             )
-        with col_url:
-            url_input = st.text_input(
-                "Property website URL", placeholder="https://...", key="uf_url"
-            )
+        st.divider()
 
-        if uploaded or (url_input and url_input.startswith("http")):
-            run = st.button("Run full due diligence report", type="primary", key="uf_run")
-            if run:
-                # ---- pipeline execution ----
-                with st.status("Running property due diligence...", expanded=True) as status:
-                    st.write("Extracting text...")
-                    try:
-                        if uploaded:
-                            raw_text = _pdf_to_text(uploaded.read())
-                        else:
-                            raw_text = _url_to_text(url_input)
-                    except Exception as e:
-                        st.error(f"Could not read the source: {e}")
-                        return
-
-                    if not raw_text.strip():
-                        st.error("No text could be extracted. Try a different source.")
-                        return
-
-                    st.write("Identifying project details with AI...")
-                    extracted = _extract_fields(raw_text)
-
-                    if not extracted:
-                        st.error("AI extraction returned no data. The document may not be a property brochure.")
-                        return
-
-                    st.write("Checking K-RERA live database...")
-                    rera_rows = _rera_lookup(extracted)
-
-                    st.write("Analysing price against locality benchmarks...")
-                    price = _price_verdict(extracted)
-
-                    st.write("Computing buy vs rent...")
-                    bvr = _buy_vs_rent(extracted)
-
-                    status.update(label="Done! Scroll down for your report.", state="complete", expanded=False)
-
-                # ---- show report ----
-                _render_report(extracted, rera_rows, price, bvr)
-                return
-
-    # ---- unified chat (always visible below) ----
+    # ---- unified chat (always visible) ----
     _render_unified_chat()
