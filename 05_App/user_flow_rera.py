@@ -830,23 +830,35 @@ def _render_co_tabs():
         else:
             _lk_ca, _lk_cb = st.columns([3, 1])
             with _lk_ca:
-                _lk_q = st.text_input(
+                _LK_HINTS = {
+                    "Project Name":       "e.g. Prestige Sunrise Park, Brigade Orchards",
+                    "Builder / Promoter": "e.g. Prestige, Brigade, Godrej, Sobha",
+                    "PIN Code":           "e.g. 560066, 560034, 562110",
+                    "District / Area":    "e.g. BENGALURU URBAN, MYSORE, TUMAKURU",
+                    "Taluk":              "e.g. Bangalore North, Devanahalli, Anekal",
+                    "ACK Number":         "e.g. PRM/KA/RERA/...",
+                    "PRM Number":         "e.g. PRM/KA/RERA/...",
+                }
+            _lk_q = st.text_input(
                     "Search projects",
-                    placeholder="e.g. Prestige, Brigade, Sobha, Whitefield...",
+                    placeholder=_LK_HINTS.get(_lk_field, "Search..."),
                     key="lk_query",
                 )
             with _lk_cb:
                 _lk_field = st.selectbox(
                     "Search by",
-                    ["Project Name", "Builder / Promoter", "ACK Number", "PRM Number"],
+                    ["Project Name", "Builder / Promoter", "PIN Code", "District / Area", "Taluk", "ACK Number", "PRM Number"],
                     key="lk_field",
                 )
 
             _LK_COL = {
-                "Project Name": "project_name",
-                "Builder / Promoter": "promoter_name",
-                "ACK Number": "ack_number",
-                "PRM Number": "prm_number",
+                "Project Name":        "project_name",
+                "Builder / Promoter":  "promoter_name",
+                "PIN Code":            "pin_code",
+                "District / Area":     "district",
+                "Taluk":               "taluk",
+                "ACK Number":          "ack_number",
+                "PRM Number":          "prm_number",
             }
 
             if _lk_q:
