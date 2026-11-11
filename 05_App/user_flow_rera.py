@@ -1606,24 +1606,22 @@ def _render_admin_mode():
 # ── main app layout ───────────────────────────────────────────────────────────
 
 def main():
-    # ── Role toggle (small, top of page) ──────────────────────────────────
-    _r_col, _h_col = st.columns([3, 7])
-    with _r_col:
+    # ── Role toggle — lives in the sidebar, compact ────────────────────────
+    with st.sidebar:
+        st.markdown(
+            "<div style='margin-bottom:2px;font-size:11px;color:#9ca3af;"
+            "text-transform:uppercase;letter-spacing:.06em;font-weight:600'>"
+            "View</div>",
+            unsafe_allow_html=True,
+        )
         _role = st.radio(
-            "",
+            "View",
             ["👤 User", "🎖 Compliance", "🔑 Admin"],
             horizontal=True,
             key="app_role",
             label_visibility="collapsed",
         )
-    with _h_col:
-        _hints = {
-            "👤 User":       "Compliance chat",
-            "🎖 Compliance": "Chat · K-RERA Lookup · Investment Signals · Document Q&A",
-            "🔑 Admin":      "Activity · Documents · Bots · KB Coverage",
-        }
-        st.caption(_hints.get(_role, ""))
-    st.markdown("<hr style='margin:4px 0 14px;opacity:.15'>", unsafe_allow_html=True)
+        st.markdown("<hr style='margin:6px 0 10px;opacity:.15'>", unsafe_allow_html=True)
 
     # ── User mode ──────────────────────────────────────────────────────────
     if "User" in _role:
