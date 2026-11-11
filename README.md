@@ -3,7 +3,7 @@
 **Team:** Safi (Mohammad Safi Ur Rahman) and Sairaj
 **Faculty Advisor:** Prof. Subhabrata Majumdar ("Subho")
 **GitHub:** https://github.com/safimohd/CCS_RAG_Compliance_Assistant
-**Last updated:** November 10, 2026
+**Last updated:** November 11, 2026
 
 ---
 
@@ -84,9 +84,11 @@ RAG_Project/
           combine_healthcare_files.ps1
 
   05_App/
-      app.py                 <- main Streamlit UI (entry: combined)
-      app_healthcare.py      <- entry point for Healthcare deployment
-      app_rera.py            <- entry point for RERA deployment
+      app.py                 <- main Streamlit UI (entry: combined, 4-tab UI)
+      app_healthcare.py      <- entry point for Healthcare deployment (execs structured_chat.py)
+      app_rera.py            <- entry point for RERA deployment (execs user_flow_rera.py)
+      user_flow_rera.py      <- RERA standalone app (828 lines, completely separate from Healthcare)
+      structured_chat.py     <- Healthcare chat pipeline
       rag_query.py           <- retrieve(), index_titles(), to_cosine(), FACILITY_MARKERS
       ingest_corpus.py       <- PDF ingestion into ChromaDB
       admin.py               <- admin dashboard (774 lines)
@@ -238,11 +240,63 @@ Three requests:
 
 Priority agreed: complete UI changes first, then return to evaluation.
 
+**November 2026 — Investment Signals Tab**
+
+A new Investment Signals tab was added to `app.py` with live 2026 price data sourced from NoBroker, 99acres, and MagicBricks (anchored to November 2026). The tab covers 25 Bangalore localities across 5 zones (Central, East, North, South, West) and contains three sub-tabs:
+
+1. **Fair Price Checker** — compares a quoted price per sq ft against the locality band (±15% tolerance). Returns FAIR / PREMIUM / BELOW MARKET verdict with reasoning.
+2. **Buy vs Rent vs Invest** — calculates monthly EMI at 8.5% interest over 20 years, compares against comparable rental yield, and returns break-even years. Helps a buyer decide whether to purchase or rent.
+3. **Locality Explorer** — table view of all 25 localities with zone, average PSF, trend indicator, CAGR estimate, and risk rating (Low/Medium/High).
+
+Each locality record stores: `avg_psf`, `trend` (Rising/Stable/Cooling), `zone`, CAGR scaling factor, and risk rating. Sources cited inline per locality.
+
+**November 2026 — Domain Separation (Sairaj Feedback)**
+
+Sairaj reviewed the app and flagged that the shared codebase between RERA and Healthcare was confusing and created merge risk. The two domains are now fully separate:
+
+| Domain | Entry file | App file | Deployment |
+|--------|-----------|----------|------------|
+| RERA | `app_rera.py` | `user_flow_rera.py` | https://ccsragcomplianceassistant-cisyv46xzq7kte95ywkmhg.streamlit.app |
+| Healthcare | `app_healthcare.py` | `structured_chat.py` | https://ccsragcomplianceassistant-6hug2utprjrpwtyijwjanr.streamlit.app |
+
+`app_rera.py` sets `APP_DOMAIN="RERA"` and exec's `user_flow_rera.py`. Nothing is shared between the two codebases at runtime. `user_flow_rera.py` is 828 lines and fully self-contained: it includes its own `_secret()` helper, all LLM calls, the K-RERA Supabase lookup, the investment calculator, and the report card renderer.
+
+**November 2026 — RERA Chat UX Overhaul (Sairaj Feedback)**
+
+Sairaj also flagged that the RERA app's UX was confusing: uploading a document caused the chat to disappear. The UX was rebuilt in `user_flow_rera.py`:
+
+- **Document upload moved to the sidebar.** Users can upload multiple PDFs and paste URLs for context in a persistent sidebar panel. A "Load into chat" button triggers extraction.
+- **Chat is always visible.** The report card is stored in `st.session_state.uf_report_data` and rendered above the chat; removing the blocking `return` after the report means the chat never disappears after a document is loaded.
+- **Multi-document context.** Text from all uploaded PDFs and URLs is combined into a single context block injected into the system prompt at chat time.
+
+**November 2026 — Bug Fix: Empty Response from gpt-5-nano**
+
+`gpt-5-nano` on Streamlit Cloud returned `None` for `resp.choices[0].message.content` when `max_completion_tokens=1500` was set and the system prompt was large. The model silently truncated its response to zero tokens. Fix in `user_flow_rera.py`: the `max_completion_tokens` parameter was removed entirely from all `client.chat.completions.create()` calls. Debug output showing `finish_reason`, message count, and `system_chars` is logged when content is empty so future silent failures surface immediately.
+
+Note: `structured_chat.py` and the older `user_flow.py` still carry the `max_completion_tokens` bug. Only `user_flow_rera.py` is fixed.
+
 ---
 
 ## System Architecture
 
-### RAG Pipeline
+### Two Separate Deployments
+
+```
+RERA deployment
+  app_rera.py  (sets APP_DOMAIN="RERA", execs user_flow_rera.py)
+    └─ user_flow_rera.py  (828 lines, fully self-contained)
+         ├─ Sidebar: multi-PDF upload + URL paste
+         ├─ K-RERA live lookup via Supabase REST (10,000+ projects)
+         ├─ Investment Signals: Fair Price, Buy vs Rent, Locality Explorer
+         ├─ Report card: RERA status, price verdict, break-even
+         └─ Always-visible chat with injected document context
+
+Healthcare deployment
+  app_healthcare.py  (sets APP_DOMAIN="Healthcare", imports structured_chat.py)
+    └─ structured_chat.py  (Healthcare chat pipeline, ChromaDB RAG)
+```
+
+### RAG Pipeline (both domains)
 
 ```
 User query
@@ -318,6 +372,12 @@ Tiers D and E are excluded from the default `where` clause. Including them requi
 
 7. **No credentials ever committed to git.** API keys live in `.env` (gitignored) locally and in Streamlit Secrets on deployment. This is a hard rule.
 
+8. **RERA and Healthcare are entirely separate codebases at runtime.** `user_flow_rera.py` has no imports from `structured_chat.py` and vice versa. Changes to one domain cannot silently break the other. Do not introduce shared modules between them.
+
+9. **`max_completion_tokens` must NOT be set for gpt-5-nano on Streamlit Cloud.** The model silently returns `None` content when the token cap is reached on a large system prompt. Remove this parameter entirely; the model's own context limit is the effective ceiling.
+
+10. **Investment PSF data is hardcoded to November 2026 and must be updated each review cycle.** The `LOCALITIES` dict in `user_flow_rera.py` holds `avg_psf` values anchored to Nov 2026. Source columns are cited per locality. Update when NoBroker/99acres/MagicBricks data is refreshed; do not let it drift more than 6 months without a refresh pass.
+
 ---
 
 ## Corpus Accounting
@@ -350,6 +410,8 @@ Measured index (read from chroma.sqlite3, Nov 2026):
 | `02_Corpus/Healthcare/06_Review/` (83 docs) and `02_Corpus/RERA/04_Review/` (37 docs) have unverified binding status | Awaiting human review before promotion or drop |
 | Apps sleep after 12 hours of inactivity; cold boot takes several minutes (index download + model load) | Mitigation: GitHub Actions keep-warm workflow (see GO_LIVE.md) |
 | `.usage.json` is not in .gitignore but is per-deployment runtime state | Should be added post-submission |
+| `structured_chat.py` and `user_flow.py` still have `max_completion_tokens=1500` bug | Only `user_flow_rera.py` is fixed; Healthcare deployment may produce blank responses on large prompts |
+| `structured_chat_healthcare.py` not yet created | Healthcare domain still running from `structured_chat.py` which contains 53 RERA/Karnataka references |
 
 ---
 
@@ -395,8 +457,16 @@ python run_v2_evaluation_v24.py results/benchmark_answers_YYYYMMDD.xlsx
 | Task | Status |
 |------|--------|
 | Blank response fix in user_flow.py (None content from gpt-5-nano) | Done — commit `0d96909`, Nov 10 |
+| Domain separation: `user_flow_rera.py` created as standalone RERA codebase | Done — commit `b4d0fbc`, Nov 11 |
+| RERA chat UX overhaul: sidebar upload, multi-PDF + URL, always-visible chat | Done — in `user_flow_rera.py` |
+| Investment Signals tab: Fair Price, Buy vs Rent, Locality Explorer | Done — in `app.py` |
+| 2026-anchored PSF data for 25 Bangalore localities (NoBroker, 99acres, MagicBricks) | Done — in `app.py` |
+| Fix `max_completion_tokens` bug causing silent blank responses | Done — in `user_flow_rera.py` only |
 | System D benchmark run (CV-RAG, RERA V5.1) | In progress (~90 min) |
 | UI changes from Nov 3 prof feedback (query history, RERA toggle, journey) | In progress |
+| Create `structured_chat_healthcare.py` (clean copy, strip 53 RERA references) | Pending |
+| Update `app_healthcare.py` to use `structured_chat_healthcare.py` | Pending |
+| Fix `max_completion_tokens` bug in `structured_chat.py` | Pending |
 | System D RERA score with RERA Act 2016 added to corpus | Pending |
 | Complaint/delay data layer in K-RERA Project Lookup tab | Pending |
 | Final report (PDF, max 10 pages) | Pending |
