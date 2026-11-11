@@ -112,6 +112,165 @@ def _fetch_rera_user_history(limit: int = 15) -> list:
         return []
 
 
+# ── Known Bangalore landmarks for nearby search ──────────────────────────────
+_KNOWN_LOCATIONS: dict = {
+    "iim bangalore": (13.0218, 77.5671),
+    "iimb":          (13.0218, 77.5671),
+    "iim b":         (13.0218, 77.5671),
+    "whitefield":    (12.9698, 77.7500),
+    "koramangala":   (12.9352, 77.6245),
+    "indiranagar":   (12.9784, 77.6408),
+    "jayanagar":     (12.9308, 77.5839),
+    "electronic city": (12.8456, 77.6603),
+    "hebbal":        (13.0358, 77.5970),
+    "marathahalli":  (12.9591, 77.6974),
+    "sarjapur":      (12.8714, 77.7853),
+    "yelahanka":     (13.1004, 77.5963),
+    "jp nagar":      (12.9077, 77.5852),
+    "bannerghatta":  (12.8654, 77.5992),
+    "rajajinagar":   (12.9906, 77.5518),
+    "malleshwaram":  (13.0036, 77.5704),
+    "sadashivanagar": (13.0106, 77.5811),
+    "basavanagudi":  (12.9420, 77.5758),
+    "btm layout":    (12.9155, 77.6109),
+    "hsr layout":    (12.9116, 77.6474),
+    "hennur":        (13.0441, 77.6336),
+    "devanahalli":   (13.2470, 77.7122),
+    "anekal":        (12.7142, 77.6960),
+    "yeshwanthpur":  (13.0206, 77.5476),
+    "banaswadi":     (13.0160, 77.6471),
+    "bellandur":     (12.9253, 77.6763),
+    "domlur":        (12.9607, 77.6388),
+    "kr puram":      (13.0031, 77.6952),
+    "kengeri":       (12.9112, 77.4845),
+    "nagarbhavi":    (12.9681, 77.5072),
+    "mysore":        (12.2958, 76.6394),
+    "mangalore":     (12.9141, 74.8560),
+    "hubli":         (15.3647, 75.1240),
+    "dharwad":       (15.4573, 75.0152),
+    "tumkur":        (13.3379, 77.1173),
+}
+
+
+def _geocode_location(place_name: str):
+    """Return (lat, lon) for a place. Checks known landmarks first, then Nominatim OSM."""
+    key = place_name.lower().strip()
+    for known, coords in _KNOWN_LOCATIONS.items():
+        if known in key or key in known:
+            return coords
+    # Nominatim fallback (free OSM geocoding, no API key needed)
+    try:
+        requests = _ensure("requests")
+        resp = requests.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={
+                "q": f"{place_name}, Karnataka, India",
+                "format": "json",
+                "limit": 1,
+                "countrycodes": "in",
+            },
+            headers={"User-Agent": "RERA-Compliance-Assistant/1.0"},
+            timeout=5,
+        )
+        if resp.ok and resp.json():
+            hit = resp.json()[0]
+            return (float(hit["lat"]), float(hit["lon"]))
+    except Exception:
+        pass
+    return None
+
+
+def _search_nearby_projects(lat: float, lon: float, radius_km: float = 7,
+                             status_filter: str = None, limit: int = 15) -> list:
+    """Find RERA projects within radius_km of (lat, lon) using bounding box + Haversine."""
+    import math
+    requests = _ensure("requests")
+    url_base = _secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL", "")
+    key = _secret("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY", "")
+    if not url_base or not key:
+        return []
+
+    # Bounding box pre-filter (degrees)
+    d_lat = radius_km / 111.0
+    d_lon = radius_km / (111.0 * math.cos(math.radians(lat)))
+    lat_min, lat_max = lat - d_lat, lat + d_lat
+    lon_min, lon_max = lon - d_lon, lon + d_lon
+
+    select = (
+        "project_name,promoter_name,status,district,taluk,"
+        "ack_number,pin_code,completion_date,lapse_date,"
+        "total_units,sold_units,latitude,longitude,detail_url"
+    )
+    # PostgREST allows duplicate param keys for AND conditions
+    qs = (
+        f"latitude=gte.{lat_min}&latitude=lte.{lat_max}"
+        f"&longitude=gte.{lon_min}&longitude=lte.{lon_max}"
+        f"&select={select}&limit=200"
+    )
+    if status_filter:
+        qs += f"&status=ilike.*{status_filter}*"
+
+    try:
+        resp = requests.get(
+            f"{url_base}/rest/v1/rera_projects?{qs}",
+            headers={"apikey": key, "Authorization": f"Bearer {key}"},
+            timeout=12,
+        )
+        if not resp.ok or not isinstance(resp.json(), list):
+            return []
+        rows = resp.json()
+    except Exception:
+        return []
+
+    def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        R = 6371.0
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        a = (math.sin(dlat / 2) ** 2
+             + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2))
+             * math.sin(dlon / 2) ** 2)
+        return R * 2 * math.asin(math.sqrt(a))
+
+    results = []
+    for r in rows:
+        try:
+            dist = haversine(lat, lon, float(r["latitude"]), float(r["longitude"]))
+            if dist <= radius_km:
+                r["_dist_km"] = round(dist, 1)
+                results.append(r)
+        except Exception:
+            pass
+
+    results.sort(key=lambda x: x["_dist_km"])
+    return results[:limit]
+
+
+def _format_nearby_rows_for_llm(rows: list, location: str) -> str:
+    if not rows:
+        return ""
+    lines = [f"[Live K-RERA projects near '{location}' — closest first]"]
+    for r in rows[:10]:
+        dist = r.get("_dist_km", "?")
+        sold = r.get("sold_units") or ""
+        total = r.get("total_units") or ""
+        units = f"{sold}/{total} units sold" if sold and total else ""
+        parts = [
+            f"{r.get('project_name', 'Unknown')} ({dist} km away)",
+            f"Status: {r.get('status', 'unknown')}",
+            f"Promoter: {r.get('promoter_name', '')}",
+            f"PIN: {r.get('pin_code', '')}",
+            f"Completion: {r.get('completion_date', '')}",
+        ]
+        if units:
+            parts.append(units)
+        lines.append("  " + " | ".join(p for p in parts if p.split(": ", 1)[-1]))
+    lines.append(
+        f"\nNote: {len(rows)} RERA-registered project(s) found within 7 km. "
+        "Only projects with GPS coordinates in the K-RERA registry are shown (~15% of total)."
+    )
+    return "\n".join(lines)
+
+
 # ── locality price bands (Bangalore, Q2-Q3 2026) ─────────────────────────────
 
 LOCALITIES = [
@@ -321,6 +480,35 @@ def _detect_entity_in_message(msg: str) -> dict:
     m = re.search(r"\b(5[0-9]{5})\b", msg)
     if m:
         return {"query": m.group(1), "type": "pin"}
+
+    # Nearby / location-based search
+    msg_lower = msg.lower()
+    _nearby_signals = [
+        "near me", "nearby", "close to", "near iim", "near whitefield",
+        "near koramangala", "near indiranagar", "near hebbal",
+        "within", "projects near", "flats near", "apartments near",
+        "properties near", "km from", "around me", "in my area",
+        "close by", "proximity", "walking distance",
+    ]
+    if any(sig in msg_lower for sig in _nearby_signals):
+        # Try "near <place>" pattern
+        m2 = re.search(
+            r'near\s+((?:iim\s+bangalore|iimb?|[a-z][a-z\s]{2,20}?))'
+            r'(?:\s+within|\s+in\s|\s+\d|\s*[,.]|\s*$)',
+            msg_lower,
+        )
+        if m2:
+            return {"query": m2.group(1).strip(), "type": "nearby"}
+        # Try "X km from <place>"
+        m2 = re.search(r'(?:\d+\s*km\s+from|from)\s+([a-z][a-z\s]{2,25})', msg_lower)
+        if m2:
+            return {"query": m2.group(1).strip(), "type": "nearby"}
+        # Scan for a known landmark in the message
+        for loc in _KNOWN_LOCATIONS:
+            if loc in msg_lower:
+                return {"query": loc, "type": "nearby"}
+        # Generic nearby — default to Bangalore CBD
+        return {"query": "bangalore", "type": "nearby"}
 
     project_signals = [
         "project", "apartment", "flat", "society", "residency", "residences",
@@ -777,7 +965,17 @@ def _render_chat():
 
                     entity = _detect_entity_in_message(user_input)
                     db_context = ""
-                    if entity["type"] != "none" and entity["query"]:
+                    if entity["type"] == "nearby" and entity["query"]:
+                        _coords = _geocode_location(entity["query"])
+                        if _coords:
+                            _nearby = _search_nearby_projects(
+                                _coords[0], _coords[1], radius_km=7
+                            )
+                            if _nearby:
+                                db_context = _format_nearby_rows_for_llm(
+                                    _nearby, entity["query"]
+                                )
+                    elif entity["type"] != "none" and entity["query"]:
                         db_rows = _search_rera_db(
                             entity["query"], search_by=entity["type"], limit=5
                         )
@@ -903,26 +1101,36 @@ def _render_co_tabs():
             st.warning("SUPABASE_URL and SUPABASE_KEY are not set. Add them in Streamlit Secrets.")
         else:
             _lk_ca, _lk_cb = st.columns([3, 1])
+            with _lk_cb:
+                _lk_field = st.selectbox(
+                    "Search by",
+                    ["Project Name", "Builder / Promoter", "PIN Code",
+                     "District / Area", "Taluk", "Near Location",
+                     "ACK Number", "PRM Number"],
+                    key="lk_field",
+                )
+            _LK_HINTS = {
+                "Project Name":       "e.g. Prestige Sunrise Park, Brigade Orchards",
+                "Builder / Promoter": "e.g. Prestige, Brigade, Godrej, Sobha",
+                "PIN Code":           "e.g. 560066, 560034, 562110",
+                "District / Area":    "e.g. BENGALURU URBAN, MYSORE, TUMAKURU",
+                "Taluk":              "e.g. Bangalore North, Devanahalli, Anekal",
+                "Near Location":      "e.g. IIM Bangalore, Whitefield, Koramangala, Hebbal",
+                "ACK Number":         "e.g. PRM/KA/RERA/...",
+                "PRM Number":         "e.g. PRM/KA/RERA/...",
+            }
             with _lk_ca:
-                _LK_HINTS = {
-                    "Project Name":       "e.g. Prestige Sunrise Park, Brigade Orchards",
-                    "Builder / Promoter": "e.g. Prestige, Brigade, Godrej, Sobha",
-                    "PIN Code":           "e.g. 560066, 560034, 562110",
-                    "District / Area":    "e.g. BENGALURU URBAN, MYSORE, TUMAKURU",
-                    "Taluk":              "e.g. Bangalore North, Devanahalli, Anekal",
-                    "ACK Number":         "e.g. PRM/KA/RERA/...",
-                    "PRM Number":         "e.g. PRM/KA/RERA/...",
-                }
-            _lk_q = st.text_input(
+                _lk_q = st.text_input(
                     "Search projects",
                     placeholder=_LK_HINTS.get(_lk_field, "Search..."),
                     key="lk_query",
                 )
-            with _lk_cb:
-                _lk_field = st.selectbox(
-                    "Search by",
-                    ["Project Name", "Builder / Promoter", "PIN Code", "District / Area", "Taluk", "ACK Number", "PRM Number"],
-                    key="lk_field",
+            # Radius slider for nearby search
+            _lk_radius = 7
+            if _lk_field == "Near Location":
+                _lk_radius = st.slider(
+                    "Radius (km)", min_value=2, max_value=20, value=7, step=1,
+                    key="lk_radius",
                 )
 
             _LK_COL = {
@@ -936,44 +1144,103 @@ def _render_co_tabs():
             }
 
             if _lk_q:
-                _col = _LK_COL.get(_lk_field, "project_name")
-                _sel = (
-                    "ack_number,prm_number,project_name,promoter_name,"
-                    "status,district,taluk,project_type,total_units,sold_units,"
-                    "completion_date,reg_date,lapse_date,land_area_sqft,detail_url"
-                )
-                _lk_endpoint = (
-                    f"{_lk_url_base}/rest/v1/rera_projects"
-                    f"?{_col}=ilike.*{_req_lk.utils.quote(_lk_q)}*"
-                    f"&limit=20&select={_sel}"
-                )
-                try:
-                    _resp = _req_lk.get(
-                        _lk_endpoint,
-                        headers={"apikey": _lk_key, "Authorization": f"Bearer {_lk_key}"},
-                        timeout=15,
+                _lk_rows = []
+                if _lk_field == "Near Location":
+                    # Geocode + Haversine search
+                    with st.spinner(f"Locating '{_lk_q}' and searching nearby projects..."):
+                        _lk_coords = _geocode_location(_lk_q)
+                    if _lk_coords:
+                        st.caption(
+                            f"Searching within {_lk_radius} km of "
+                            f"({_lk_coords[0]:.4f}, {_lk_coords[1]:.4f})"
+                        )
+                        with st.spinner("Fetching nearby RERA projects..."):
+                            _near_rows = _search_nearby_projects(
+                                _lk_coords[0], _lk_coords[1],
+                                radius_km=_lk_radius, limit=30
+                            )
+                        # Convert to same schema expected by the card renderer
+                        for _nr in _near_rows:
+                            _nr["_dist_label"] = f"{_nr['_dist_km']} km away"
+                        _lk_rows = _near_rows
+                        if not _lk_rows:
+                            st.info(
+                                "No RERA projects with GPS coordinates found within "
+                                f"{_lk_radius} km of '{_lk_q}'. "
+                                "Try a larger radius or search by PIN Code / District."
+                            )
+                    else:
+                        st.warning(
+                            f"Could not geocode '{_lk_q}'. "
+                            "Try a well-known landmark: IIM Bangalore, Whitefield, Koramangala..."
+                        )
+                else:
+                    _LK_COL = {
+                        "Project Name":        "project_name",
+                        "Builder / Promoter":  "promoter_name",
+                        "PIN Code":            "pin_code",
+                        "District / Area":     "district",
+                        "Taluk":               "taluk",
+                        "ACK Number":          "ack_number",
+                        "PRM Number":          "prm_number",
+                    }
+                    _col = _LK_COL.get(_lk_field, "project_name")
+                    _sel = (
+                        "ack_number,prm_number,project_name,promoter_name,"
+                        "status,district,taluk,project_type,total_units,sold_units,"
+                        "completion_date,reg_date,lapse_date,land_area_sqft,detail_url"
                     )
-                    _resp.raise_for_status()
-                    _lk_rows = _resp.json()
-                except Exception as _lk_err:
-                    st.error(f"Search error: {_lk_err}")
-                    _lk_rows = []
+                    _lk_endpoint = (
+                        f"{_lk_url_base}/rest/v1/rera_projects"
+                        f"?{_col}=ilike.*{_req_lk.utils.quote(_lk_q)}*"
+                        f"&limit=20&select={_sel}"
+                    )
+                    try:
+                        _resp = _req_lk.get(
+                            _lk_endpoint,
+                            headers={"apikey": _lk_key, "Authorization": f"Bearer {_lk_key}"},
+                            timeout=15,
+                        )
+                        _resp.raise_for_status()
+                        _lk_rows = _resp.json()
+                    except Exception as _lk_err:
+                        st.error(f"Search error: {_lk_err}")
+                        _lk_rows = []
 
                 if _lk_rows:
-                    st.success(f"Found {len(_lk_rows)} project(s)")
-                    _SC = {"active": "🟢", "expired": "🔴", "lapsed": "🟠", "revoked": "⛔"}
+                    _nearby_mode = _lk_field == "Near Location"
+                    _success_msg = (
+                        f"Found {len(_lk_rows)} project(s) with GPS coordinates "
+                        f"within {_lk_radius} km — sorted by distance"
+                        if _nearby_mode else f"Found {len(_lk_rows)} project(s)"
+                    )
+                    st.success(_success_msg)
+                    if _nearby_mode:
+                        st.caption(
+                            "Only ~15% of K-RERA projects have GPS coordinates. "
+                            "For full coverage also try PIN Code or District search."
+                        )
+                    _SC = {"active": "🟢", "approved": "🟢", "expired": "🔴", "lapsed": "🟠", "revoked": "⛔"}
                     for _p in _lk_rows:
                         _sr = (_p.get("status") or "").lower()
                         _badge = _SC.get(_sr, "⬜")
+                        _dist_tag = (
+                            f"  |  📍 {_p.get('_dist_km')} km"
+                            if _nearby_mode and _p.get("_dist_km") else ""
+                        )
                         _ttl = (
                             f"{_badge} **{_p.get('project_name') or 'N/A'}**"
                             f"  |  {_p.get('promoter_name') or 'N/A'}"
+                            f"{_dist_tag}"
                         )
                         with st.expander(_ttl):
                             _r1a, _r1b, _r1c = st.columns(3)
                             _r1a.metric("Status", (_p.get("status") or "Not enriched yet").title())
                             _r1b.metric("District", _p.get("district") or "N/A")
-                            _r1c.metric("Project Type", _p.get("project_type") or "N/A")
+                            if _nearby_mode and _p.get("_dist_km"):
+                                _r1c.metric("Distance", f"{_p['_dist_km']} km")
+                            else:
+                                _r1c.metric("Project Type", _p.get("project_type") or "N/A")
                             _r2a, _r2b, _r2c = st.columns(3)
                             _tot = _p.get("total_units")
                             _sld = _p.get("sold_units")
