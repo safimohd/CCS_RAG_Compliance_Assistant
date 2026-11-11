@@ -557,17 +557,13 @@ def _render_chat():
                     resp = client.chat.completions.create(
                         model=os.environ.get("LLM_MODEL", "gpt-5-nano"),
                         messages=messages,
-                        max_completion_tokens=800,
+                        max_completion_tokens=1500,
                     )
                     raw = resp.choices[0].message.content
-                    if raw:
+                    if raw is not None and raw.strip():
                         answer = raw
                     else:
-                        finish = resp.choices[0].finish_reason
-                        answer = (
-                            f"[No content returned by model. finish_reason={finish!r}. "
-                            f"Check Streamlit logs for details.]"
-                        )
+                        answer = "I couldn't generate a response. Please try rephrasing your question."
                 except Exception as e:
                     answer = f"Sorry, something went wrong. Please try again. ({e})"
 
@@ -670,7 +666,7 @@ def _render_pdf_chat():
                     resp = client.chat.completions.create(
                         model=os.environ.get("LLM_MODEL", "gpt-5-nano"),
                         messages=messages,
-                        max_completion_tokens=800,
+                        max_completion_tokens=1500,
                     )
                     raw = resp.choices[0].message.content
                     answer = raw if raw else "[No response returned. Try rephrasing.]"
@@ -806,6 +802,81 @@ def _render_report(extracted: dict, rera_rows: list, price: dict, bvr: dict):
                 )
 
 
+
+def _render_unified_chat():
+    """Single chat interface. Handles plain questions and brochure/URL context seamlessly."""
+
+    if "uf_chat_history" not in st.session_state:
+        st.session_state.uf_chat_history = []
+
+    # Render existing chat history
+    for msg in st.session_state.uf_chat_history:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    user_input = st.chat_input(
+        "e.g. Is Sobha Developers RERA registered? What is a fair price in Whitefield?"
+    )
+
+    if user_input:
+        st.session_state.uf_chat_history.append({"role": "user", "content": user_input})
+        with st.chat_message("user"):
+            st.markdown(user_input)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                try:
+                    from openai import OpenAI
+                    client = OpenAI(api_key=_secret("OPENAI_API_KEY"))
+
+                    # Live DB lookup: detect project / builder / pin in the message
+                    entity = _detect_entity_in_message(user_input)
+                    db_context = ""
+                    if entity["type"] != "none" and entity["query"]:
+                        db_rows = _search_rera_db(
+                            entity["query"],
+                            search_by=entity["type"],
+                            limit=5,
+                        )
+                        if db_rows:
+                            db_context = _format_db_rows_for_llm(db_rows)
+
+                    system_content = _build_chat_system()
+                    if db_context:
+                        system_content = (
+                            system_content
+                            + "\n\n"
+                            + db_context
+                            + "\n\nUse the above live K-RERA database results to answer the "
+                            "user's question accurately. Quote RERA numbers, status, and "
+                            "completion dates from these results when relevant."
+                        )
+
+                    messages = (
+                        [{"role": "system", "content": system_content}]
+                        + st.session_state.uf_chat_history
+                    )
+                    resp = client.chat.completions.create(
+                        model=os.environ.get("LLM_MODEL", "gpt-5-nano"),
+                        messages=messages,
+                        max_completion_tokens=1500,
+                    )
+                    raw = resp.choices[0].message.content
+                    answer = raw if (raw is not None and raw.strip()) else "I couldn't generate a response. Please try rephrasing your question."
+                except Exception as e:
+                    answer = f"Sorry, something went wrong. Please try again. ({e})"
+
+                st.markdown(answer)
+                st.session_state.uf_chat_history.append(
+                    {"role": "assistant", "content": answer}
+                )
+
+    if st.session_state.get("uf_chat_history"):
+        st.button(
+            "Clear chat", key="uf_clear_chat", type="secondary",
+            on_click=lambda: st.session_state.update(uf_chat_history=[]),
+        )
+
 # ── main entry point ──────────────────────────────────────────────────────────
 
 def render_user_flow():
@@ -819,85 +890,62 @@ def render_user_flow():
 
     st.markdown("#### Check any Karnataka property in seconds")
     st.caption(
-        "Have a brochure? Drop the PDF. Have a URL? Paste it. No document at all? Just chat and ask anything."
+        "Chat below. Optionally attach a PDF brochure or paste a property URL for a full due diligence report."
     )
 
-    # ---- mode selector ----
-    input_mode = st.radio(
-        "How would you like to get started?",
-        ["PDF + Chat", "Upload a PDF brochure", "Paste a website URL", "Just Chat"],
-        horizontal=True,
-        key="uf_input_mode",
-    )
+    # ---- optional document inputs ----
+    with st.expander("Attach a brochure or URL (optional)", expanded=False):
+        col_pdf, col_url = st.columns([1, 1])
+        with col_pdf:
+            uploaded = st.file_uploader(
+                "Upload PDF brochure", type=["pdf"],
+                label_visibility="visible", key="uf_pdf"
+            )
+        with col_url:
+            url_input = st.text_input(
+                "Property website URL", placeholder="https://...", key="uf_url"
+            )
 
-    # ---- PDF + Chat: upload and converse with the document ----
-    if input_mode == "PDF + Chat":
-        _render_pdf_chat()
-        return
+        if uploaded or (url_input and url_input.startswith("http")):
+            run = st.button("Run full due diligence report", type="primary", key="uf_run")
+            if run:
+                # ---- pipeline execution ----
+                with st.status("Running property due diligence...", expanded=True) as status:
+                    st.write("Extracting text...")
+                    try:
+                        if uploaded:
+                            raw_text = _pdf_to_text(uploaded.read())
+                        else:
+                            raw_text = _url_to_text(url_input)
+                    except Exception as e:
+                        st.error(f"Could not read the source: {e}")
+                        return
 
-    # ---- plain chat branch: render and exit early ----
-    if input_mode == "Just Chat":
-        _render_chat()
-        return
+                    if not raw_text.strip():
+                        st.error("No text could be extracted. Try a different source.")
+                        return
 
-    # ---- document / URL branch ----
-    pdf_bytes = None
-    url_text = None
+                    st.write("Identifying project details with AI...")
+                    extracted = _extract_fields(raw_text)
 
-    if input_mode == "Upload a PDF brochure":
-        uploaded = st.file_uploader(
-            "Upload PDF", type=["pdf"],
-            label_visibility="collapsed", key="uf_pdf"
-        )
-        if uploaded:
-            pdf_bytes = uploaded.read()
-    else:
-        url_input = st.text_input(
-            "Property URL", placeholder="https://...", key="uf_url"
-        )
-        if url_input and url_input.startswith("http"):
-            url_text = url_input
+                    if not extracted:
+                        st.error("AI extraction returned no data. The document may not be a property brochure.")
+                        return
 
-    run = st.button("Run due diligence", type="primary", key="uf_run",
-                    disabled=(pdf_bytes is None and url_text is None))
+                    st.write("Checking K-RERA live database...")
+                    rera_rows = _rera_lookup(extracted)
 
-    if not run:
-        return
+                    st.write("Analysing price against locality benchmarks...")
+                    price = _price_verdict(extracted)
 
-    # ---- pipeline execution ----
-    with st.status("Running property due diligence...", expanded=True) as status:
+                    st.write("Computing buy vs rent...")
+                    bvr = _buy_vs_rent(extracted)
 
-        st.write("Extracting text...")
-        try:
-            if pdf_bytes:
-                raw_text = _pdf_to_text(pdf_bytes)
-            else:
-                raw_text = _url_to_text(url_text)
-        except Exception as e:
-            st.error(f"Could not read the source: {e}")
-            return
+                    status.update(label="Done! Scroll down for your report.", state="complete", expanded=False)
 
-        if not raw_text.strip():
-            st.error("No text could be extracted. Try a different source.")
-            return
+                # ---- show report ----
+                _render_report(extracted, rera_rows, price, bvr)
+                return
 
-        st.write("Identifying project details with AI...")
-        extracted = _extract_fields(raw_text)
-
-        if not extracted:
-            st.error("AI extraction returned no data. The document may not be a property brochure.")
-            return
-
-        st.write("Checking K-RERA live database...")
-        rera_rows = _rera_lookup(extracted)
-
-        st.write("Analysing price against locality benchmarks...")
-        price = _price_verdict(extracted)
-
-        st.write("Computing buy vs rent...")
-        bvr = _buy_vs_rent(extracted)
-
-        status.update(label="Done! Scroll down for your report.", state="complete", expanded=False)
-
-    # ---- show report ----
-    _render_report(extracted, rera_rows, price, bvr)
+    # ---- unified chat (always visible below) ----
+    _render_unified_chat()
