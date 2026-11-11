@@ -2168,8 +2168,8 @@ def _render_hospital_finder() -> None:
 # ── User role: clean guided chat (no compliance tabs) ─────────────────────────
 _hc_role = _current_user().get("role", "user")
 if _hc_role == "user":
-    from structured_chat import render_user_chat as _render_user_chat_hc
-    _render_user_chat_hc("Healthcare")
+    from user_flow_healthcare import render_user_flow as _render_user_chat_hc
+    _render_user_chat_hc()
     st.stop()
 
 # ── Main tabs (compliance_officer / admin) ────────────────────────────────────
@@ -2183,8 +2183,8 @@ with _tab_hospitals:
     _render_hospital_finder()
 
 with _tab_smart:
-    from structured_chat import render_smart_tab as _render_smart_tab_hc
-    _render_smart_tab_hc("Healthcare")
+    from structured_chat_healthcare import render_smart_tab as _render_smart_tab_hc
+    _render_smart_tab_hc()
 
 with _tab_chat:
     if client is None:
