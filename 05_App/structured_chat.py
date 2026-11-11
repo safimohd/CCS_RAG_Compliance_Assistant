@@ -94,31 +94,103 @@ def find_empanelled_hospitals(district: str, scheme: str = "PM-JAY") -> list[dic
     Normalises common Bangalore/Bengaluru spelling variants and falls back
     to a broader search if the exact district returns nothing.
     """
-    # Normalise Bangalore variants to what the DB uses
-    _BANGALORE_ALIASES = {
-        "bengaluru", "bengaluru urban", "bangalore", "bangalore urban",
-        "bengaluru rural", "bangalore rural", "blr", "560076", "560001",
-        "iim bangalore", "iimb", "bannerghatta", "koramangala",
-        "jayanagar", "indiranagar", "whitefield", "electronic city",
-    }
-    district_lc = district.lower().strip()
-    if any(alias in district_lc for alias in _BANGALORE_ALIASES):
-        search_term = "Bangalore"
-    else:
-        search_term = district
+    # District alias map: normalise user input to what the DB stores.
+    # Keys are lowercase fragments; value is the DB search term.
+    _DISTRICT_ALIASES: list[tuple[str, str]] = [
+        # Bangalore / Bengaluru variants
+        ("bengaluru", "Bangalore"),
+        ("bangalore", "Bangalore"),
+        ("blr",       "Bangalore"),
+        ("560",       "Bangalore"),   # any Bangalore pincode starts with 560
+        ("iimb",      "Bangalore"),
+        ("iim bang",  "Bangalore"),
+        ("bannerghatta", "Bangalore"),
+        ("koramangala",  "Bangalore"),
+        ("whitefield",   "Bangalore"),
+        ("electronic city", "Bangalore"),
+        ("indiranagar",  "Bangalore"),
+        ("jayanagar",    "Bangalore"),
+        ("jp nagar",     "Bangalore"),
+        ("btm layout",   "Bangalore"),
+        ("hsr layout",   "Bangalore"),
+        ("yelahanka",    "Bangalore"),
+        ("sarjapur",     "Bangalore"),
+        # Other Karnataka districts with common alternate spellings
+        ("mysuru",      "Mysore"),
+        ("mysore",      "Mysore"),
+        ("hubballi",    "Hubli"),
+        ("hubli",       "Hubli"),
+        ("dharwad",     "Dharwad"),
+        ("belagavi",    "Belgaum"),
+        ("belgaum",     "Belgaum"),
+        ("mangaluru",   "Mangalore"),
+        ("mangalore",   "Mangalore"),
+        ("kalaburagi",  "Gulbarga"),
+        ("gulbarga",    "Gulbarga"),
+        ("shivamogga",  "Shimoga"),
+        ("shimoga",     "Shimoga"),
+        ("davanagere",  "Davanagere"),
+        ("davangere",   "Davanagere"),
+        ("tumakuru",    "Tumkur"),
+        ("tumkur",      "Tumkur"),
+        ("udupi",       "Udupi"),
+        ("hassan",      "Hassan"),
+        ("ballari",     "Bellary"),
+        ("bellary",     "Bellary"),
+        ("vijayapura",  "Bijapur"),
+        ("bijapur",     "Bijapur"),
+        ("raichur",     "Raichur"),
+        ("bidar",       "Bidar"),
+        ("koppal",      "Koppal"),
+        ("gadag",       "Gadag"),
+        ("bagalkot",    "Bagalkot"),
+        ("chitradurga", "Chitradurga"),
+        ("chikkamagaluru", "Chikmagalur"),
+        ("chikmagalur", "Chikmagalur"),
+        ("kodagu",      "Coorg"),
+        ("coorg",       "Coorg"),
+        ("mandya",      "Mandya"),
+        ("chamarajanagar", "Chamarajanagar"),
+        ("ramanagara",  "Ramanagara"),
+        ("kolar",       "Kolar"),
+        ("chikkaballapur", "Chikkaballapur"),
+        ("chikballapur",   "Chikkaballapur"),
+        ("yadgir",      "Yadgir"),
+        ("vijayapur",   "Bijapur"),
+    ]
 
-    table  = "pmjay_hospitals_karnataka" if "IRDAI" not in scheme else "irdai_hospitals_karnataka"
-    select = ("hospital_name,address,district,scheme,empanelment_status,"
-              "contact_number,specialities")
+    district_lc = district.lower().strip()
+    search_term = district  # default: use as-is
+    for fragment, canonical in _DISTRICT_ALIASES:
+        if fragment in district_lc:
+            search_term = canonical
+            break
+
+    table  = "pmjay_hospitals_karnataka"
+    # Columns match the actual DB schema
+    select = ("name,address,district,phone,hospital_type,care_level,"
+              "empanelment_scheme,cashless,specialities,services")
 
     # Primary search: by normalised district
-    rows = _supa(table, {"select": select, "district": f"ilike.*{search_term}*"}, limit=10)
+    rows = _supa(table, {"select": select, "district": f"ilike.*{search_term}*"}, limit=12)
 
-    # Fallback 1: try "Urban" suffix
+    # Fallback 1: alternate official spellings for key cities
     if not rows and search_term == "Bangalore":
-        rows = _supa(table, {"select": select, "district": f"ilike.*Bengaluru*"}, limit=10)
+        rows = _supa(table, {"select": select, "district": "ilike.*Bangalore Urban*"}, limit=12)
+    if not rows and search_term == "Bangalore":
+        rows = _supa(table, {"select": select, "district": "ilike.*Bengaluru*"}, limit=12)
+    elif not rows and search_term == "Mysore":
+        rows = _supa(table, {"select": select, "district": "ilike.*Mysuru*"}, limit=12)
+    elif not rows and search_term == "Hubli":
+        rows = _supa(table, {"select": select, "district": "ilike.*Hubballi*"}, limit=12)
+    elif not rows and search_term == "Mangalore":
+        rows = _supa(table, {"select": select, "district": "ilike.*Mangaluru*"}, limit=12)
+    elif not rows and search_term == "Belgaum":
+        rows = _supa(table, {"select": select, "district": "ilike.*Belagavi*"}, limit=12)
+    elif not rows and search_term == "Gulbarga":
+        rows = _supa(table, {"select": select, "district": "ilike.*Kalaburagi*"}, limit=12)
 
-    # Fallback 2: return any hospitals (no district filter) so user gets something
+    # Fallback 2: if still nothing, return hospitals from any district
     if not rows:
         rows = _supa(table, {"select": select}, limit=10)
 
@@ -356,6 +428,10 @@ IMPORTANT guidelines:
 - Keep answers short, warm, and jargon-free. The user is a patient or family member.
 - If the tool returns hospitals, list their name, address, and contact number. \
   Always mention that these hospitals offer cashless treatment under PM-JAY / AB-ArK.
+- For Bangalore queries, our dataset now includes hospitals in Bangalore Urban district. \
+  List them with name, address, phone (if available), and specialities. \
+  Always mention that for the most up-to-date full list, they can also check \
+  https://hospitals.pmjay.gov.in (search Bengaluru Urban).
 - Do not use em dashes anywhere in your response.\
 """
 
