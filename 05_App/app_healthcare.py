@@ -1387,7 +1387,13 @@ def fetch_user_query_history(limit: int = 20) -> list[str]:
 
 
 def fetch_user_sessions(limit: int = 20) -> list[dict]:
-    """Fetch the user's recent conversation sessions from Supabase, newest first."""
+    """Fetch sessions scoped to the current user, domain, AND user_type.
+
+    Healthcare users only see Healthcare-user sessions; compliance officers
+    see Healthcare-compliance_officer sessions; admins see Healthcare-admin
+    sessions. Session numbers shown in the UI are always relative to this
+    filtered list (Session #1 = most recent for that role in this domain).
+    """
     _cu = _current_user()
     if not _cu.get("id"):
         return []
@@ -1395,13 +1401,16 @@ def fetch_user_sessions(limit: int = 20) -> list[dict]:
     svc_key = _secret("SUPABASE_SERVICE_KEY")
     if not url or not svc_key:
         return []
+    _role = _cu.get("role", "user")
     try:
         import requests as _req  # noqa: PLC0415
         _resp = _req.get(
             f"{url}/rest/v1/sessions",
             headers={"apikey": svc_key, "Authorization": f"Bearer {svc_key}"},
             params={"user_id": f"eq.{_cu['id']}",
-                    "select": "id,title,domain,updated_at,message_count",
+                    "domain": "eq.Healthcare",
+                    "user_type": f"eq.{_role}",
+                    "select": "id,title,domain,user_type,updated_at,message_count",
                     "order": "updated_at.desc",
                     "limit": str(limit)},
             timeout=5,
@@ -1413,7 +1422,12 @@ def fetch_user_sessions(limit: int = 20) -> list[dict]:
 
 def save_session(session_id: str | None, title: str, domain: str,
                  messages: list) -> str | None:
-    """Create or update a conversation session. Returns the session id."""
+    """Create or update a conversation session. Returns the session id.
+
+    Every row stores domain='Healthcare' and user_type=current user's role
+    so that session history can be filtered separately for user /
+    compliance_officer / admin without any cross-contamination.
+    """
     _cu = _current_user()
     if not _cu.get("id"):
         return None
@@ -1421,12 +1435,14 @@ def save_session(session_id: str | None, title: str, domain: str,
     svc_key = _secret("SUPABASE_SERVICE_KEY")
     if not url or not svc_key:
         return None
+    _role = _cu.get("role", "user")
     try:
         import requests as _req  # noqa: PLC0415
         hdrs = {"apikey": svc_key, "Authorization": f"Bearer {svc_key}",
                 "Content-Type": "application/json", "Prefer": "return=representation"}
         _msg_count = sum(1 for m in messages if m.get("role") == "user")
         payload = {"title": title, "domain": domain,
+                   "user_type": _role,
                    "messages": messages, "updated_at": "now()",
                    "message_count": _msg_count}
         if session_id:
@@ -1879,40 +1895,41 @@ with st.sidebar:
     if _cu_sess.get("id") and "_user_sessions" not in st.session_state:
         st.session_state["_user_sessions"] = fetch_user_sessions(20)
 
-    # Filter sessions to the current domain so RERA never shows Healthcare sessions
-    _all_sess = st.session_state.get("_user_sessions", []) if _cu_sess.get("id") else []
-    _sess_list = [s for s in _all_sess if not LOCKED_DOMAIN or s.get("domain") == LOCKED_DOMAIN]
+    # Sessions are already pre-filtered by domain=Healthcare AND user_type=role
+    # inside fetch_user_sessions(), so no secondary filter needed here.
+    _sess_list = st.session_state.get("_user_sessions", []) if _cu_sess.get("id") else []
+
+    # Role label shown in the expander header so each user type sees a clear heading
+    _role_label_map = {"user": "Patient / User", "compliance_officer": "Compliance Officer", "admin": "Admin"}
+    _cu_role_label = _role_label_map.get(_cu_sess.get("role", "user"), "User")
 
     st.divider()
-    _sess_label = "💬 Past sessions"
+    _sess_label = f"💬 Past sessions  ({_cu_role_label})"
     with st.expander(_sess_label, expanded=False):
         if _sess_list:
             for _si, _sess in enumerate(_sess_list):
-                _s_title   = _sess.get("title", "Conversation")
-                _s_domain  = _sess.get("domain", "")
-                _s_updated = _sess.get("updated_at", "")
-                _s_q_count = _sess.get("message_count", 0) or 0
-                _is_active = st.session_state.get("_active_session_id") == _sess["id"]
-                _btn_style = "primary"   # always dark navy; active state shown via border in CSS
+                _s_title    = _sess.get("title", "Conversation")
+                _s_updated  = _sess.get("updated_at", "")
+                _s_q_count  = _sess.get("message_count", 0) or 0
+                _s_usertype = _sess.get("user_type", "user")
+                _btn_style  = "primary"
 
                 # Parse timestamp to IST for display
                 try:
                     _ts = _s_updated.rstrip("Z").split("+")[0]
                     _dt = datetime.fromisoformat(_ts).replace(tzinfo=timezone.utc).astimezone(IST)
-                    _date_part = _dt.strftime("%-d %b")   # e.g. "3 Nov"
-                    _time_part = _dt.strftime("%I:%M %p").lstrip("0")  # e.g. "9:42 AM"
+                    _date_part = _dt.strftime("%-d %b")
+                    _time_part = _dt.strftime("%I:%M %p").lstrip("0")
                 except Exception:
                     _date_part = ""
                     _time_part = ""
 
-                # Session number (most recent = #1 relative to the list)
+                # Session number is relative to this role's filtered list
+                # (Session #1 = most recent for this user_type in Healthcare)
                 _sess_num = _si + 1
 
-                # Domain icon
-                _dom_icon = "🏥" if _s_domain == "Healthcare" else "🏗️" if _s_domain == "RERA" else "💬"
-
-                _q_label = f"{_s_q_count}Q" if _s_q_count > 0 else "—"
-                _s_display = f"Session #{_sess_num}  ·  {_date_part}  ·  {_q_label}  {_dom_icon}"
+                _q_label   = f"{_s_q_count}Q" if _s_q_count > 0 else "—"
+                _s_display = f"Session #{_sess_num}  ·  {_date_part}  ·  {_q_label}  🏥"
 
                 if st.button(_s_display, key=f"sess_btn_{_si}",
                              use_container_width=True,
