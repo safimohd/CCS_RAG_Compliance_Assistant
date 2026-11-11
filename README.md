@@ -85,10 +85,14 @@ RAG_Project/
 
   05_App/
       app.py                 <- main Streamlit UI (entry: combined, 4-tab UI)
-      app_healthcare.py      <- entry point for Healthcare deployment (execs structured_chat.py)
-      app_rera.py            <- entry point for RERA deployment (execs user_flow_rera.py)
-      user_flow_rera.py      <- RERA standalone app (828 lines, completely separate from Healthcare)
-      structured_chat.py     <- Healthcare chat pipeline
+      app_healthcare.py      <- Healthcare deployment entry point (fully self-contained)
+      app_rera.py            <- RERA deployment entry point (execs user_flow_rera.py)
+      user_flow_rera.py      <- RERA standalone app (828 lines, fully separate from Healthcare)
+      user_flow_healthcare.py<- Healthcare entry point: imports render_user_flow() from structured_chat_healthcare
+      structured_chat_healthcare.py <- Healthcare chat backend only: search_healthcare_packages,
+                                       find_empanelled_hospitals, TOOLS_HEALTHCARE, system prompt,
+                                       render_user_chat(), render_smart_tab(). No RERA code.
+      structured_chat.py     <- Original shared chat pipeline (kept for reference; not imported by Healthcare)
       rag_query.py           <- retrieve(), index_titles(), to_cosine(), FACILITY_MARKERS
       ingest_corpus.py       <- PDF ingestion into ChromaDB
       admin.py               <- admin dashboard (774 lines)
@@ -250,16 +254,44 @@ A new Investment Signals tab was added to `app.py` with live 2026 price data sou
 
 Each locality record stores: `avg_psf`, `trend` (Rising/Stable/Cooling), `zone`, CAGR scaling factor, and risk rating. Sources cited inline per locality.
 
-**November 2026 — Domain Separation (Sairaj Feedback)**
+**November 2026 — Domain Separation**
 
-Sairaj reviewed the app and flagged that the shared codebase between RERA and Healthcare was confusing and created merge risk. The two domains are now fully separate:
+The shared codebase between RERA and Healthcare was creating merge risk and confusion. The two domains are now fully separate codebases. Commit `2a02123`.
 
-| Domain | Entry file | App file | Deployment |
-|--------|-----------|----------|------------|
+| Domain | Entry file | Backend | Deployment |
+|--------|-----------|---------|------------|
 | RERA | `app_rera.py` | `user_flow_rera.py` | https://ccsragcomplianceassistant-cisyv46xzq7kte95ywkmhg.streamlit.app |
-| Healthcare | `app_healthcare.py` | `structured_chat.py` | https://ccsragcomplianceassistant-6hug2utprjrpwtyijwjanr.streamlit.app |
+| Healthcare | `app_healthcare.py` | `user_flow_healthcare.py` + `structured_chat_healthcare.py` | https://ccsragcomplianceassistant-6hug2utprjrpwtyijwjanr.streamlit.app |
 
-`app_rera.py` sets `APP_DOMAIN="RERA"` and exec's `user_flow_rera.py`. Nothing is shared between the two codebases at runtime. `user_flow_rera.py` is 828 lines and fully self-contained: it includes its own `_secret()` helper, all LLM calls, the K-RERA Supabase lookup, the investment calculator, and the report card renderer.
+`app_rera.py` sets `APP_DOMAIN="RERA"` and exec's `user_flow_rera.py`. Nothing is shared between the two codebases at runtime.
+
+`structured_chat_healthcare.py` is the healthcare-only backend: `search_healthcare_packages`, `find_empanelled_hospitals`, `TOOLS_HEALTHCARE`, `_SYS_HEALTHCARE`, `render_user_chat()`, `render_smart_tab()`. All RERA tool functions (`check_rera_project`, `get_property_estimate`), `TOOLS_RERA`, `_SYS_RERA`, and `_EXAMPLES_RERA` are absent.
+
+`user_flow_healthcare.py` is the entry point for the user role, mirroring the RERA pattern. It imports `render_user_chat` from `structured_chat_healthcare` and exposes `render_user_flow()`.
+
+The original `structured_chat.py` remains on disk for reference but is no longer imported by any Healthcare file.
+
+**November 2026 — Bangalore Urban PM-JAY Hospital Data**
+
+The `find_empanelled_hospitals()` function was returning empty results for all Bangalore queries due to two compounding bugs. Commit `954d7b1`.
+
+**Bug 1 (wrong column names):** The SELECT query used `hospital_name`, `contact_number`, `empanelment_status` — none of which exist in the actual schema. The real columns are `name`, `phone`, `cashless`. Every query returned an empty array regardless of district.
+
+**Bug 2 (`_DB_DISTRICTS` gate):** Even if column names had been correct, a hardcoded set of 22 districts gated the return value. Bangalore was not in the set, so a "not in DB" fallback message was returned unconditionally.
+
+Both bugs were fixed. 29 Bangalore Urban PM-JAY hospitals were scraped from the HEM official registry and inserted into `pmjay_hospitals_karnataka`. Key hospitals:
+
+- KIMS (K R Road, Govt Tertiary)
+- Ramaiah Memorial Hospital (New BEL Road, Private Tertiary)
+- St. Johns Medical College Hospital (Koramangala, Private Tertiary)
+- Rajarajeswari Medical College (Mysore Road, Private Tertiary)
+- Vydehi Hospital (Whitefield, Ph: 9945000037)
+- Kauvery Hospital (Electronic City)
+- Trinity Hospital (Basavanagudi, Ph: 9845022231)
+- Bangalore Nethralaya (Banashankari, Ph: 9448458624)
+- Victoria Hospital Gastroenterology, Altius Sripada, CRPF Composite, +17 more
+
+Table grew from 468 rows / 22 districts to 497 rows / 23 districts. The system prompt was also corrected: the previous instruction telling the bot to redirect Bangalore users to pmjay.gov.in was replaced with an instruction to list the actual hospitals.
 
 **November 2026 — RERA Chat UX Overhaul (Sairaj Feedback)**
 
@@ -292,8 +324,15 @@ RERA deployment
          └─ Always-visible chat with injected document context
 
 Healthcare deployment
-  app_healthcare.py  (sets APP_DOMAIN="Healthcare", imports structured_chat.py)
-    └─ structured_chat.py  (Healthcare chat pipeline, ChromaDB RAG)
+  app_healthcare.py  (fully self-contained healthcare entry point)
+    ├─ user_flow_healthcare.py  (user role entry point)
+    │    └─ structured_chat_healthcare.py  (healthcare backend only)
+    │         ├─ search_healthcare_packages  (Supabase: packages_master)
+    │         ├─ find_empanelled_hospitals   (Supabase: pmjay_hospitals_karnataka, 497 rows, 23 districts)
+    │         ├─ TOOLS_HEALTHCARE + _SYS_HEALTHCARE
+    │         ├─ render_user_chat()
+    │         └─ render_smart_tab()
+    └─ internal hospital finder tab (app_healthcare.py, compliance/admin role)
 ```
 
 ### RAG Pipeline (both domains)
@@ -410,8 +449,8 @@ Measured index (read from chroma.sqlite3, Nov 2026):
 | `02_Corpus/Healthcare/06_Review/` (83 docs) and `02_Corpus/RERA/04_Review/` (37 docs) have unverified binding status | Awaiting human review before promotion or drop |
 | Apps sleep after 12 hours of inactivity; cold boot takes several minutes (index download + model load) | Mitigation: GitHub Actions keep-warm workflow (see GO_LIVE.md) |
 | `.usage.json` is not in .gitignore but is per-deployment runtime state | Should be added post-submission |
-| `structured_chat.py` and `user_flow.py` still have `max_completion_tokens=1500` bug | Only `user_flow_rera.py` is fixed; Healthcare deployment may produce blank responses on large prompts |
-| `structured_chat_healthcare.py` not yet created | Healthcare domain still running from `structured_chat.py` which contains 53 RERA/Karnataka references |
+| `structured_chat.py` and `user_flow.py` still have `max_completion_tokens=1500` bug | `user_flow_rera.py` is fixed; `structured_chat_healthcare.py` does not carry this parameter |
+| `find_empanelled_hospitals()` used wrong DB column names (hospital_name, contact_number) | Fixed in `structured_chat_healthcare.py` commit `954d7b1` |
 
 ---
 
@@ -461,12 +500,13 @@ python run_v2_evaluation_v24.py results/benchmark_answers_YYYYMMDD.xlsx
 | RERA chat UX overhaul: sidebar upload, multi-PDF + URL, always-visible chat | Done — in `user_flow_rera.py` |
 | Investment Signals tab: Fair Price, Buy vs Rent, Locality Explorer | Done — in `app.py` |
 | 2026-anchored PSF data for 20 Bangalore localities (NoBroker, 99acres, MagicBricks) | Done — in `app.py` |
-| Fix `max_completion_tokens` bug causing silent blank responses | Done — in `user_flow_rera.py` only |
-| System D benchmark run (CV-RAG, RERA V5.1) | In progress (~90 min) |
+| Fix `max_completion_tokens` bug causing silent blank responses | Done — in `user_flow_rera.py` and `structured_chat_healthcare.py` |
+| Bangalore Urban PM-JAY hospital data (29 hospitals scraped from HEM registry) | Done — commit `954d7b1`, Nov 11; table now 497 rows / 23 districts |
+| Fix `find_empanelled_hospitals()` wrong column names and `_DB_DISTRICTS` gate | Done — commit `954d7b1`, Nov 11 |
+| Create `structured_chat_healthcare.py` and `user_flow_healthcare.py` | Done — commit `2a02123`, Nov 11 |
+| Update `app_healthcare.py` to use healthcare-only files | Done — commit `2a02123`, Nov 11 |
+| System D benchmark run (CV-RAG, RERA V5.1) | In progress |
 | UI changes from Nov 3 prof feedback (query history, RERA toggle, journey) | In progress |
-| Create `structured_chat_healthcare.py` (clean copy, strip 53 RERA references) | Pending |
-| Update `app_healthcare.py` to use `structured_chat_healthcare.py` | Pending |
-| Fix `max_completion_tokens` bug in `structured_chat.py` | Pending |
 | System D RERA score with RERA Act 2016 added to corpus | Pending |
 | Complaint/delay data layer in K-RERA Project Lookup tab | Pending |
 | Final report (PDF, max 10 pages) | Pending |
