@@ -267,7 +267,7 @@ def _detect_entity_in_message(msg: str) -> dict:
     if not any(sig in msg_lower for sig in project_signals):
         return {"query": "", "type": "none"}
 
-    m = re.search(r'["\''""]([^"\']+)["\''""]', msg)
+    m = re.search(r'["\u2018\u2019\u201c\u201d]([^"\u201c\u201d]+)["\u2018\u2019\u201c\u201d]', msg)
     if m:
         return {"query": m.group(1).strip(), "type": "name"}
 
