@@ -47,6 +47,71 @@ def _secret(key: str) -> str:
         return os.environ.get(key, "")
 
 
+def _log_rera_query(question: str, answer_snippet: str, session_id: str) -> None:
+    """Log a RERA user query to the queries table in Supabase."""
+    url = _secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL", "")
+    key = _secret("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY", "")
+    if not url or not key:
+        return
+    try:
+        import requests as _req
+        _req.post(
+            f"{url}/rest/v1/queries",
+            headers={
+                "apikey": key,
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal",
+            },
+            json={
+                "bot": "RERA",
+                "user_role": "user",
+                "question": question[:1000],
+                "answer_snippet": answer_snippet[:500],
+                "session_id": session_id,
+                "confidence": None,
+                "flagged_low_conf": False,
+            },
+            timeout=5,
+        )
+    except Exception:
+        pass  # Fire-and-forget; never block the chat
+
+
+def _fetch_rera_user_history(limit: int = 15) -> list:
+    """Fetch recent RERA user queries from the queries table."""
+    url = _secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL", "")
+    key = _secret("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY", "")
+    if not url or not key:
+        return []
+    try:
+        import requests as _req
+        resp = _req.get(
+            f"{url}/rest/v1/queries",
+            headers={"apikey": key, "Authorization": f"Bearer {key}"},
+            params={
+                "bot": "eq.RERA",
+                "user_role": "eq.user",
+                "select": "question,created_at",
+                "order": "created_at.desc",
+                "limit": str(limit),
+            },
+            timeout=5,
+        )
+        if resp.ok:
+            rows = resp.json()
+            seen, out = set(), []
+            for r in rows:
+                q = (r.get("question") or "").strip()
+                if q and q not in seen:
+                    seen.add(q)
+                    out.append({"question": q, "created_at": r.get("created_at", "")})
+            return out
+        return []
+    except Exception:
+        return []
+
+
 # ── locality price bands (Bangalore, Q2-Q3 2026) ─────────────────────────────
 
 LOCALITIES = [
@@ -687,6 +752,9 @@ def _sidebar_project_search():
 def _render_chat():
     if "uf_chat_history" not in st.session_state:
         st.session_state.uf_chat_history = []
+    if "uf_session_id" not in st.session_state:
+        import uuid as _uuid_chat
+        st.session_state["uf_session_id"] = str(_uuid_chat.uuid4())
 
     for msg in st.session_state.uf_chat_history:
         with st.chat_message(msg["role"]):
@@ -761,6 +829,12 @@ def _render_chat():
                 st.markdown(answer)
                 st.session_state.uf_chat_history.append(
                     {"role": "assistant", "content": answer}
+                )
+                # Log this query to Supabase for user session history
+                _log_rera_query(
+                    question=user_input,
+                    answer_snippet=answer[:500],
+                    session_id=st.session_state.get("uf_session_id", ""),
                 )
 
     if st.session_state.get("uf_chat_history"):
@@ -1625,6 +1699,44 @@ def main():
 
     # ── User mode ──────────────────────────────────────────────────────────
     if "User" in _role:
+        # ── Recent query history panel (User / RERA only) ─────────────────
+        with st.sidebar:
+            st.markdown(
+                "<div style='margin-bottom:4px;font-size:11px;color:#9ca3af;"
+                "text-transform:uppercase;letter-spacing:.06em;font-weight:600'>"
+                "Recent Queries</div>",
+                unsafe_allow_html=True,
+            )
+            _hist = _fetch_rera_user_history(limit=15)
+            if _hist:
+                for _h in _hist:
+                    _q = _h["question"]
+                    _short = _q[:55] + "…" if len(_q) > 55 else _q
+                    _raw_dt = _h.get("created_at", "")
+                    try:
+                        from datetime import datetime as _dt
+                        _date_str = _dt.fromisoformat(
+                            _raw_dt.replace("Z", "+00:00")
+                        ).strftime("%d %b")
+                    except Exception:
+                        _date_str = ""
+                    st.markdown(
+                        f"<div style='display:flex;justify-content:space-between;"
+                        f"align-items:flex-start;padding:4px 0;border-bottom:"
+                        f"1px solid rgba(156,163,175,.15);gap:6px'>"
+                        f"<span style='font-size:.78rem;color:#374151;line-height:1.3'>"
+                        f"{_short}</span>"
+                        f"<span style='font-size:.7rem;color:#9ca3af;white-space:nowrap'>"
+                        f"{_date_str}</span></div>",
+                        unsafe_allow_html=True,
+                    )
+            else:
+                st.markdown(
+                    "<p style='font-size:.78rem;color:#9ca3af;margin:2px 0 8px'>No history yet.</p>",
+                    unsafe_allow_html=True,
+                )
+            st.markdown("<hr style='margin:8px 0 10px;opacity:.15'>", unsafe_allow_html=True)
+
         _sidebar_project_search()
         _sidebar_document_context()
 
