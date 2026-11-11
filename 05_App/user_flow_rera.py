@@ -944,6 +944,9 @@ def _render_chat():
         import uuid as _uuid_chat
         st.session_state["uf_session_id"] = str(_uuid_chat.uuid4())
 
+    # Pick up a query injected by clicking a "Recent Queries" history button
+    _injected = st.session_state.pop("uf_inject_query", None)
+
     for msg in st.session_state.uf_chat_history:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
@@ -951,6 +954,10 @@ def _render_chat():
     user_input = st.chat_input(
         "Ask about any Karnataka property: RERA status, fair price, buy vs rent, builder reputation..."
     )
+
+    # Injected query from history panel takes precedence when chat_input is empty
+    if _injected and not user_input:
+        user_input = _injected
 
     if user_input:
         st.session_state.uf_chat_history.append({"role": "user", "content": user_input})
@@ -1966,19 +1973,23 @@ def main():
 
     # ── User mode ──────────────────────────────────────────────────────────
     if "User" in _role:
-        # ── Recent query history panel (User / RERA only) ─────────────────
+        _sidebar_project_search()
+        _sidebar_document_context()
+
+        # ── Recent query history panel — bottom of sidebar ─────────────────
         with st.sidebar:
+            st.markdown("<hr style='margin:4px 0 8px;opacity:.15'>", unsafe_allow_html=True)
             st.markdown(
-                "<div style='margin-bottom:4px;font-size:11px;color:#9ca3af;"
+                "<div style='margin-bottom:6px;font-size:11px;color:#9ca3af;"
                 "text-transform:uppercase;letter-spacing:.06em;font-weight:600'>"
                 "Recent Queries</div>",
                 unsafe_allow_html=True,
             )
-            _hist = _fetch_rera_user_history(limit=15)
+            _hist = _fetch_rera_user_history(limit=5)
             if _hist:
                 for _h in _hist:
                     _q = _h["question"]
-                    _short = _q[:55] + "…" if len(_q) > 55 else _q
+                    _short = _q[:50] + "…" if len(_q) > 50 else _q
                     _raw_dt = _h.get("created_at", "")
                     try:
                         from datetime import datetime as _dt
@@ -1987,25 +1998,22 @@ def main():
                         ).strftime("%d %b")
                     except Exception:
                         _date_str = ""
-                    st.markdown(
-                        f"<div style='display:flex;justify-content:space-between;"
-                        f"align-items:flex-start;padding:4px 0;border-bottom:"
-                        f"1px solid rgba(156,163,175,.15);gap:6px'>"
-                        f"<span style='font-size:.78rem;color:#374151;line-height:1.3'>"
-                        f"{_short}</span>"
-                        f"<span style='font-size:.7rem;color:#9ca3af;white-space:nowrap'>"
-                        f"{_date_str}</span></div>",
-                        unsafe_allow_html=True,
-                    )
+                    # Clickable button — injects the full question into chat
+                    _btn_label = f"{_short}  ·  {_date_str}" if _date_str else _short
+                    if st.button(
+                        _btn_label,
+                        key=f"hist_btn_{abs(hash(_q))}",
+                        use_container_width=True,
+                        help=_q,
+                    ):
+                        st.session_state["uf_inject_query"] = _q
+                        st.rerun()
             else:
                 st.markdown(
-                    "<p style='font-size:.78rem;color:#9ca3af;margin:2px 0 8px'>No history yet.</p>",
+                    "<p style='font-size:.78rem;color:#9ca3af;margin:2px 0 8px'>"
+                    "No recent queries yet.</p>",
                     unsafe_allow_html=True,
                 )
-            st.markdown("<hr style='margin:8px 0 10px;opacity:.15'>", unsafe_allow_html=True)
-
-        _sidebar_project_search()
-        _sidebar_document_context()
 
         st.markdown(
             "<h2 style='margin-bottom:2px'>Karnataka RERA Property Advisor</h2>"
