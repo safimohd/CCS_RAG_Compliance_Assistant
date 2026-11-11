@@ -557,7 +557,7 @@ def _render_chat():
                     resp = client.chat.completions.create(
                         model=os.environ.get("LLM_MODEL", "gpt-5-nano"),
                         messages=messages,
-                        max_tokens=800,
+                        max_completion_tokens=800,
                     )
                     raw = resp.choices[0].message.content
                     if raw:
@@ -670,7 +670,7 @@ def _render_pdf_chat():
                     resp = client.chat.completions.create(
                         model=os.environ.get("LLM_MODEL", "gpt-5-nano"),
                         messages=messages,
-                        max_tokens=800,
+                        max_completion_tokens=800,
                     )
                     raw = resp.choices[0].message.content
                     answer = raw if raw else "[No response returned. Try rephrasing.]"
