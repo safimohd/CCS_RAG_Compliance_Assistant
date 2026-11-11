@@ -623,12 +623,12 @@ def choose_effort(results, question: str) -> str:
 # ── presentation ─────────────────────────────────────────────────────────────
 CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Playfair+Display:wght@600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap');
 :root{
   --ink:#0E2439; --muted:#6B7C93; --line:#E3E9F2; --paper:#F6F8FC;
   --card:#FFFFFF; --brand:#1B4F8C; --brand-2:#2E6FB7; --gold:#B8860B;
 }
-html, body, [class*="css"] { font-family:'DM Sans',-apple-system,'Segoe UI',sans-serif; }
+html, body, [class*="css"] { font-family:'Inter',-apple-system,'Segoe UI',sans-serif; }
 .stApp { background:var(--paper); }
 .block-container { padding-top:1.1rem; padding-bottom:3rem; max-width:1100px; }
 
@@ -641,7 +641,7 @@ html, body, [class*="css"] { font-family:'DM Sans',-apple-system,'Segoe UI',sans
   box-shadow:0 8px 24px -10px rgba(16,45,77,.5); margin-bottom:1.4rem;
 }
 .rc-hero h1{
-  font-family:'Playfair Display',Georgia,serif; font-weight:700;
+  font-family:'Source Serif 4',Georgia,serif; font-weight:700;
   font-size:1.7rem; line-height:1.18; margin:0 0 .35rem; letter-spacing:-.015em;
   text-align:center;
 }
@@ -710,7 +710,7 @@ html, body, [class*="css"] { font-family:'DM Sans',-apple-system,'Segoe UI',sans
   border:1px solid #2E4E6E !important; border-radius:9px !important;
 }
 .rc-brand{
-  font-family:'Playfair Display',Georgia,serif; font-size:1.02rem; font-weight:700;
+  font-family:'Source Serif 4',Georgia,serif; font-size:1.02rem; font-weight:700;
   color:#fff; line-height:1.25;
 }
 .rc-brand-sub{
@@ -2018,101 +2018,66 @@ with st.sidebar:
                           format_func=lambda d: DOMAIN_META[d]["title"])
         st.divider()
 
-    # "How to use" — different text for buyers vs compliance/admin
+    # "How to use" pinned prominently above the filters so first-time
+    # users see it before they start typing.
     _no_msgs = not st.session_state.get("messages")
-    _cu_role_sidebar = _cu.get("role", "user")
     with st.expander("ℹ️ How to use this assistant", expanded=False):
-        if _cu_role_sidebar == "user":
-            st.markdown(
-                "**Upload a brochure or just ask.**\n\n"
-                "Drop a PDF, paste a property URL, or type your question in plain language.\n\n"
-                "**What we check for you:**\n"
-                "- Is the project registered with K-RERA?\n"
-                "- Is the builder quoting a fair price vs the locality average?\n"
-                "- Should you buy or rent at this price?\n"
-                "- What are your rights as a buyer under RERA?\n\n"
-                "**Not legal advice.** Always verify with a lawyer or the K-RERA portal "
-                "before making any payment.")
-        else:
-            st.markdown(
-                "**Ask in plain language.** No legal terms needed.\n\n"
-                "**Use the filters** below to narrow results to your role or "
-                "jurisdiction.\n\n"
-                "**Check the sources.** Every answer lists the exact documents "
-                "and passages it relied on.\n\n"
-                "**Confidence badge** — a warning appears when the match is weak.\n\n"
-                "**Not legal advice.** Always verify with a professional before acting.")
+        st.markdown(
+            "**Ask in plain language.** No legal terms needed.\n\n"
+            "**Use the filter** below to narrow results to your role or "
+            "facility type.\n\n"
+            "**Check the sources.** Every answer lists the exact documents "
+            "and passages it relied on.\n\n"
+            "**Confidence badge** — a warning appears when the match is weak.\n\n"
+            "**Not legal advice.** Always verify with a professional before acting.")
 
-    # ── Sidebar filters: compliance officers and admins only ─────────────────
-    # Regular home-buyer users get a clean sidebar; they never reach the
-    # corpus-search flow (render_user_flow + st.stop() fires first for them).
-    _sb_is_power_user = _cu["role"] in ("compliance_officer", "admin")
-
-    if _sb_is_power_user:
-        st.markdown("<div class='rc-side-h'>Narrow the search</div>",
-                    unsafe_allow_html=True)
-        if domain == "RERA":
-            role = st.selectbox("I am a…", list(RERA_ROLES),
-                                help="Narrows the search to documents most relevant "
-                                     "to your role. The foundational Act and Karnataka "
-                                     "Rules always appear alongside role-specific circulars.")
-            jurisdiction = st.selectbox(
-                "Jurisdiction", list(RERA_JURISDICTIONS),
-                help="Filter by Central RERA Act documents or Karnataka State RERA "
-                     "documents. 'All documents' searches the full corpus.")
-            scope_needles = RERA_ROLES[role]
-            jurisdiction_needles = RERA_JURISDICTIONS[jurisdiction]
-            scope_label = role if jurisdiction == "All documents" else f"{role} · {jurisdiction}"
-            examples = (RERA_ROLE_EXAMPLES.get(role) or EXAMPLES["RERA"])
-        else:
-            facility = st.selectbox("Type of establishment", list(HEALTHCARE_FACILITIES),
-                                    help="Standards are published separately for each "
-                                         "type of facility. Choosing one returns the "
-                                         "standards that apply to it.")
-            scope_needles = HEALTHCARE_FACILITIES[facility]
-            jurisdiction_needles: list = []
-            scope_label = facility
-            examples = ([t.format(n=FACILITY_NOUN[facility]) for t in FACILITY_TEMPLATES]
-                        if scope_needles else EXAMPLES["Healthcare"])
-
-        n_scoped, n_general = scope_count(domain, scope_needles)
-        _any_filter = bool(scope_needles or jurisdiction_needles)
-        caption = scope_caption(n_scoped, "all" if not _any_filter else "some",
-                                n_general)
-        if caption:
-            st.caption(caption)
-
-        # Kannada language toggle
-        kannada_mode = False
-        if domain == "RERA":
-            kannada_mode = st.toggle("ಕನ್ನಡ / Kannada documents",
-                                     help="Include Kannada-language FAQ documents in the search.")
-
-        with st.expander("More options"):
-            include_drafts = st.checkbox("Include draft and proposed rules", value=False,
-                                         help="Clearly labelled, and never presented as "
-                                              "law in force.")
-            include_review = st.checkbox("Include documents we have not verified",
-                                         value=False,
-                                         help="Material whose legal status we have not "
-                                              "confirmed.")
-
+    st.markdown("<div class='rc-side-h'>Narrow the search</div>",
+                unsafe_allow_html=True)
+    if domain == "RERA":
+        role = st.selectbox("I am a…", list(RERA_ROLES),
+                            help="Narrows the search to documents most relevant "
+                                 "to your role. The foundational Act and Karnataka "
+                                 "Rules always appear alongside role-specific circulars.")
+        jurisdiction = st.selectbox(
+            "Jurisdiction", list(RERA_JURISDICTIONS),
+            help="Filter by Central RERA Act documents or Karnataka State RERA "
+                 "documents. 'All documents' searches the full corpus.")
+        scope_needles = RERA_ROLES[role]
+        jurisdiction_needles = RERA_JURISDICTIONS[jurisdiction]
+        scope_label = role if jurisdiction == "All documents" else f"{role} · {jurisdiction}"
+        examples = (RERA_ROLE_EXAMPLES.get(role) or EXAMPLES["RERA"])
     else:
-        # Fallback defaults for user role (render_user_flow + st.stop() fires
-        # before the corpus search, so these are never actually used).
-        kannada_mode = False
-        include_drafts = False
-        include_review = False
-        if domain == "RERA":
-            scope_needles = []
-            jurisdiction_needles: list = []
-            scope_label = "Home Buyer"
-            examples = EXAMPLES["RERA"]
-        else:
-            scope_needles = []
-            jurisdiction_needles = []
-            scope_label = ""
-            examples = EXAMPLES["Healthcare"]
+        facility = st.selectbox("Type of establishment", list(HEALTHCARE_FACILITIES),
+                                help="Standards are published separately for each "
+                                     "type of facility. Choosing one returns the "
+                                     "standards that apply to it.")
+        scope_needles = HEALTHCARE_FACILITIES[facility]
+        jurisdiction_needles: list = []   # no jurisdiction split for Healthcare
+        scope_label = facility
+        examples = ([t.format(n=FACILITY_NOUN[facility]) for t in FACILITY_TEMPLATES]
+                    if scope_needles else EXAMPLES["Healthcare"])
+
+    n_scoped, n_general = scope_count(domain, scope_needles)
+    _any_filter = bool(scope_needles or jurisdiction_needles)
+    caption = scope_caption(n_scoped, "all" if not _any_filter else "some",
+                            n_general)
+    if caption:
+        st.caption(caption)
+
+    # Kannada language toggle -- RERA only (corpus has Kannada FAQ docs)
+    kannada_mode = False
+    if domain == "RERA":
+        kannada_mode = st.toggle("ಕನ್ನಡ / Kannada documents",
+                                 help="Include Kannada-language FAQ documents in the search.")
+
+    with st.expander("More options"):
+        include_drafts = st.checkbox("Include draft and proposed rules", value=False,
+                                     help="Clearly labelled, and never presented as "
+                                          "law in force.")
+        include_review = st.checkbox("Include documents we have not verified",
+                                     value=False,
+                                     help="Material whose legal status we have not "
+                                          "confirmed.")
 
     st.divider()
     if st.button("Start a new conversation"):
@@ -2135,8 +2100,7 @@ with st.sidebar:
     _sess_list = [s for s in _all_sess if not LOCKED_DOMAIN or s.get("domain") == LOCKED_DOMAIN]
 
     st.divider()
-    _sess_label = "🔍 Your property checks" if (_cu.get("role", "user") == "user" and LOCKED_DOMAIN == "RERA") else "💬 Past sessions"
-    with st.expander(_sess_label, expanded=False):
+    with st.expander("💬 Past sessions", expanded=False):
         if _sess_list:
             for _si, _sess in enumerate(_sess_list):
                 _s_title   = _sess.get("title", "Conversation")
@@ -2181,8 +2145,8 @@ with st.sidebar:
             else:
                 st.caption("Sign in to save and resume sessions.")
 
-    # ── Document Q&A history (RERA only, compliance/admin only) ──────────────
-    if _sb_is_power_user and LOCKED_DOMAIN == "RERA":
+    # ── Document Q&A history (RERA only) ──────────────────────────────────────
+    if LOCKED_DOMAIN == "RERA":
         # Fetch the most recent Q&A rows globally (no session_id filter) so
         # history is visible immediately on any fresh page load, not just
         # during the session that created it (session_state is ephemeral).
@@ -2257,56 +2221,56 @@ with st.sidebar:
     st.toggle("🌙 Dark mode", key="dark_mode",
               help="Switch between light and dark theme")
 
-    # Admin/compliance feedback dashboard — hidden entirely for user role.
+    # Admin/compliance feedback dashboard — visible to admin and compliance_officer roles,
+    # or via password fallback for sessions not yet logged in.
     _cu_role = _current_user().get("role", "user")
     _has_dashboard_access = _cu_role in ("admin", "compliance_officer")
-    if _sb_is_power_user:
-        with st.expander("📊 Feedback analytics"):
-            if not _has_dashboard_access:
-                _admin_pw = st.text_input("Password", type="password",
-                                          key="admin_pw", label_visibility="collapsed",
-                                          placeholder="Admin password")
-                _has_dashboard_access = (_admin_pw == _secret("ADMIN_PASSWORD", "") and bool(_admin_pw))
-            else:
-                _admin_pw = "bypass"  # sentinel so the block below runs
-            if _has_dashboard_access:
-                if True:  # was `if _admin_pw:` — keep indentation matching original
-                    _sb_url = _secret("SUPABASE_URL")
-                    _sb_key = _secret("SUPABASE_KEY")
-                    if not _sb_url or not _sb_key:
-                        st.info("Supabase not configured — no feedback data yet.")
-                    else:
-                        try:
-                            import requests as _req  # noqa: PLC0415
-                            _fb_resp = _req.get(
-                                f"{_sb_url}/rest/v1/feedback",
-                                headers={"apikey": _sb_key,
-                                         "Authorization": f"Bearer {_sb_key}"},
-                                params={"select": "*"},
-                                timeout=10,
-                            )
-                            _fb_resp.raise_for_status()
-                            _rows = _fb_resp.json() or []
-                            _total = len(_rows)
-                            _ups = sum(1 for r in _rows if r.get("feedback_type") == "up")
-                            _dns = _total - _ups
-                            _pct = int(_ups / _total * 100) if _total else 0
-                            st.markdown(f"**Total ratings:** {_total}")
-                            st.markdown(f"**👍 Helpful:** {_ups} ({_pct}%)  |  **👎 Not helpful:** {_dns}")
-                            _dn_rows = [r for r in _rows if r.get("feedback_type") == "down"]
-                            if _dn_rows:
-                                st.markdown("**Questions that got thumbs down:**")
-                                for _r in _dn_rows[-10:][::-1]:
-                                    st.markdown(
-                                        f"- [{_r.get('domain','')}] {_r.get('question','')[:80]}")
-                        except Exception as _e:
-                            st.error(f"Could not load feedback: {_e}")
+    with st.expander("📊 Feedback analytics"):
+        if not _has_dashboard_access:
+            _admin_pw = st.text_input("Password", type="password",
+                                      key="admin_pw", label_visibility="collapsed",
+                                      placeholder="Admin password")
+            _has_dashboard_access = (_admin_pw == _secret("ADMIN_PASSWORD", "") and bool(_admin_pw))
+        else:
+            _admin_pw = "bypass"  # sentinel so the block below runs
+        if _has_dashboard_access:
+            if True:  # was `if _admin_pw:` — keep indentation matching original
+                _sb_url = _secret("SUPABASE_URL")
+                _sb_key = _secret("SUPABASE_KEY")
+                if not _sb_url or not _sb_key:
+                    st.info("Supabase not configured — no feedback data yet.")
+                else:
+                    try:
+                        import requests as _req  # noqa: PLC0415
+                        _fb_resp = _req.get(
+                            f"{_sb_url}/rest/v1/feedback",
+                            headers={"apikey": _sb_key,
+                                     "Authorization": f"Bearer {_sb_key}"},
+                            params={"select": "*"},
+                            timeout=10,
+                        )
+                        _fb_resp.raise_for_status()
+                        _rows = _fb_resp.json() or []
+                        _total = len(_rows)
+                        _ups = sum(1 for r in _rows if r.get("feedback_type") == "up")
+                        _dns = _total - _ups
+                        _pct = int(_ups / _total * 100) if _total else 0
+                        st.markdown(f"**Total ratings:** {_total}")
+                        st.markdown(f"**👍 Helpful:** {_ups} ({_pct}%)  |  **👎 Not helpful:** {_dns}")
+                        _dn_rows = [r for r in _rows if r.get("feedback_type") == "down"]
+                        if _dn_rows:
+                            st.markdown("**Questions that got thumbs down:**")
+                            for _r in _dn_rows[-10:][::-1]:
+                                st.markdown(
+                                    f"- [{_r.get('domain','')}] {_r.get('question','')[:80]}")
+                    except Exception as _e:
+                        st.error(f"Could not load feedback: {_e}")
             else:
                 st.caption("Enter admin password above to view analytics.")
 
-    # Saved Answers section -- compliance officer and admin only
+    # Saved Answers section -- only for signed-in users
     _cu_sidebar = _current_user()
-    if _sb_is_power_user and _cu_sidebar.get("id"):
+    if _cu_sidebar.get("id"):
         st.divider()
         with st.expander("🔖 Saved Answers", expanded=False):
             if st.button("🔄 Refresh", key="bm_refresh", use_container_width=True):
@@ -2356,51 +2320,20 @@ if store is None:
 
 client = get_client()
 
-# ── Hero banner — role-branched for user vs compliance/admin ──────────────────
-_hero_cu = _current_user()
-_hero_role = _hero_cu.get("role", "user")
-
-if domain == "RERA" and _hero_role == "user":
-    _hero_html = (
-        "<div class='rc-hero'>"
-        "<h1>Your Personal RERA Guide</h1>"
-        "<p style='font-size:.95rem;font-weight:500;color:#E8F2FF;margin-bottom:.4rem'>"
-        "Buying property in Karnataka? Get instant answers before you sign anything.</p>"
-        "<p style='font-size:.82rem;color:#BDD4ED;line-height:1.6;max-width:68ch;margin:0 auto'>"
-        "Check if a project is K-RERA registered &nbsp;&middot;&nbsp; "
-        "Know your rights as a home buyer &nbsp;&middot;&nbsp; "
-        "Spot red flags in builder documents &nbsp;&middot;&nbsp; "
-        "Understand fair pricing in your area"
-        "</p>"
-        "<p style='font-size:.72rem;color:#8FAECC;margin-top:.8rem;font-style:italic'>"
-        "Every answer is sourced directly from the RERA Act 2016, Karnataka RERA Rules, "
-        "and K-RERA official circulars."
-        "</p>"
-        "<div class='rc-stats'>"
-        + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"])
-        + "</div></div>"
-    )
-else:
-    _hero_html = (
-        "<div class='rc-hero'>"
-        f"<h1>{meta['title']}</h1>"
-        f"<p>{meta['lede']} Answers come only from these official documents. Where they "
-        "do not settle a question, the assistant says so rather than guessing, and "
-        "every answer shows the sources it relied on.</p>"
-        "<div class='rc-stats'>"
-        + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"])
-        + "</div></div>"
-    )
-
-st.markdown(_hero_html, unsafe_allow_html=True)
+# ── Hero banner — always full width ──────────────────────────────────────────
+st.markdown(
+    "<div class='rc-hero'>"
+    f"<h1>{meta['title']}</h1>"
+    f"<p>{meta['lede']} Answers come only from these official documents. Where they "
+    "do not settle a question, the assistant says so rather than guessing, and "
+    "every answer shows the sources it relied on.</p>"
+    "<div class='rc-stats'>"
+    + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"]) +
+    "</div></div>", unsafe_allow_html=True)
 
 
 # ── RERA extra tabs (K-RERA Lookup + Investment Signals + Document Q&A) ───────
 if domain == "RERA":
-    if _current_user()["role"] == "user":
-        from user_flow import render_user_flow
-        render_user_flow()
-        st.stop()
     _tab_chat, _tab_lookup, _tab_invest, _tab_docqa = st.tabs([
         "💬 Compliance Chat",
         "🔍 K-RERA Project Lookup",
@@ -2435,9 +2368,7 @@ if domain == "RERA":
                 _lk_select = (
                     "ack_number,prm_number,project_name,promoter_name,"
                     "status,district,taluk,project_type,total_units,sold_units,"
-                    "completion_date,reg_date,lapse_date,land_area_sqft,detail_url,"
-                    "pin_code,no_of_towers,open_parking,covered_parking,"
-                    "project_sub_type,approving_authority,source_of_water,total_carpet_area_sqmt"
+                    "completion_date,reg_date,lapse_date,land_area_sqft,detail_url"
                 )
                 _lk_url = (f"{_SUPABASE_URL}/rest/v1/rera_projects"
                            f"?{_lk_col}=ilike.*{_req_lookup.utils.quote(_lk_query)}*"
@@ -2501,192 +2432,6 @@ if domain == "RERA":
                             _lk_portal_id = _lk_p.get("prm_number") or _lk_p.get("ack_number") or ""
                             if _lk_portal_id:
                                 st.markdown(f"[View full details on K-RERA portal ↗](https://rera.karnataka.gov.in/projectViewDetails?id={_lk_portal_id})")
-
-                            # ── Buyer Intelligence Brief ─────────────────────────────────
-                            # Pull enrichment fields
-                            _lk_pin     = _lk_p.get("pin_code")
-                            _lk_towers  = _lk_p.get("no_of_towers")
-                            _lk_open_pk = _lk_p.get("open_parking")
-                            _lk_cvd_pk  = _lk_p.get("covered_parking")
-                            _lk_subtype = _lk_p.get("project_sub_type")
-                            _lk_auth    = _lk_p.get("approving_authority")
-                            _lk_water   = _lk_p.get("source_of_water")
-                            _lk_carpet  = _lk_p.get("total_carpet_area_sqmt")
-
-                            _lk_has_enrich = any([
-                                _lk_pin, _lk_towers,
-                                _lk_open_pk is not None, _lk_cvd_pk is not None,
-                                _lk_subtype, _lk_auth,
-                            ])
-                            if _lk_has_enrich:
-                                st.markdown("---")
-                                st.markdown(
-                                    "<div style='font-size:.87rem;font-weight:700;"
-                                    "color:var(--brand,#1B4F8C);margin-bottom:.6rem;"
-                                    "letter-spacing:.04em;'>🧭 Buyer Intelligence Brief</div>",
-                                    unsafe_allow_html=True)
-
-                                # Quick-scan chips
-                                _lk_chips = []
-                                if _lk_pin:
-                                    _lk_chips.append(f"📍 Pincode {_lk_pin}")
-                                if _lk_towers:
-                                    try:
-                                        _tw_int = int(_lk_towers)
-                                        _lk_chips.append(f"🏗️ {_tw_int} Tower{'s' if _tw_int > 1 else ''}")
-                                    except (ValueError, TypeError):
-                                        _lk_chips.append(f"🏗️ {_lk_towers}")
-                                _lk_total_pk = None
-                                try:
-                                    _lk_opk_int = int(_lk_open_pk) if _lk_open_pk is not None else None
-                                    _lk_cpk_int = int(_lk_cvd_pk)  if _lk_cvd_pk  is not None else None
-                                except (ValueError, TypeError):
-                                    _lk_opk_int = _lk_cpk_int = None
-                                if _lk_opk_int is not None and _lk_cpk_int is not None:
-                                    _lk_total_pk = _lk_opk_int + _lk_cpk_int
-                                    _lk_chips.append(f"🅿️ {_lk_total_pk} parking spots")
-                                elif _lk_opk_int is not None:
-                                    _lk_chips.append(f"🅿️ {_lk_opk_int} open parking")
-                                elif _lk_cpk_int is not None:
-                                    _lk_chips.append(f"🏠 {_lk_cpk_int} covered parking")
-                                if _lk_subtype:
-                                    _lk_chips.append(f"🏘️ {_lk_subtype}")
-                                if _lk_auth:
-                                    _lk_chips.append(f"🏛️ {_lk_auth}")
-                                if _lk_water:
-                                    _lk_chips.append(f"💧 {_lk_water}")
-
-                                _chip_html = "&nbsp;&nbsp;".join(
-                                    f"<span style='background:var(--paper,#F0F4FA);"
-                                    f"border:1px solid var(--line,#D0D9E8);border-radius:20px;"
-                                    f"padding:3px 11px;font-size:.74rem;color:var(--ink,#0E2439);"
-                                    f"white-space:nowrap;display:inline-block;margin-bottom:4px;'>{c}</span>"
-                                    for c in _lk_chips
-                                )
-                                st.markdown(
-                                    f"<div style='line-height:2.1;margin-bottom:.6rem;'>{_chip_html}</div>",
-                                    unsafe_allow_html=True)
-
-                                # Story cards: one per insight
-                                _lk_stories = []
-
-                                # Scale of the project
-                                try:
-                                    _tw_n = int(_lk_towers) if _lk_towers else None
-                                    _tu_n = int(_lk_total)  if _lk_total  else None
-                                except (ValueError, TypeError):
-                                    _tw_n = _tu_n = None
-                                if _tw_n and _tu_n:
-                                    _upt = _tu_n // _tw_n
-                                    if _tw_n == 1:
-                                        _lk_stories.append(
-                                            "This is a <b>single-tower project</b> with "
-                                            f"{_tu_n} units. Smaller communities tend to have simpler "
-                                            "maintenance and faster RWA formation once possession happens.")
-                                    elif _tw_n <= 3:
-                                        _lk_stories.append(
-                                            f"A <b>boutique development</b> across {_tw_n} towers "
-                                            f"with roughly {_upt} units each. These mid-sized societies "
-                                            "are easier to govern and usually have tighter-knit neighbourhoods.")
-                                    else:
-                                        _lk_stories.append(
-                                            f"This is a <b>large township</b> with {_tw_n} towers "
-                                            f"and roughly {_upt} units per tower. Expect solid amenities "
-                                            "and a lively community, but factor in higher maintenance costs.")
-
-                                # Parking intelligence
-                                if _lk_total_pk is not None and _tu_n:
-                                    _pk_ratio = _lk_total_pk / _tu_n
-                                    if _pk_ratio >= 1.0:
-                                        _lk_stories.append(
-                                            f"<b>Parking looks solid</b>: {_lk_total_pk} spots for "
-                                            f"{_tu_n} units (ratio {_pk_ratio:.1f}x). Every flat "
-                                            "is likely to get at least one dedicated spot.")
-                                    elif _pk_ratio >= 0.7:
-                                        _lk_stories.append(
-                                            f"<b>Parking is moderate</b>: {_lk_total_pk} spots for "
-                                            f"{_tu_n} units (ratio {_pk_ratio:.1f}x). Some flats may need "
-                                            "to share. Ask the builder for the parking allotment plan in writing.")
-                                    else:
-                                        _lk_stories.append(
-                                            f"<b>Parking is tight</b>: only {_lk_total_pk} spots for "
-                                            f"{_tu_n} units (ratio {_pk_ratio:.1f}x). Clarify your "
-                                            "parking rights in the sale agreement before signing anything.")
-                                    if _lk_cpk_int and _lk_cpk_int > 0:
-                                        _opk_val = _lk_opk_int if _lk_opk_int else 0
-                                        _lk_stories.append(
-                                            f"Of the {_lk_total_pk} spots, <b>{_lk_cpk_int} are covered</b> "
-                                            f"(basement or stilt) and {_opk_val} are open. "
-                                            "Covered spots protect vehicles from Bengaluru weather and reduce sun damage.")
-
-                                # Approving authority context
-                                if _lk_auth:
-                                    _auth_l = _lk_auth.lower()
-                                    if "bbmp" in _auth_l:
-                                        _lk_stories.append(
-                                            "Approved by <b>BBMP</b> (Bruhat Bengaluru Mahanagara Palike). "
-                                            "The project is within Bengaluru's municipal limits, with piped water, "
-                                            "drainage, and solid waste services managed by the city corporation.")
-                                    elif "bda" in _auth_l:
-                                        _lk_stories.append(
-                                            "Approved by <b>BDA</b> (Bengaluru Development Authority). "
-                                            "BDA-sanctioned plans follow structured layout norms with "
-                                            "reserved parks and civic amenities.")
-                                    elif "bmrda" in _auth_l:
-                                        _lk_stories.append(
-                                            "Approved by <b>BMRDA</b> (Bengaluru Metropolitan Region "
-                                            "Development Authority). The project is in Bengaluru's extended "
-                                            "metro region. Infrastructure growth here is active but uneven.")
-                                    elif "gram panchayat" in _auth_l or "grama panchayat" in _auth_l:
-                                        _lk_stories.append(
-                                            "Approved by a <b>Gram Panchayat</b>. This project sits on "
-                                            "the city outskirts where civic infrastructure can be limited. "
-                                            "Confirm the Occupancy Certificate has been issued before making any payment.")
-                                    else:
-                                        _lk_stories.append(
-                                            f"Approving authority: <b>{_lk_auth}</b>. "
-                                            "Before final payment, confirm the Occupancy Certificate "
-                                            "has been issued by this body.")
-
-                                # Water source insight
-                                if _lk_water:
-                                    _wat_l = _lk_water.lower()
-                                    if "bwssb" in _wat_l or "cauvery" in _wat_l:
-                                        _lk_stories.append(
-                                            f"Water comes from <b>{_lk_water}</b>. "
-                                            "BWSSB / Cauvery piped supply is reliable and regulated. "
-                                            "No borewell dependency keeps long-term water costs predictable.")
-                                    elif "borewell" in _wat_l or "bore well" in _wat_l:
-                                        _lk_stories.append(
-                                            "Water source is <b>borewell</b>. Common on the outskirts "
-                                            "but carries a risk if the water table drops over time. "
-                                            "Ask the builder for a water quality test report and their contingency plan.")
-                                    else:
-                                        _lk_stories.append(
-                                            f"Water source: <b>{_lk_water}</b>. Confirm adequate "
-                                            "long-term supply with the builder, especially for upper floors.")
-
-                                _story_style = (
-                                    "font-size:.82rem;line-height:1.65;"
-                                    "color:var(--ink,#0E2439);"
-                                    "background:var(--paper,#F6F8FC);"
-                                    "border-left:3px solid var(--brand,#1B4F8C);"
-                                    "padding:.45rem .75rem;"
-                                    "margin:.3rem 0;"
-                                    "border-radius:0 6px 6px 0;"
-                                )
-                                for _st_txt in _lk_stories:
-                                    st.markdown(
-                                        f"<div style='{_story_style}'>{_st_txt}</div>",
-                                        unsafe_allow_html=True)
-
-                                # Carpet area footnote
-                                if _lk_carpet:
-                                    st.markdown(
-                                        f"<div style='font-size:.76rem;color:var(--muted,#6B7C93);"
-                                        f"margin-top:.5rem;'>Total carpet area on record: "
-                                        f"<b>{_lk_carpet} sqmt</b></div>",
-                                        unsafe_allow_html=True)
                 else:
                     st.warning("No matching projects found. Try a shorter keyword.")
             else:
@@ -3085,7 +2830,7 @@ if domain == "RERA":
 
         _OPENAI_KEY = _secret("OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
         _EMBED_MODEL = "text-embedding-3-small"
-        _QA_MODEL    = _secret("LLM_MODEL") or os.environ.get("LLM_MODEL", "gpt-5-nano")
+        _QA_MODEL    = _secret("LLM_MODEL") or os.environ.get("LLM_MODEL", "gpt-4o-mini")
 
         st.subheader("Ask questions about your RERA document")
         st.markdown("Upload any RERA-related PDF — sale agreement, allotment letter, project brochure — and ask questions in plain language.")
@@ -3164,7 +2909,7 @@ if domain == "RERA":
                     _r = _req_docqa.post(
                         "https://api.openai.com/v1/chat/completions",
                         headers={"Authorization": f"Bearer {_OPENAI_KEY}"},
-                        json={"model": _QA_MODEL, "messages": [{"role": "system", "content": _sys}, {"role": "user", "content": _usr}]},
+                        json={"model": _QA_MODEL, "messages": [{"role": "system", "content": _sys}, {"role": "user", "content": _usr}], "temperature": 0.2},
                         timeout=45,
                     )
                     _r.raise_for_status()
@@ -3351,9 +3096,236 @@ if domain == "RERA":
     # ── Tab 1: Compliance Chat (all original chatbot code runs inside this tab)
     _rera_tab_ctx = _tab_chat
 else:
-    # Healthcare: no tabs, use a no-op context manager
-    import contextlib
-    _rera_tab_ctx = contextlib.nullcontext()
+    # Healthcare: Compliance Chat + Karnataka Packages tabs
+    _hc_tab_chat, _hc_tab_packages = st.tabs([
+        "💬 Compliance Chat",
+        "💊 Karnataka Package Rates (AB-ArK / HBP)",
+    ])
+
+    # ── Karnataka Packages Tab ─────────────────────────────────────────────
+    with _hc_tab_packages:
+        import requests as _req_pkg
+
+        _PKG_URL = _secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL", "")
+        _PKG_KEY = _secret("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY", "")
+
+        st.subheader("Karnataka Health Package Rates")
+        st.caption(
+            "AB-ArK (Ayushman Bharat – Arogya Karnataka) covers all 31 Karnataka districts. "
+            "Rates are uniform across the state. Government hospitals attract lower rates "
+            "than private for the same procedure. HBP National shows the central "
+            "AB PM-JAY package price for reference."
+        )
+
+        if not _PKG_URL or not _PKG_KEY:
+            st.warning(
+                "SUPABASE_URL and SUPABASE_KEY are not configured. "
+                "Add them in Streamlit Secrets (or .env locally)."
+            )
+        else:
+            # ── filters row ──────────────────────────────────────────────
+            _p_col1, _p_col2, _p_col3 = st.columns([2, 2, 2])
+
+            with _p_col1:
+                _p_scheme = st.selectbox(
+                    "Scheme",
+                    ["AB-ArK (Karnataka)", "HBP National", "Both"],
+                    key="pkg_scheme",
+                    help="AB-ArK: Karnataka state scheme. HBP National: central AB PM-JAY package list.",
+                )
+
+            # Fetch distinct specialties for the chosen scheme
+            @st.cache_data(ttl=3600, show_spinner=False)
+            def _fetch_specialties(supabase_url, supabase_key, scheme_filter):
+                """Return sorted specialty list from packages_master."""
+                _headers = {
+                    "apikey": supabase_key,
+                    "Authorization": f"Bearer {supabase_key}",
+                }
+                _params = {
+                    "select": "specialty",
+                    "specialty": "not.is.null",
+                    "order": "specialty.asc",
+                }
+                if scheme_filter == "AB-ArK (Karnataka)":
+                    _params["scheme"] = "eq.AB-ArK"
+                elif scheme_filter == "HBP National":
+                    _params["scheme"] = "eq.HBP_National"
+
+                _r = requests.get(
+                    f"{supabase_url}/rest/v1/packages_master",
+                    headers=_headers,
+                    params=_params,
+                    timeout=15,
+                )
+                if _r.status_code == 200:
+                    _specs = sorted({
+                        row["specialty"]
+                        for row in _r.json()
+                        if row.get("specialty")
+                    })
+                    return ["All specialties"] + _specs
+                return ["All specialties"]
+
+            _p_specialties = _fetch_specialties(_PKG_URL, _PKG_KEY, _p_scheme)
+
+            with _p_col2:
+                _p_specialty = st.selectbox(
+                    "Specialty",
+                    _p_specialties,
+                    key="pkg_specialty",
+                )
+
+            with _p_col3:
+                _p_hospital = st.selectbox(
+                    "Hospital type (AB-ArK only)",
+                    ["All", "Government", "Private"],
+                    key="pkg_hospital",
+                    help="Applies only to AB-ArK rows. HBP National always shows as 'empanelled'.",
+                )
+
+            _p_search = st.text_input(
+                "Search procedure name",
+                placeholder="e.g. angioplasty, cataract, dialysis…",
+                key="pkg_search",
+            )
+
+            # ── query ────────────────────────────────────────────────────
+            _pkg_headers = {
+                "apikey": _PKG_KEY,
+                "Authorization": f"Bearer {_PKG_KEY}",
+                "Range": "0-499",
+            }
+            _pkg_params = {
+                "select": (
+                    "scheme,specialty,procedure_code,procedure_name,"
+                    "hospital_type,general_ward_rate,semi_private_rate,"
+                    "private_rate,total_package_price,stratification_remarks,"
+                    "implant_mapped,source_doc"
+                ),
+                "order": "specialty.asc,procedure_name.asc",
+                "limit": "500",
+            }
+
+            if _p_scheme == "AB-ArK (Karnataka)":
+                _pkg_params["scheme"] = "eq.AB-ArK"
+            elif _p_scheme == "HBP National":
+                _pkg_params["scheme"] = "eq.HBP_National"
+
+            if _p_specialty != "All specialties":
+                _pkg_params["specialty"] = f"eq.{_p_specialty}"
+
+            if _p_hospital != "All" and _p_scheme != "HBP National":
+                _pkg_params["hospital_type"] = f"eq.{_p_hospital.lower()}"
+
+            if _p_search.strip():
+                _pkg_params["procedure_name"] = f"ilike.*{_p_search.strip()}*"
+
+            _pkg_resp = _req_pkg.get(
+                f"{_PKG_URL}/rest/v1/packages_master",
+                headers=_pkg_headers,
+                params=_pkg_params,
+                timeout=15,
+            )
+
+            if _pkg_resp.status_code not in (200, 206):
+                st.error(
+                    f"Could not fetch packages (HTTP {_pkg_resp.status_code}). "
+                    "Check SUPABASE_URL / SUPABASE_KEY and that the packages_master view exists."
+                )
+            else:
+                _pkg_rows = _pkg_resp.json()
+
+                if not _pkg_rows:
+                    st.info("No procedures match your filters. Try broadening the search.")
+                else:
+                    import pandas as _pd_pkg
+
+                    _pkg_df = _pd_pkg.DataFrame(_pkg_rows)
+
+                    # ── friendly column rename ────────────────────────────
+                    _RENAME = {
+                        "scheme": "Scheme",
+                        "specialty": "Specialty",
+                        "procedure_code": "Code",
+                        "procedure_name": "Procedure",
+                        "hospital_type": "Hospital Type",
+                        "general_ward_rate": "General Ward (₹)",
+                        "semi_private_rate": "Semi-Private (₹)",
+                        "private_rate": "Private (₹)",
+                        "total_package_price": "Package Price (₹)",
+                        "stratification_remarks": "Stratification",
+                        "implant_mapped": "Implant",
+                        "source_doc": "Source",
+                    }
+                    _pkg_df = _pkg_df.rename(columns=_RENAME)
+
+                    # Format rates: 0 → "—" for AB-ArK semi/private
+                    for _rc in ("Semi-Private (₹)", "Private (₹)"):
+                        if _rc in _pkg_df.columns:
+                            _pkg_df[_rc] = _pkg_df[_rc].apply(
+                                lambda v: "—" if (v is None or v == 0) else f"₹{int(v):,}"
+                            )
+                    for _rc in ("General Ward (₹)", "Package Price (₹)"):
+                        if _rc in _pkg_df.columns:
+                            _pkg_df[_rc] = _pkg_df[_rc].apply(
+                                lambda v: "—" if v is None else f"₹{int(v):,}"
+                            )
+
+                    # Choose columns to display based on scheme
+                    if _p_scheme == "HBP National":
+                        _SHOW_COLS = [c for c in [
+                            "Scheme", "Specialty", "Code", "Procedure",
+                            "Hospital Type", "Package Price (₹)",
+                            "Stratification", "Implant", "Source",
+                        ] if c in _pkg_df.columns]
+                    elif _p_scheme == "AB-ArK (Karnataka)":
+                        _SHOW_COLS = [c for c in [
+                            "Specialty", "Code", "Procedure",
+                            "Hospital Type", "General Ward (₹)",
+                            "Semi-Private (₹)", "Private (₹)", "Source",
+                        ] if c in _pkg_df.columns]
+                    else:
+                        _SHOW_COLS = [c for c in [
+                            "Scheme", "Specialty", "Code", "Procedure",
+                            "Hospital Type", "General Ward (₹)",
+                            "Package Price (₹)", "Stratification", "Source",
+                        ] if c in _pkg_df.columns]
+
+                    _pkg_display = _pkg_df[_SHOW_COLS]
+
+                    _n_shown = len(_pkg_display)
+                    _n_total_note = " (showing first 500 — narrow filters to see more)" if _n_shown == 500 else ""
+                    st.caption(f"{_n_shown} procedure{'s' if _n_shown != 1 else ''} found{_n_total_note}")
+
+                    st.dataframe(
+                        _pkg_display,
+                        use_container_width=True,
+                        hide_index=True,
+                        height=520,
+                    )
+
+                    # ── summary metrics ───────────────────────────────────
+                    if _p_scheme in ("AB-ArK (Karnataka)", "Both"):
+                        _abark_rows = _pkg_df[_pkg_df["Scheme"] == "AB-ArK"] if "Scheme" in _pkg_df.columns else _pkg_df
+                        if len(_abark_rows):
+                            _m1, _m2, _m3 = st.columns(3)
+                            _m1.metric("AB-ArK procedures shown", len(_abark_rows))
+                            _gov = _abark_rows[_abark_rows.get("Hospital Type", _pd_pkg.Series(dtype=str)).str.lower() == "government"] if "Hospital Type" in _abark_rows.columns else _pd_pkg.DataFrame()
+                            _prv = _abark_rows[_abark_rows.get("Hospital Type", _pd_pkg.Series(dtype=str)).str.lower() == "private"] if "Hospital Type" in _abark_rows.columns else _pd_pkg.DataFrame()
+                            _m2.metric("Government hospital rows", len(_gov))
+                            _m3.metric("Private hospital rows", len(_prv))
+
+                    st.markdown(
+                        "<small>**AB-ArK:** Ayushman Bharat – Arogya Karnataka scheme run by SAST. "
+                        "Rates are **uniform across all 31 Karnataka districts**. "
+                        "Semi-Private and Private ward rates are not separately reimbursed (shown as —). "
+                        "**HBP National:** NHA Health Benefit Package v2.1 (source: Bihar HBP 2.1 PDF). "
+                        "Codes are from different systems — AB-ArK and HBP National cannot be directly compared by code.</small>",
+                        unsafe_allow_html=True,
+                    )
+
+    _rera_tab_ctx = _hc_tab_chat
 
 with _rera_tab_ctx:
 

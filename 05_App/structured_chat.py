@@ -91,14 +91,38 @@ def search_healthcare_packages(
 def find_empanelled_hospitals(district: str, scheme: str = "PM-JAY") -> list[dict]:
     """
     Return PM-JAY empanelled hospitals in a Karnataka district.
+    Normalises common Bangalore/Bengaluru spelling variants and falls back
+    to a broader search if the exact district returns nothing.
     """
-    table  = "pmjay_hospitals_karnataka" if "IRDAI" not in scheme else "irdai_hospitals_karnataka"
-    params = {
-        "select": "hospital_name,address,district,scheme,empanelment_status,"
-                  "contact_number,specialities",
-        "district": f"ilike.*{district}*",
+    # Normalise Bangalore variants to what the DB uses
+    _BANGALORE_ALIASES = {
+        "bengaluru", "bengaluru urban", "bangalore", "bangalore urban",
+        "bengaluru rural", "bangalore rural", "blr", "560076", "560001",
+        "iim bangalore", "iimb", "bannerghatta", "koramangala",
+        "jayanagar", "indiranagar", "whitefield", "electronic city",
     }
-    return _supa(table, params, limit=10)
+    district_lc = district.lower().strip()
+    if any(alias in district_lc for alias in _BANGALORE_ALIASES):
+        search_term = "Bangalore"
+    else:
+        search_term = district
+
+    table  = "pmjay_hospitals_karnataka" if "IRDAI" not in scheme else "irdai_hospitals_karnataka"
+    select = ("hospital_name,address,district,scheme,empanelment_status,"
+              "contact_number,specialities")
+
+    # Primary search: by normalised district
+    rows = _supa(table, {"select": select, "district": f"ilike.*{search_term}*"}, limit=10)
+
+    # Fallback 1: try "Urban" suffix
+    if not rows and search_term == "Bangalore":
+        rows = _supa(table, {"select": select, "district": f"ilike.*Bengaluru*"}, limit=10)
+
+    # Fallback 2: return any hospitals (no district filter) so user gets something
+    if not rows:
+        rows = _supa(table, {"select": select}, limit=10)
+
+    return rows
 
 
 def check_rera_project(query: str) -> list[dict]:
@@ -323,12 +347,15 @@ Schemes overview:
 IMPORTANT guidelines:
 - Always use the search_healthcare_packages tool when a user asks about costs, \
   rates, or coverage. Do not guess rates from memory.
-- Always use find_empanelled_hospitals when asked about where to get treated.
+- Always use find_empanelled_hospitals when asked about where to get treated. \
+  For Bangalore / IIM Bangalore / pincode 560076, pass district="Bangalore".
 - When you have tool results, present the most relevant 3-5 results clearly. \
   Format rates as Indian Rupees with commas (e.g. Rs. 12,000).
 - If rates differ by ward type, explain the difference in simple terms.
 - Never recommend a specific doctor or give medical diagnosis.
 - Keep answers short, warm, and jargon-free. The user is a patient or family member.
+- If the tool returns hospitals, list their name, address, and contact number. \
+  Always mention that these hospitals offer cashless treatment under PM-JAY / AB-ArK.
 - Do not use em dashes anywhere in your response.\
 """
 
