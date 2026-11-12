@@ -1836,22 +1836,69 @@ def _render_admin_mode():
                     st.error("Incorrect username or password.")
         st.stop()
 
-    # Signed-in header
+    # RERA Admin-only presentation. The User / Compliance / Admin selector and
+    # credential gate remain part of the existing RERA app flow.
+    if "rera_admin_dark_mode" not in st.session_state:
+        st.session_state["rera_admin_dark_mode"] = False
+    _is_dark = st.session_state["rera_admin_dark_mode"]
+    _today_label = __import__("datetime").date.today().strftime("%d %b %Y")
+    _page_bg = "#0b0f17" if _is_dark else "#f5f7fa"
+    _surface = "#131929" if _is_dark else "#ffffff"
+    _border = "#1e2d45" if _is_dark else "#dde3ee"
+    _text = "#e4ecf7" if _is_dark else "#141c2e"
+    _muted = "#8fa3bd" if _is_dark else "#64748b"
+    st.markdown(f"""<style>
+      .stApp, [data-testid="stAppViewContainer"] {{ background:{_page_bg} !important; color:{_text} !important; }}
+      [data-testid="stHeader"] {{ background:{_page_bg} !important; }}
+      .stTabs [data-baseweb="tab-list"] {{ background:{'#1a2540' if _is_dark else '#e9edf5'} !important;
+        border:1px solid {_border}; border-radius:10px; padding:4px; gap:4px;
+        display:inline-flex !important; width:auto !important; position:relative !important;
+        left:50% !important; transform:translateX(-50%) !important; }}
+      .stTabs [data-baseweb="tab"] {{ color:{_muted} !important; border-radius:8px;
+        font-weight:600; font-size:15px; padding:9px 24px; }}
+      .stTabs [aria-selected="true"] {{ background:{'#2563eb' if _is_dark else _surface} !important;
+        color:{'#ffffff' if _is_dark else _text} !important; }}
+      [data-testid="metric-container"] {{ background:{_surface} !important; border:1px solid {_border} !important;
+        border-radius:12px; padding:18px 20px !important; }}
+      [data-testid="stMetricValue"] {{ color:{_text} !important; font-size:32px !important; font-weight:800 !important; }}
+      [data-testid="stMetricLabel"] {{ color:{_muted} !important; font-size:11px !important;
+        font-weight:700 !important; text-transform:uppercase; letter-spacing:.06em; }}
+      .stDataFrame, [data-testid="stDataFrame"] {{ background:{_surface} !important; border:1px solid {_border} !important; border-radius:10px; }}
+      .stButton > button {{ background:{_surface} !important; color:{_text} !important;
+        border:1px solid {_border} !important; border-radius:8px; font-weight:600; }}
+      .stTextInput input, [data-baseweb="select"] {{ background:{_surface} !important; color:{_text} !important; }}
+      .stExpander {{ background:{_surface} !important; border:1px solid {_border} !important; border-radius:10px !important; }}
+    </style>""", unsafe_allow_html=True)
+
     _adm_hdr, _adm_btn = st.columns([6, 1])
     with _adm_hdr:
-        st.markdown(
-            "<div style='background:linear-gradient(135deg,#0f1e38,#0a1322);"
-            "padding:20px 28px;border-radius:12px;border:1px solid #1e2d45;margin-bottom:12px;'>"
-            "<div style='display:flex;align-items:center;gap:14px;'>"
-            "<div style='font-size:28px'>🛡️</div>"
-            "<div>"
-            "<h3 style='color:#f0f6ff;margin:0;font-size:20px;font-weight:800;'>CCS RAG Admin Dashboard</h3>"
-            "<p style='color:#7aa3d0;margin:3px 0 0;font-size:12px;'>Live monitoring</p>"
-            "</div></div></div>",
-            unsafe_allow_html=True,
-        )
+        st.markdown(f"""
+        <div style='background:linear-gradient(135deg,#1e3a6e 0%,#0f1f40 100%);
+                    padding:24px 30px;border-radius:14px;border:1px solid #1a3460;margin-bottom:12px;
+                    display:flex;align-items:center;justify-content:space-between;'>
+          <div style='display:flex;align-items:center;gap:15px;'>
+            <div style='width:48px;height:48px;background:rgba(59,130,246,.2);border-radius:12px;
+                        display:flex;align-items:center;justify-content:center;font-size:25px;'>🏠</div>
+            <div>
+              <div style='display:flex;align-items:center;gap:10px;flex-wrap:wrap;'>
+                <h1 style='color:#f0f6ff;margin:0;font-size:25px;font-weight:800;letter-spacing:-.03em;'>Karnataka RERA Admin Dashboard</h1>
+                <span style='background:#2563eb;color:#fff;font-size:10px;font-weight:700;border-radius:6px;padding:4px 8px;letter-spacing:.08em;'>ADMIN</span>
+              </div>
+              <p style='color:#93b7e3;margin:5px 0 0;font-size:13px;font-weight:500;'>RERA activity, documents, and knowledge base</p>
+            </div>
+          </div>
+          <div style='text-align:right;min-width:110px;'>
+            <div style='color:#bfdbfe;font-size:14px;font-weight:700;'>{_today_label}</div>
+            <div style='color:#8fa8c4;font-size:11px;margin-top:3px;'>Live monitoring</div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
     with _adm_btn:
-        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        _theme_label = "☀️ Light" if _is_dark else "🌙 Dark"
+        if st.button(_theme_label, key="rera_admin_theme_toggle", use_container_width=True):
+            st.session_state["rera_admin_dark_mode"] = not _is_dark
+            st.rerun()
         if st.button("Sign out", key="adm_logout", use_container_width=True):
             st.session_state["adm_auth"] = False
             st.rerun()
@@ -1862,16 +1909,20 @@ def _render_admin_mode():
     with _at1:
         import datetime as _dt_adm
         import requests as _req_adm
+        import pandas as _pd_adm
 
         _adm_url = _secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL", "")
         _adm_svc = _secret("SUPABASE_SERVICE_KEY") or _secret("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY", "")
 
-        _adm_cr, _adm_rf = st.columns([3, 1])
+        _adm_cr, _adm_rf = st.columns([4, 1])
         with _adm_cr:
-            _adm_range = st.radio("Date range", ["Last 7 days", "Last 30 days", "All time"], horizontal=True, key="adm_range")
+            _adm_range = st.radio(
+                "Date range", ["Last 7 days", "Last 30 days", "All time"],
+                horizontal=True, key="adm_range",
+            )
         with _adm_rf:
             st.write("")
-            if st.button("Refresh", key="adm_refresh"):
+            if st.button("Refresh", key="adm_refresh", use_container_width=True):
                 st.rerun()
 
         _today = _dt_adm.date.today()
@@ -1886,10 +1937,15 @@ def _render_admin_mode():
         if _adm_url and _adm_svc:
             try:
                 _ar = _req_adm.get(
-                    f"{_adm_url}/rest/v1/queries"
-                    f"?select=id,created_at,bot,question,confidence,flagged_low_conf"
-                    f"&created_at=gte.{_since}T00:00:00&order=created_at.desc",
+                    f"{_adm_url}/rest/v1/queries",
                     headers={"apikey": _adm_svc, "Authorization": f"Bearer {_adm_svc}"},
+                    params={
+                        "select": "id,created_at,bot,question,confidence,flagged_low_conf,session_id",
+                        "bot": "eq.RERA",
+                        "created_at": f"gte.{_since}T00:00:00",
+                        "order": "created_at.desc",
+                        "limit": "1000",
+                    },
                     timeout=15,
                 )
                 _adm_rows = _ar.json() if _ar.ok else []
@@ -1898,48 +1954,45 @@ def _render_admin_mode():
         else:
             st.warning("SUPABASE_URL / SUPABASE_SERVICE_KEY not configured.")
 
-        _total   = len(_adm_rows)
-        _hc      = sum(1 for r in _adm_rows if r.get("bot") == "Healthcare")
-        _rera    = sum(1 for r in _adm_rows if r.get("bot") == "RERA")
+        _total = len(_adm_rows)
+        _sessions = len({r.get("session_id") for r in _adm_rows if r.get("session_id")})
         _flagged = sum(1 for r in _adm_rows if r.get("flagged_low_conf"))
-        _fpct    = f"{_flagged/_total*100:.1f}%" if _total else "0.0%"
-
-        _m1, _m2, _m3, _m4 = st.columns(4)
-        _m1.metric("Total Queries", _total)
-        _m2.metric("Healthcare", _hc)
-        _m3.metric("RERA", _rera)
-        _m4.metric("Low Confidence", f"{_flagged} ({_fpct})")
+        _m1, _m2, _m3 = st.columns(3)
+        _m1.metric("RERA Queries", _total)
+        _m2.metric("RERA Sessions", _sessions)
+        _m3.metric("Low-Confidence Flags", _flagged)
 
         if _adm_rows:
             from collections import defaultdict as _dd
-            import pandas as _pd_adm
-            _dhc, _drera = _dd(int), _dd(int)
+            _daily = _dd(int)
             for _r in _adm_rows:
-                try:
-                    _day = _r["created_at"][:10]
-                except Exception:
-                    continue
-                if _r.get("bot") == "Healthcare":
-                    _dhc[_day] += 1
-                else:
-                    _drera[_day] += 1
-            _days = sorted(set(list(_dhc.keys()) + list(_drera.keys())))
+                _day = (_r.get("created_at") or "")[:10]
+                if _day:
+                    _daily[_day] += 1
+            _days = sorted(_daily)
             if _days:
-                _df_c = _pd_adm.DataFrame({"Date": _days, "Healthcare": [_dhc.get(d, 0) for d in _days], "RERA": [_drera.get(d, 0) for d in _days]}).set_index("Date")
-                st.markdown("<p style='color:#6b7f9a;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;margin:16px 0 8px'>Queries per day</p>", unsafe_allow_html=True)
-                st.bar_chart(_df_c, height=260, use_container_width=True)
+                _df_daily = _pd_adm.DataFrame(
+                    {"RERA queries": [_daily[d] for d in _days]}, index=_days,
+                )
+                st.markdown("#### RERA queries per day")
+                st.bar_chart(_df_daily, height=260, use_container_width=True)
             _lc = [r for r in _adm_rows if r.get("flagged_low_conf")]
-            st.markdown(f"<p style='color:#6b7f9a;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;margin:16px 0 8px'>Low confidence queries ({len(_lc)})</p>", unsafe_allow_html=True)
+            st.markdown(f"#### Low-confidence RERA queries ({len(_lc)})")
             if _lc:
                 _df_lc = _pd_adm.DataFrame([
-                    {"Date": r["created_at"][:10], "Bot": r.get("bot",""), "Query": (r.get("question") or "")[:120], "Score": round(r.get("confidence") or 0, 3)}
+                    {
+                        "Date": (r.get("created_at") or "")[:10],
+                        "Question": (r.get("question") or "")[:120],
+                        "Score": round(r.get("confidence"), 3)
+                        if r.get("confidence") is not None else "—",
+                    }
                     for r in _lc
                 ])
                 st.dataframe(_df_lc, use_container_width=True, hide_index=True)
             else:
-                st.success("No low-confidence queries in this period.")
+                st.success("No low-confidence RERA queries in this period.")
         else:
-            st.info("No queries found for the selected date range.")
+            st.info("No RERA queries found for the selected date range.")
 
     # ── Admin Tab 2: Documents ───────────────────────────────────────────────
     with _at2:
@@ -1949,14 +2002,17 @@ def _render_admin_mode():
         _docs_url = _secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL", "")
         _docs_svc = _secret("SUPABASE_SERVICE_KEY") or _secret("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY", "")
 
-        st.subheader("Knowledge Base Documents")
+        st.markdown("### RERA Knowledge Base Documents")
         if _docs_url and _docs_svc:
             try:
                 _dr = _req_docs.get(
-                    f"{_docs_url}/rest/v1/kb_documents"
-                    f"?select=bot,doc_id,title,status,expected_update_date,source_url"
-                    f"&order=bot.asc,doc_id.asc",
+                    f"{_docs_url}/rest/v1/kb_documents",
                     headers={"apikey": _docs_svc, "Authorization": f"Bearer {_docs_svc}"},
+                    params={
+                        "select": "bot,doc_id,title,status,expected_update_date,source_url",
+                        "bot": "eq.RERA",
+                        "order": "doc_id.asc",
+                    },
                     timeout=15,
                 )
                 _docs = _dr.json() if _dr.ok else []
@@ -1964,47 +2020,81 @@ def _render_admin_mode():
                 _docs = []
 
             if _docs:
-                _doc_filter = st.selectbox("Filter by bot", ["All", "RERA", "Healthcare"], key="adm_doc_filter")
-                _filtered = [d for d in _docs if _doc_filter == "All" or d.get("bot") == _doc_filter]
+                _statuses = sorted({str(d.get("status") or "unknown") for d in _docs})
+                _doc_filter_col, _doc_search_col, _doc_refresh_col = st.columns([2, 4, 1])
+                with _doc_filter_col:
+                    _status_filter = st.selectbox(
+                        "Status", ["All statuses", *_statuses], key="rera_admin_doc_status",
+                    )
+                with _doc_search_col:
+                    _doc_search = st.text_input(
+                        "Search documents", key="rera_admin_doc_search",
+                        placeholder="Search document ID or title",
+                    ).strip().casefold()
+                with _doc_refresh_col:
+                    st.write("")
+                    if st.button("Refresh", key="rera_admin_docs_refresh", use_container_width=True):
+                        st.rerun()
+
+                _filtered = _docs
+                if _status_filter != "All statuses":
+                    _filtered = [d for d in _filtered if str(d.get("status") or "unknown") == _status_filter]
+                if _doc_search:
+                    _filtered = [
+                        d for d in _filtered
+                        if _doc_search in str(d.get("doc_id") or "").casefold()
+                        or _doc_search in str(d.get("title") or "").casefold()
+                    ]
+
+                _current_docs = sum(1 for d in _docs if (d.get("status") or "").lower() == "current")
+                _pending_docs = sum(1 for d in _docs if (d.get("status") or "").lower() == "pending")
+                _archived_docs = sum(1 for d in _docs if (d.get("status") or "").lower() == "archived")
+                _doc_m1, _doc_m2, _doc_m3 = st.columns(3)
+                _doc_m1.metric("RERA Documents", len(_docs))
+                _doc_m2.metric("Current", _current_docs)
+                _doc_m3.metric("Pending / Archived", f"{_pending_docs} / {_archived_docs}")
+                st.info(f"Showing {len(_filtered)} of {len(_docs)} RERA documents")
                 _df_docs = _pd_docs.DataFrame([
-                    {"Bot": d.get("bot",""), "Doc ID": d.get("doc_id",""), "Title": (d.get("title") or "")[:80], "Status": d.get("status",""), "Review Date": d.get("expected_update_date","") or ""}
+                    {
+                        "Document ID": d.get("doc_id", ""),
+                        "Title": d.get("title", "") or "",
+                        "Status": d.get("status", "") or "",
+                        "Review date": d.get("expected_update_date", "") or "",
+                    }
                     for d in _filtered
                 ])
-                st.info(f"Showing {len(_filtered)} of {len(_docs)} documents")
-                st.dataframe(_df_docs, use_container_width=True, hide_index=True)
+                if _filtered:
+                    st.dataframe(_df_docs, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No RERA documents match those filters.")
             else:
-                st.warning("No documents found or unable to connect to database.")
+                st.info("No RERA documents are registered in the knowledge base yet.")
         else:
             st.warning("SUPABASE_URL / SUPABASE_SERVICE_KEY not configured.")
 
     # ── Admin Tab 3: Bots ────────────────────────────────────────────────────
     with _at3:
-        st.markdown("<p style='color:#6b7f9a;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;margin:0 0 20px'>Deployed compliance bots</p>", unsafe_allow_html=True)
-        _bc1, _bc2 = st.columns(2)
-        with _bc1:
-            st.markdown("""
-            <div style='background:linear-gradient(145deg,#0f1e38,#0a1528);
-                        padding:28px;border-radius:14px;border:1px solid #1e3560;'>
-              <div style='font-size:32px;margin-bottom:12px'>🏥</div>
-              <div style='color:#93c5fd;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:4px'>Healthcare</div>
-              <h3 style='color:#f0f6ff;margin:0 0 6px;font-size:18px;font-weight:800'>CDSCO Compliance Bot</h3>
-              <p style='color:#4a6f9a;font-size:12px;margin:0 0 20px;line-height:1.5'>Drug and Cosmetics Act, NDCT Rules, Medical Device Regulations</p>
-              <a href='https://ccsragcomplianceassistant-6hug2utprjrpwtyijwjanr.streamlit.app/' target='_blank'
-                 style='background:#2563eb;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:12px;font-weight:700'>
-                Open bot</a>
-            </div>""", unsafe_allow_html=True)
-        with _bc2:
-            st.markdown("""
-            <div style='background:linear-gradient(145deg,#0d2218,#081510);
-                        padding:28px;border-radius:14px;border:1px solid #1a4030;'>
-              <div style='font-size:32px;margin-bottom:12px'>🏠</div>
-              <div style='color:#86efac;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:4px'>Real Estate</div>
-              <h3 style='color:#f0f6ff;margin:0 0 6px;font-size:18px;font-weight:800'>Karnataka RERA Bot</h3>
-              <p style='color:#2d5a40;font-size:12px;margin:0 0 20px;line-height:1.5'>RERA Act 2016, K-RERA Rules, Project Registration, Agent Licensing</p>
-              <a href='https://ccsragcomplianceassistant-cisyv46xzq7kte95ywkmhg.streamlit.app/' target='_blank'
-                 style='background:#16a34a;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:12px;font-weight:700'>
-                Open bot</a>
-            </div>""", unsafe_allow_html=True)
+        st.markdown("### Deployed RERA assistant")
+        st.markdown("""
+        <div style='background:linear-gradient(145deg,#0f1e38 0%,#0a1528 100%);
+                    padding:30px;border-radius:14px;border:1px solid #1e3560;
+                    position:relative;overflow:hidden;max-width:900px;'>
+          <div style='position:absolute;top:-24px;right:-18px;width:125px;height:125px;
+                      background:rgba(59,130,246,.08);border-radius:50%;'></div>
+          <div style='font-size:36px;margin-bottom:12px;'>🏠</div>
+          <div style='color:#93c5fd;font-size:10px;font-weight:700;text-transform:uppercase;
+                      letter-spacing:.1em;margin-bottom:6px;'>Karnataka · Real estate regulation</div>
+          <h2 style='color:#f0f6ff;margin:0 0 8px;font-size:22px;font-weight:800;'>Karnataka RERA Property Advisor</h2>
+          <p style='color:#a9bed8;font-size:13px;margin:0 0 22px;line-height:1.6;max-width:650px;'>
+            RERA Act 2016, Karnataka RERA rules, project registration, agent licensing,
+            allottee protections, and property due diligence.
+          </p>
+          <a href='https://ccsragcomplianceassistant-rera.streamlit.app/' target='_blank' rel='noopener noreferrer'
+             style='background:#2563eb;color:#fff;padding:11px 22px;border-radius:8px;
+                    text-decoration:none;font-size:13px;font-weight:700;display:inline-block;'>
+            Open RERA assistant →
+          </a>
+        </div>""", unsafe_allow_html=True)
 
     # ── Admin Tab 4: KB Coverage ─────────────────────────────────────────────
     with _at4:
@@ -2039,31 +2129,58 @@ def _render_admin_mode():
         _rr_pct   = round(_rr_have / _rr_total * 100) if _rr_total else 0
 
         _kb_m1, _kb_m2, _kb_m3 = st.columns(3)
-        _kb_m1.metric("RERA Domains Tracked", len(_rera_domains))
-        _kb_m2.metric("Documents in Corpus", f"{_rr_have} / {_rr_total}")
-        _kb_m3.metric("Coverage", f"{_rr_pct}%")
+        _kb_m1.metric("RERA Domains", len(_rera_domains))
+        _kb_m2.metric("Indexed Documents", f"{_rr_have} / {_rr_total}")
+        _kb_m3.metric("Corpus Coverage", f"{_rr_pct}%")
 
-        st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
-        st.markdown("#### RERA Knowledge Base Coverage")
+        _bar_bg = "#0a1322" if _is_dark else "#dce5f2"
+        st.markdown(f"""
+        <div style='background:linear-gradient(145deg,#0f1e38 0%,#0a1528 100%);
+                    border:1px solid #1e3560;border-radius:14px;padding:24px 28px;margin:22px 0;'>
+          <div style='color:#93c5fd;font-size:10px;font-weight:700;text-transform:uppercase;
+                      letter-spacing:.1em;margin-bottom:5px;'>Karnataka RERA knowledge base</div>
+          <div style='display:flex;align-items:baseline;gap:10px;margin-bottom:14px;'>
+            <span style='color:#60a5fa;font-size:40px;font-weight:800;line-height:1;'>{_rr_pct}%</span>
+            <span style='color:#a9bed8;font-size:14px;'>coverage</span>
+          </div>
+          <div style='height:7px;background:{_bar_bg};border-radius:8px;overflow:hidden;margin-bottom:10px;'>
+            <div style='height:100%;width:{_rr_pct}%;background:linear-gradient(90deg,#2563eb,#60a5fa);border-radius:8px;'></div>
+          </div>
+          <div style='color:#a9bed8;font-size:12px;'>{_rr_have} of {_rr_total} planned documents indexed across {len(_rera_domains)} RERA domains</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("### RERA coverage by domain")
+        from html import escape as _html_escape
 
         for _dom in _rera_domains:
             _cov_pct = round(_dom["have"] / _dom["total"] * 100) if _dom["total"] else 0
-            _status  = "🟢" if _cov_pct >= 80 else ("🟡" if _cov_pct >= 40 else "🔴")
-            with st.expander(f"{_status} **{_dom['domain']}** -- {_dom['have']}/{_dom['total']} docs ({_cov_pct}%)"):
-                if _dom["have_labels"]:
-                    st.markdown("**In corpus:**")
-                    for _lbl in _dom["have_labels"]:
-                        st.markdown(f"- {_lbl}")
-                if _dom["missing"]:
-                    st.markdown("**Missing:**")
-                    for _m in _dom["missing"]:
-                        st.markdown(f"- {_m}")
+            _status_color = "#16a34a" if _cov_pct >= 80 else ("#d97706" if _cov_pct >= 40 else "#dc2626")
+            _have_pills = "".join(
+                f"<span style='display:inline-block;background:#dbeafe;color:#1d4ed8;border-radius:6px;padding:5px 8px;margin:3px;font-size:11px;'>✓ {_html_escape(_label)}</span>"
+                for _label in _dom["have_labels"]
+            )
+            _missing_pills = "".join(
+                f"<span style='display:inline-block;background:#fee2e2;color:#b91c1c;border-radius:6px;padding:5px 8px;margin:3px;font-size:11px;'>+ {_html_escape(_label)}</span>"
+                for _label in _dom["missing"]
+            )
+            st.markdown(f"""
+            <div style='background:{_surface};border:1px solid {_border};border-radius:12px;
+                        padding:18px 20px;margin:0 0 12px;'>
+              <div style='display:flex;align-items:flex-start;justify-content:space-between;gap:12px;'>
+                <div style='font-size:15px;font-weight:700;color:{_text};'>{_html_escape(_dom['domain'])}</div>
+                <span style='background:{_status_color}1a;color:{_status_color};border-radius:16px;
+                             padding:5px 10px;font-size:11px;font-weight:700;white-space:nowrap;'>{_cov_pct}%</span>
+              </div>
+              <div style='color:{_muted};font-size:12px;margin:7px 0 10px;'>{_dom['have']} of {_dom['total']} planned documents indexed</div>
+              <div style='height:5px;background:{_bar_bg};border-radius:8px;overflow:hidden;margin-bottom:12px;'>
+                <div style='height:100%;width:{_cov_pct}%;background:{_status_color};border-radius:8px;'></div>
+              </div>
+              <div>{_have_pills}{_missing_pills}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
-        st.markdown("---")
-        st.caption(
-            "Coverage reflects documents currently indexed in the RERA vector store. "
-            "Adding missing documents will improve compliance answer accuracy."
-        )
+        st.caption("Coverage is based on the RERA documents currently mapped to the planned knowledge base domains.")
 
 
 # ── main app layout ───────────────────────────────────────────────────────────
@@ -2196,3 +2313,4 @@ def main():
 
 
 main()
+
