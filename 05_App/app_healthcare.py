@@ -644,6 +644,16 @@ html, body, [class*="css"], button, input, textarea, select {
   background:#FFFFFF !important; color:#17324D !important;
   border-color:#DCE5EF !important;
 }
+[data-testid="stSidebar"] [data-testid="stExpander"] [data-testid^="stBaseButton-"],
+[data-testid="stSidebar"] [data-testid="stExpander"] button {
+  background:#FFFFFF !important; background-color:#FFFFFF !important;
+  color:#17324D !important; border-color:#D4DFEA !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] button p,
+[data-testid="stSidebar"] [data-testid="stExpander"] button span,
+[data-testid="stSidebar"] [data-testid="stExpander"] button div {
+  color:#17324D !important;
+}
 .rc-brand{
   font-family:'Playfair Display',Georgia,serif; font-size:1.02rem; font-weight:700;
   color:#fff; line-height:1.25;
@@ -1926,7 +1936,7 @@ with st.sidebar:
                 _s_updated  = _sess.get("updated_at", "")
                 _s_q_count  = _sess.get("message_count", 0) or 0
                 _s_usertype = _sess.get("user_type", "user")
-                _btn_style  = "primary"
+                _btn_style  = "secondary"
 
                 # Parse timestamp to IST for display
                 try:
