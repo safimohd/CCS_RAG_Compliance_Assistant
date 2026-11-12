@@ -23,13 +23,7 @@ import streamlit as st
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _secret(key: str) -> str:
-    value = os.environ.get(key)
-    if value:
-        return value
-    try:
-        return str(st.secrets.get(key, ""))
-    except Exception:
-        return ""
+    return os.environ.get(key) or st.secrets.get(key, "")
 
 
 def _supa(table: str, params: dict, limit: int = 10) -> list[dict]:
