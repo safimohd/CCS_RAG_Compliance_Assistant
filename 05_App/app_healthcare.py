@@ -1811,63 +1811,8 @@ with st.sidebar:
         st.caption(st.session_state.pop("_role_switch_error"))
     st.markdown("<hr style='margin:6px 0 10px;opacity:.15'>", unsafe_allow_html=True)
 
-    # ── Account popover — sits at the very top of the sidebar ─────────────────
+    # Resolve the active role selected by the toggle above.
     _cu = _current_user()
-    _role_labels = {
-        "user": "User",
-        "compliance_officer": "Compliance Officer",
-        "admin": "Admin",
-    }
-    _role_badge = _role_labels.get(_cu["role"], _cu["role"].title())
-    _role_colors = {
-        "user": ("#1a3352", "#4A90D9"),
-        "compliance_officer": ("#1a3d2a", "#34A853"),
-        "admin": ("#3d1a1a", "#D94A4A"),
-    }
-    _rc_bg, _rc_bd = _role_colors.get(_cu["role"], ("#1a3352", "#4A90D9"))
-    _sb_icon = "🟢" if _cu["id"] else "⚪"
-    _sb_label = _role_labels.get(_cu["role"], "Guest")
-
-    with st.popover(f"👤  {_cu['name']}  ·  {_sb_icon} {_sb_label}",
-                    use_container_width=True):
-        st.markdown(
-            f"<div style='background:{_rc_bg};border:1px solid {_rc_bd};"
-            f"border-radius:8px;padding:10px;text-align:center;margin-bottom:10px'>"
-            f"<div style='font-size:1.6rem;margin-bottom:4px'>👤</div>"
-            f"<div style='font-size:.6rem;color:#8FA8C4;margin-bottom:2px'>Signed in as</div>"
-            f"<div style='font-size:.85rem;font-weight:700;color:#CFE0F2'>{_cu['name']}</div>"
-            f"<div style='font-size:.65rem;color:{_rc_bd};font-weight:600'>{_sb_label}</div>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-        st.divider()
-        st.markdown("<p style='font-size:.65rem;color:#8FA8C4;margin:0 0 4px'>"
-                    "Sign in with credentials</p>", unsafe_allow_html=True)
-        _sb_email = st.text_input("Email", key="_sb_login_email",
-                                  placeholder="you@claritai.in",
-                                  label_visibility="collapsed")
-        _sb_pw = st.text_input("Password", type="password", key="_sb_login_pw",
-                               placeholder="Password",
-                               label_visibility="collapsed")
-        if st.button("Sign in", use_container_width=True, key="_sb_login_btn", type="primary"):
-            _sb_found = _auth_lookup(_sb_email, _sb_pw)
-            if _sb_found:
-                st.session_state["current_user"] = _sb_found
-                st.session_state["_auth_err"] = ""
-                if _sb_found.get("role") == "compliance_officer":
-                    st.session_state["_pending_hc_view"] = "🎖 Compliance Officer"
-                else:
-                    st.session_state["_pending_hc_view"] = "👤 User"
-                for _k in ("_db_query_history", "_cached_bookmarks", "_user_sessions",
-                           "_active_session_id", "_active_session_title"):
-                    st.session_state.pop(_k, None)
-                st.session_state["messages"] = []
-                st.session_state["feedback"] = {}
-                st.rerun()
-            else:
-                st.session_state["_auth_err"] = "Incorrect email or password."
-        if st.session_state.get("_auth_err"):
-            st.error(st.session_state["_auth_err"])
 
     st.markdown(f"<div class='rc-brand' style='margin-top:.6rem'>"
                 f"{DOMAIN_META[_default_domain]['title']}</div>"
