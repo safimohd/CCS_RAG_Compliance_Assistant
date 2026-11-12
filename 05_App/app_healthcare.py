@@ -2081,18 +2081,19 @@ client = get_client()
 _hero_cu = _current_user()
 _hero_role = _hero_cu.get("role", "user")
 
-_hero_html = (
-    "<div class='rc-hero'>"
-    f"<h1>{meta['title']}</h1>"
-    f"<p>{meta['lede']} Answers come only from these official documents. Where they "
-    "do not settle a question, the assistant says so rather than guessing, and "
-    "every answer shows the sources it relied on.</p>"
-    "<div class='rc-stats'>"
-    + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"])
-    + "</div></div>"
-)
-
-st.markdown(_hero_html, unsafe_allow_html=True)
+if _hero_role != "user":
+    _hero_html = (
+        "<div class='rc-hero'>"
+        f"<h1>{meta['title']}</h1>"
+        f"<p>{meta['lede']} Answers come only from these official documents. Where they "
+        "do not settle a question, the assistant says so rather than guessing, and "
+        "every answer shows the sources it relied on.</p>"
+        "<div class='rc-stats'>"
+        + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"])
+        + "</div></div>"
+    )
+    
+    st.markdown(_hero_html, unsafe_allow_html=True)
 
 
 # ── Hospital Finder helper ────────────────────────────────────────────────────
@@ -2213,7 +2214,7 @@ def _render_hospital_finder() -> None:
 _hc_role = _current_user().get("role", "user")
 if _hc_role == "user":
     from user_flow_healthcare import render_user_flow as _render_user_chat_hc
-    _render_user_chat_hc()
+    _render_user_chat_hc(store)
     st.stop()
 
 # ── Main tabs (compliance_officer / admin) ────────────────────────────────────

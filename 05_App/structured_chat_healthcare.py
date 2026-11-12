@@ -23,7 +23,13 @@ import streamlit as st
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _secret(key: str) -> str:
-    return os.environ.get(key) or st.secrets.get(key, "")
+    value = os.environ.get(key)
+    if value:
+        return value
+    try:
+        return str(st.secrets.get(key, ""))
+    except Exception:
+        return ""
 
 
 def _supa(table: str, params: dict, limit: int = 10) -> list[dict]:
@@ -265,26 +271,32 @@ TOOLS_HEALTHCARE = [
 
 _SYS_HEALTHCARE = """\
 You are a friendly, plain-language healthcare assistant for patients and families \
-in Karnataka, India. You help people understand:
-- Which government health schemes cover a treatment (AB-ArK, Arogya Sanjeevini, PM-JAY)
-- How much a procedure costs under each scheme
-- Which hospitals near them are empanelled (covered) for cashless treatment
-
-Schemes overview:
-- AB-ArK (Arogya Karnataka): Karnataka state scheme, covers all 31 districts. \
-  Three ward types: General, Semi-Private, Private. Rates set by the state government.
-- Arogya Sanjeevini (Tier 2 NABH): Karnataka scheme for 5 cities: \
-  Belagavi, Dharwad, Mangalore, Mysore, Kalaburgi.
-- PM-JAY / HBP (Ayushman Bharat): National scheme, one flat package rate.
+in Karnataka, India. Help with general health information using only the official \
+document excerpts supplied with the current question, scheme and package lookups, \
+and empanelled hospital records.
 
 IMPORTANT guidelines:
+- Treat the supplied document excerpts as the only authority for clinical guidance. \
+  Do not diagnose, prescribe a personal treatment, or fill gaps from general memory. \
+  If no relevant official excerpt was found, say so plainly and suggest contacting \
+  a qualified health professional. For urgent or severe symptoms, advise immediate \
+  in-person medical care without trying to triage a diagnosis.
+- Explain scheme acronyms in simple words the first time they matter. Do not imply \
+  someone is eligible based only on chat. Explain how to verify through the official \
+  beneficiary process when the supplied sources support it.
+- Never call district results "nearest" or rank them by distance. The hospital data \
+  does not provide verified distance coordinates. Say "matching hospitals in this area".
+- Cite clinical or scheme guidance by the supplied document title. Never invent a source.
 - Always use the search_healthcare_packages tool when a user asks about costs, \
   rates, or coverage. Do not guess rates from memory.
 - Always use find_empanelled_hospitals when asked about where to get treated. \
   For Bangalore / IIM Bangalore / pincode 560076, pass district="Bangalore". \
   Our dataset now includes hospitals in Bangalore Urban district. \
-  List them with name, address, phone (if available), and specialities. \
-  Always mention that for the most up-to-date full list, they can also check \
+  List only returned hospitals with name, address, phone (if available), \
+  specialities, and the scheme shown in the record. Never assume a hospital offers \
+  cashless care for every treatment or that the patient is eligible; advise confirming \
+  both with the hospital's scheme desk. Do not rank results by distance. \
+  For the most up-to-date full PM-JAY list, users can also check \
   https://hospitals.pmjay.gov.in (search Bengaluru Urban).
 - When you have tool results, present the most relevant 3-5 results clearly. \
   Format rates as Indian Rupees with commas (e.g. Rs. 12,000).
@@ -432,28 +444,17 @@ _HC_CSS = """
 
 # ── User chat view (clean, guided) ────────────────────────────────────────────
 
-def render_user_chat():
+def render_user_chat(store=None):
     """
     Clean, single-purpose chat for the 'user' role (Healthcare domain only).
     No tabs, no jargon. Just a question box with guided examples.
     """
     st.markdown(_HC_CSS, unsafe_allow_html=True)
 
-    st.markdown(
-        "<div class='sc-hero'>"
-        "<h2>Your Healthcare Guide</h2>"
-        "<p>Ask about treatment costs, which government schemes cover a procedure, "
-        "or find cashless hospitals near you in Karnataka.</p>"
-        "</div>",
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        "<div class='sc-hint'>"
-        "Rates shown are from official Karnataka government scheme documents. "
-        "Actual hospital billing may vary. Always confirm with the hospital."
-        "</div>",
-        unsafe_allow_html=True,
+    st.markdown("### What do you need help with?")
+    st.caption(
+        "Ask in your own words. Health guidance uses official sources; scheme and "
+        "hospital details are checked against the available records."
     )
 
     hk = "sc_hc_history"
@@ -462,16 +463,36 @@ def render_user_chat():
 
     history: list[dict] = st.session_state[hk]
 
-    prefill = None
     if not history:
-        st.markdown("**Try one of these:**")
-        prefill = _example_chips(_EXAMPLES_HEALTHCARE, "usr_hc")
+        prompt_options = [
+            "I have a health question",
+            "Find hospitals near my area",
+            "Explain government health schemes",
+            "Check help with treatment costs",
+        ]
+        prompt_map = {
+            prompt_options[0]: "I have a health question: ",
+            prompt_options[1]: "Help me find hospitals near ",
+            prompt_options[2]: "Explain the government health schemes available in Karnataka, who may qualify, and how to verify eligibility.",
+            prompt_options[3]: "Check government scheme coverage and package costs for ",
+        }
+        cols = st.columns(2)
+        for i, label in enumerate(prompt_options):
+            with cols[i % 2]:
+                if st.button(label, key=f"usr_hc_help_{i}", use_container_width=True):
+                    st.session_state["sc_input_healthcare"] = prompt_map[label]
 
     for msg in history:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
+            if msg.get("sources"):
+                with st.expander("Sources used"):
+                    for source in msg["sources"]:
+                        title = source.get("title", "Official source")
+                        url = source.get("url")
+                        st.markdown(f"- [{title}]({url})" if url else f"- {title}")
 
-    prompt = prefill or st.chat_input(
+    prompt = st.chat_input(
         "Ask anything..." if not history else "Ask a follow-up...",
         key="sc_input_healthcare",
     )
@@ -486,18 +507,53 @@ def render_user_chat():
     with st.chat_message("assistant"):
         try:
             from openai import OpenAI
+            from rag_query import format_sources, retrieve
+
+            try:
+                source_rows = retrieve(store, prompt, "Healthcare", 5) if store else []
+                source_rows = [row for row in source_rows
+                               if row.get("similarity", 0) >= 0.35]
+                retrieval_failed = False
+            except Exception:
+                source_rows = []
+                retrieval_failed = True
+            source_context = format_sources(source_rows) if source_rows else ""
+            grounded_system = _SYS_HEALTHCARE + (
+                "\n\nOFFICIAL DOCUMENT EXCERPTS FOR THIS QUESTION:\n" + source_context
+                if source_context else
+                "\n\n" + (
+                    "Document search is currently unavailable. Do not answer clinical "
+                    "or scheme-process questions from memory; say the official source "
+                    "search is unavailable. " if retrieval_failed else
+                    "No official document excerpt matched this question. Do not answer "
+                    "clinical or scheme-process questions from memory; say the sources "
+                    "available here did not verify the answer. "
+                ) +
+                "Package and hospital tools may still be used for their respective factual lookups."
+            )
             client = OpenAI(api_key=_secret("OPENAI_API_KEY"))
             answer = _agentic_generate(
                 client,
                 history[:-1] + [{"role": "user", "content": prompt}],
                 TOOLS_HEALTHCARE,
-                _SYS_HEALTHCARE,
+                grounded_system,
             )
         except Exception as e:
             answer = f"Something went wrong. Please try again. ({e})"
             st.markdown(answer)
 
-    history.append({"role": "assistant", "content": answer})
+    source_refs = [
+        {"title": row.get("title"), "url": row.get("url")}
+        for row in locals().get("source_rows", [])
+        if row.get("title")
+    ]
+    history.append({"role": "assistant", "content": answer, "sources": source_refs})
+    if source_refs:
+        with st.expander("Sources used"):
+            for source in source_refs:
+                title = source.get("title", "Official source")
+                url = source.get("url")
+                st.markdown(f"- [{title}]({url})" if url else f"- {title}")
 
     if history:
         st.button(
