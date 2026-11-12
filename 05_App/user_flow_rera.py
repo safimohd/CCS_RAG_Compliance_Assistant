@@ -1829,6 +1829,7 @@ def _render_admin_mode():
                 ):
                     st.session_state["adm_auth"] = True
                     st.session_state["adm_is_admin"] = True
+                    st.session_state["adm_username"] = _adm_user.strip()
                     st.rerun()
                 elif not _correct_user:
                     st.error("Admin username is not configured.")
@@ -1998,33 +1999,67 @@ def _render_admin_mode():
     with _at2:
         import requests as _req_docs
         import pandas as _pd_docs
+        import datetime as _dt_docs
 
         _docs_url = _secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL", "")
         _docs_svc = _secret("SUPABASE_SERVICE_KEY") or _secret("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY", "")
+        _docs_headers = {
+            "apikey": _docs_svc,
+            "Authorization": f"Bearer {_docs_svc}",
+        }
 
         st.markdown("### RERA Knowledge Base Documents")
         if _docs_url and _docs_svc:
             try:
                 _dr = _req_docs.get(
                     f"{_docs_url}/rest/v1/kb_documents",
-                    headers={"apikey": _docs_svc, "Authorization": f"Bearer {_docs_svc}"},
+                    headers=_docs_headers,
                     params={
-                        "select": "bot,doc_id,title,status,expected_update_date,source_url",
+                        "select": "bot,doc_id,title,status,expected_update_date,alert_days_before,source_url",
                         "bot": "eq.RERA",
                         "order": "doc_id.asc",
                     },
                     timeout=15,
                 )
-                _docs = _dr.json() if _dr.ok else []
+                if not _dr.ok:
+                    st.error(f"Failed to load RERA documents ({_dr.status_code}): {_dr.text[:200]}")
+                    _docs = []
+                else:
+                    _docs = _dr.json()
             except Exception:
                 _docs = []
 
+            try:
+                _er = _req_docs.get(
+                    f"{_docs_url}/rest/v1/doc_exclusions",
+                    headers=_docs_headers,
+                    params={
+                        "select": "bot,doc_id,excluded_by,excluded_by_email,excluded_at,reason,status,expires_at",
+                        "bot": "eq.RERA",
+                        "order": "excluded_at.desc",
+                    },
+                    timeout=15,
+                )
+                if not _er.ok:
+                    st.error(f"Failed to load RERA document access records ({_er.status_code}): {_er.text[:200]}")
+                    _exclusions = []
+                else:
+                    _exclusions = _er.json()
+            except Exception:
+                _exclusions = []
+
             if _docs:
                 _statuses = sorted({str(d.get("status") or "unknown") for d in _docs})
-                _doc_filter_col, _doc_search_col, _doc_refresh_col = st.columns([2, 4, 1])
+                _excl_keys = {(e["bot"], e["doc_id"]): e for e in _exclusions}
+                _doc_filter_col, _access_filter_col, _doc_search_col, _doc_refresh_col = st.columns([2, 2, 4, 1])
                 with _doc_filter_col:
                     _status_filter = st.selectbox(
-                        "Status", ["All statuses", *_statuses], key="rera_admin_doc_status",
+                        "Status", ["All", *_statuses], key="rera_admin_doc_status",
+                    )
+                with _access_filter_col:
+                    _access_filter = st.selectbox(
+                        "RAG Access", ["All", "Active", "Excluded", "Expired"],
+                        key="rera_admin_doc_access",
                     )
                 with _doc_search_col:
                     _doc_search = st.text_input(
@@ -2037,8 +2072,16 @@ def _render_admin_mode():
                         st.rerun()
 
                 _filtered = _docs
-                if _status_filter != "All statuses":
+                if _status_filter != "All":
                     _filtered = [d for d in _filtered if str(d.get("status") or "unknown") == _status_filter]
+                if _access_filter == "Active":
+                    _filtered = [d for d in _filtered if (d["bot"], d["doc_id"]) not in _excl_keys]
+                elif _access_filter in ("Excluded", "Expired"):
+                    _target_status = "excluded" if _access_filter == "Excluded" else "expired"
+                    _filtered = [
+                        d for d in _filtered
+                        if _excl_keys.get((d["bot"], d["doc_id"]), {}).get("status") == _target_status
+                    ]
                 if _doc_search:
                     _filtered = [
                         d for d in _filtered
@@ -2049,22 +2092,145 @@ def _render_admin_mode():
                 _current_docs = sum(1 for d in _docs if (d.get("status") or "").lower() == "current")
                 _pending_docs = sum(1 for d in _docs if (d.get("status") or "").lower() == "pending")
                 _archived_docs = sum(1 for d in _docs if (d.get("status") or "").lower() == "archived")
+                _excluded_count = sum(1 for d in _docs if _excl_keys.get((d["bot"], d["doc_id"]), {}).get("status") == "excluded")
+                _expired_count = sum(1 for d in _docs if _excl_keys.get((d["bot"], d["doc_id"]), {}).get("status") == "expired")
                 _doc_m1, _doc_m2, _doc_m3 = st.columns(3)
                 _doc_m1.metric("RERA Documents", len(_docs))
                 _doc_m2.metric("Current", _current_docs)
                 _doc_m3.metric("Pending / Archived", f"{_pending_docs} / {_archived_docs}")
+                st.caption(f"RAG access: {_excluded_count} excluded · {_expired_count} marked expired")
                 st.info(f"Showing {len(_filtered)} of {len(_docs)} RERA documents")
-                _df_docs = _pd_docs.DataFrame([
-                    {
-                        "Document ID": d.get("doc_id", ""),
-                        "Title": d.get("title", "") or "",
-                        "Status": d.get("status", "") or "",
-                        "Review date": d.get("expected_update_date", "") or "",
-                    }
-                    for d in _filtered
-                ])
                 if _filtered:
-                    st.dataframe(_df_docs, use_container_width=True, hide_index=True)
+                    if st.session_state.get("adm_is_admin") and _exclusions:
+                        with st.expander(f"📋 RERA exclusion log ({len(_exclusions)} entries)", expanded=False):
+                            from datetime import datetime as _dt_parse, timezone as _tz_parse, timedelta as _td_parse
+                            _ist = _tz_parse(_td_parse(hours=5, minutes=30))
+
+                            def _rera_ist(value, fmt="%d %b %Y  %I:%M %p"):
+                                if not value:
+                                    return ""
+                                try:
+                                    _stamp = _dt_parse.fromisoformat(value.replace("Z", "+00:00"))
+                                    if _stamp.tzinfo is None:
+                                        _stamp = _stamp.replace(tzinfo=_tz_parse.utc)
+                                    return _stamp.astimezone(_ist).strftime(fmt) + " IST"
+                                except Exception:
+                                    return value[:19].replace("T", " ")
+
+                            _df_exclusions = _pd_docs.DataFrame([
+                                {
+                                    "Document ID": e.get("doc_id", ""),
+                                    "Type": "⏳ Expired" if e.get("status") == "expired" else "🚫 Excluded",
+                                    "By": e.get("excluded_by", "unknown"),
+                                    "Email": e.get("excluded_by_email") or "",
+                                    "At (IST)": _rera_ist(e.get("excluded_at") or ""),
+                                    "Expires": (e.get("expires_at") or "")[:10],
+                                    "Reason": e.get("reason") or "",
+                                }
+                                for e in _exclusions
+                            ])
+                            st.dataframe(_df_exclusions, use_container_width=True, hide_index=True)
+
+                    _admin_mode = bool(st.session_state.get("adm_is_admin"))
+                    _admin_name = st.session_state.get("adm_username") or _secret("ADMIN_USERNAME") or "Admin"
+                    _admin_email = _secret("ADMIN_EMAIL")
+                    _label_color = _muted
+                    _headers = ["Document ID", "Title", "Status", "Review date", "Days", "RAG Access"]
+                    _visible_headers = _headers if _admin_mode else ["Document ID", "Title", "Status", "Review date", "RAG Access"]
+                    _weights = [1.35, 4.2, 1.0, 1.1, 0.85, 1.5] if _admin_mode else [1.5, 4.7, 1.1, 1.3, 1.4]
+                    _heading_cols = st.columns(_weights)
+                    for _col, _heading in zip(_heading_cols, _visible_headers):
+                        _col.markdown(
+                            f"<span style='color:{_label_color};font-size:11px;font-weight:700;text-transform:uppercase'>{_heading}</span>",
+                            unsafe_allow_html=True,
+                        )
+
+                    for _index, _doc in enumerate(_filtered):
+                        _doc_key = (_doc.get("bot", "RERA"), _doc.get("doc_id", ""))
+                        _ex_record = _excl_keys.get(_doc_key, {})
+                        _row_cols = st.columns(_weights)
+                        _doc_title = str(_doc.get("title") or "")
+                        _review_date = _doc.get("expected_update_date") or ""
+                        try:
+                            _days_until = (_dt_docs.date.fromisoformat(_review_date) - _dt_docs.date.today()).days
+                            _days_text = f"OVERDUE ({abs(_days_until)}d)" if _days_until < 0 else (f"Due in {_days_until}d" if _days_until <= 7 else f"{_days_until}d")
+                        except (TypeError, ValueError):
+                            _days_text = ""
+
+                        _row_cols[0].write(_doc.get("doc_id", ""))
+                        _row_cols[1].markdown(
+                            f"<span title='{_doc_title.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')}'>{_doc_title[:70]}{'…' if len(_doc_title) > 70 else ''}</span>",
+                            unsafe_allow_html=True,
+                        )
+                        _row_cols[2].write(_doc.get("status") or "")
+                        _row_cols[3].write(_review_date)
+                        if _admin_mode:
+                            _row_cols[4].write(_days_text)
+                            with _row_cols[5]:
+                                if _ex_record:
+                                    _is_expired = _ex_record.get("status") == "expired"
+                                    st.write("⏳ Expired" if _is_expired else "🚫 Excluded")
+                                    st.caption(f"by {_ex_record.get('excluded_by', 'unknown')}")
+                                    if _ex_record.get("expires_at"):
+                                        st.caption(f"Expires {(str(_ex_record['expires_at']))[:10]}")
+                                    if st.button("Reinstate", key=f"rera_reinstate_{_index}", use_container_width=True):
+                                        _rr = _req_docs.delete(
+                                            f"{_docs_url}/rest/v1/doc_exclusions",
+                                            headers=_docs_headers,
+                                            params={"bot": "eq.RERA", "doc_id": f"eq.{_doc_key[1]}"},
+                                            timeout=10,
+                                        )
+                                        if _rr.status_code in (200, 204):
+                                            st.success("RERA document reinstated.")
+                                            st.rerun()
+                                        else:
+                                            st.error(f"Could not reinstate document ({_rr.status_code}).")
+                                else:
+                                    _exclude_col, _expire_col = st.columns(2)
+                                    if _exclude_col.button("🚫", key=f"rera_exclude_{_index}", help="Exclude from RAG", use_container_width=True):
+                                        st.session_state[f"rera_exclusion_action_{_index}"] = "excluded"
+                                    if _expire_col.button("⏳", key=f"rera_expire_{_index}", help="Mark as expired", use_container_width=True):
+                                        st.session_state[f"rera_exclusion_action_{_index}"] = "expired"
+
+                                    _action = st.session_state.get(f"rera_exclusion_action_{_index}")
+                                    if _action:
+                                        st.caption("Exclude from RAG" if _action == "excluded" else "Mark as expired")
+                                        _reason = st.text_input(
+                                            "Reason (optional)", key=f"rera_exclusion_reason_{_index}",
+                                            placeholder="Reason (optional)", label_visibility="collapsed",
+                                        )
+                                        _expiry = None
+                                        if _action == "expired":
+                                            _expiry_value = st.date_input(
+                                                "Expiry date", value=_dt_docs.date.today(),
+                                                min_value=_dt_docs.date.today(), key=f"rera_expiry_date_{_index}",
+                                                help="The document will be removed from RAG retrieval once this date has passed.",
+                                            )
+                                            _expiry = _expiry_value.isoformat()
+                                        _confirm_col, _cancel_col = st.columns(2)
+                                        if _confirm_col.button("Confirm", key=f"rera_confirm_action_{_index}", type="primary"):
+                                            _payload = {
+                                                "bot": "RERA", "doc_id": _doc_key[1],
+                                                "excluded_by": _admin_name, "excluded_by_email": _admin_email or None,
+                                                "reason": _reason or None, "status": _action, "expires_at": _expiry,
+                                            }
+                                            _write = _req_docs.post(
+                                                f"{_docs_url}/rest/v1/doc_exclusions",
+                                                headers={**_docs_headers, "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates"},
+                                                json=_payload, timeout=10,
+                                            )
+                                            if _write.status_code in (200, 201, 204):
+                                                st.session_state.pop(f"rera_exclusion_action_{_index}", None)
+                                                st.success("RERA document access updated.")
+                                                st.rerun()
+                                            else:
+                                                st.error(f"Could not update document access ({_write.status_code}): {_write.text[:200]}")
+                                        if _cancel_col.button("Cancel", key=f"rera_cancel_action_{_index}"):
+                                            st.session_state.pop(f"rera_exclusion_action_{_index}", None)
+                                            st.rerun()
+                        else:
+                            _rag_access = "Active" if not _ex_record else ("Expired" if _ex_record.get("status") == "expired" else "Excluded")
+                            _row_cols[4].write(_rag_access)
                 else:
                     st.info("No RERA documents match those filters.")
             else:
