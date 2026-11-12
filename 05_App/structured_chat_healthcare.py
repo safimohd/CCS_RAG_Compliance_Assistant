@@ -20,6 +20,8 @@ import os
 import requests as _req
 import streamlit as st
 
+_USER_RAG_STORE = None
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _secret(key: str) -> str:
@@ -444,7 +446,7 @@ def render_user_chat(store=None):
     No tabs, no jargon. Just a question box with guided examples.
     """
     st.markdown(_HC_CSS, unsafe_allow_html=True)
-    store = store or st.session_state.get("_hc_user_rag_store")
+    store = store or _USER_RAG_STORE
 
     st.markdown("### What do you need help with?")
     st.caption(
