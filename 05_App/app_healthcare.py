@@ -2214,7 +2214,8 @@ def _render_hospital_finder() -> None:
 _hc_role = _current_user().get("role", "user")
 if _hc_role == "user":
     from user_flow_healthcare import render_user_flow as _render_user_chat_hc
-    _render_user_chat_hc(store)
+    st.session_state["_hc_user_rag_store"] = store
+    _render_user_chat_hc()
     st.stop()
 
 # ── Main tabs (compliance_officer / admin) ────────────────────────────────────

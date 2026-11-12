@@ -444,6 +444,7 @@ def render_user_chat(store=None):
     No tabs, no jargon. Just a question box with guided examples.
     """
     st.markdown(_HC_CSS, unsafe_allow_html=True)
+    store = store or st.session_state.get("_hc_user_rag_store")
 
     st.markdown("### What do you need help with?")
     st.caption(
