@@ -608,26 +608,41 @@ html, body, [class*="css"], button, input, textarea, select {
   border-color:var(--brand-2); color:var(--brand);
   box-shadow:0 6px 16px -9px rgba(27,79,140,.55); transform:translateY(-1px);
 }
-[data-testid="stSidebar"]{ background:#0E2439; }
-[data-testid="stSidebar"] *{ color:#D9E4F1; }
-/* Sidebar selectbox — match the dark navy sidebar in light mode */
+[data-testid="stSidebar"],
+[data-testid="stSidebar"] > div,
+[data-testid="stSidebarContent"] { background:#EEF3F8 !important; }
+[data-testid="stSidebar"] * { color:#17324D; }
+[data-testid="stSidebar"] .rc-brand { color:#0E2439 !important; }
+[data-testid="stSidebar"] .rc-brand-sub,
+[data-testid="stSidebar"] .rc-side-h { color:#647A91 !important; }
+[data-testid="stSidebar"] .rc-how-to {
+  color:#29445F !important; background:#FFFFFF !important;
+  border:1px solid #DCE5EF !important;
+}
+[data-testid="stSidebar"] .rc-how-to b { color:#17324D !important; }
+[data-testid="stSidebar"] .stButton > button,
+[data-testid="stSidebar"] [data-testid="stPopoverButton"],
+[data-testid="stSidebar"] [data-testid="stPopoverButton"] > button {
+  background:#FFFFFF !important; color:#17324D !important;
+  border:1px solid #D4DFEA !important; border-radius:9px !important;
+}
+[data-testid="stSidebar"] .stButton > button:hover,
+[data-testid="stSidebar"] [data-testid="stPopoverButton"]:hover {
+  background:#F7FAFD !important; border-color:#7EA9D2 !important;
+}
 [data-testid="stSidebar"] [data-baseweb="select"],
 [data-testid="stSidebar"] [data-baseweb="select"] > div,
 [data-testid="stSidebar"] [data-baseweb="select"] > div > div,
-[data-testid="stSidebar"] [data-baseweb="select"] > div > div > div,
 [data-testid="stSidebar"] [data-testid="stSelectbox"] > div > div,
-[data-testid="stSidebar"] [data-testid="stSelectbox"] > div > div > div {
-  background:#1A3352 !important;
-  border-color:#2E4E6E !important;
-  color:#D9E4F1 !important;
+[data-testid="stSidebar"] input,
+[data-testid="stSidebar"] textarea {
+  background:#FFFFFF !important; color:#17324D !important;
+  border-color:#D4DFEA !important;
 }
-[data-testid="stSidebar"] [data-baseweb="select"] span,
-[data-testid="stSidebar"] [data-baseweb="select"] div,
-[data-testid="stSidebar"] [data-baseweb="select"] svg { color:#D9E4F1 !important; fill:#D9E4F1 !important; }
-/* Sidebar "Start a new conversation" button — white text on visible dark bg */
-[data-testid="stSidebar"] .stButton > button{
-  background:#1A3352 !important; color:#D9E4F1 !important;
-  border:1px solid #2E4E6E !important; border-radius:9px !important;
+[data-testid="stSidebar"] [data-testid="stExpander"] summary,
+[data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stExpanderDetails"] {
+  background:#FFFFFF !important; color:#17324D !important;
+  border-color:#DCE5EF !important;
 }
 .rc-brand{
   font-family:'Playfair Display',Georgia,serif; font-size:1.02rem; font-weight:700;
