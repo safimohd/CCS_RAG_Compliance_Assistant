@@ -546,7 +546,9 @@ CSS = """
   --ink:#0E2439; --muted:#6B7C93; --line:#E3E9F2; --paper:#F6F8FC;
   --card:#FFFFFF; --brand:#1B4F8C; --brand-2:#2E6FB7; --gold:#B8860B;
 }
-html, body, [class*="css"] { font-family:'DM Sans',-apple-system,'Segoe UI',sans-serif; }
+html, body, [class*="css"], button, input, textarea, select {
+  font-family:'DM Sans',-apple-system,'Segoe UI',sans-serif;
+}
 .stApp { background:var(--paper); }
 .block-container { padding-top:1.1rem; padding-bottom:3rem; max-width:1100px; }
 
@@ -1444,6 +1446,9 @@ def save_session(session_id: str | None, title: str, domain: str,
     if not url or not svc_key:
         return None
     _role = _cu.get("role", "user")
+    # This app is dedicated to Healthcare; never write sessions under another
+    # domain even if a caller passes an unexpected value.
+    domain = LOCKED_DOMAIN
     try:
         import requests as _req  # noqa: PLC0415
         hdrs = {"apikey": svc_key, "Authorization": f"Bearer {svc_key}",
@@ -1457,7 +1462,9 @@ def save_session(session_id: str | None, title: str, domain: str,
             r = _req.patch(f"{url}/rest/v1/sessions",
                            headers=hdrs,
                            params={"id": f"eq.{session_id}",
-                                   "user_id": f"eq.{_cu['id']}"},
+                                   "user_id": f"eq.{_cu['id']}",
+                                   "domain": f"eq.{LOCKED_DOMAIN}",
+                                   "user_type": f"eq.{_role}"},
                            json=payload, timeout=5)
             if r.ok and r.json():
                 return r.json()[0]["id"]
@@ -1482,12 +1489,15 @@ def load_session(session_id: str) -> dict | None:
     svc_key = _secret("SUPABASE_SERVICE_KEY")
     if not url or not svc_key:
         return None
+    _role = _cu.get("role", "user")
     try:
         import requests as _req  # noqa: PLC0415
         r = _req.get(f"{url}/rest/v1/sessions",
                      headers={"apikey": svc_key, "Authorization": f"Bearer {svc_key}"},
                      params={"id": f"eq.{session_id}",
                              "user_id": f"eq.{_cu['id']}",
+                             "domain": f"eq.{LOCKED_DOMAIN}",
+                             "user_type": f"eq.{_role}",
                              "select": "id,title,domain,messages"},
                      timeout=5)
         if r.ok and r.json():
@@ -1704,6 +1714,8 @@ _default_domain = "Healthcare"
 st.set_page_config(page_title=DOMAIN_META[_default_domain]["title"],
                    page_icon="📋", layout="wide",
                    initial_sidebar_state="expanded")
+if "dark_mode" not in st.session_state:
+    st.session_state["dark_mode"] = False
 st.markdown(CSS, unsafe_allow_html=True)
 if st.session_state.get("dark_mode"):
     st.markdown(DARK_CSS, unsafe_allow_html=True)
@@ -1725,6 +1737,10 @@ with st.sidebar:
         # The separate dashboard's "Healthcare App" button clears the query
         # parameter; return the assistant toggle to the user's landing view.
         st.session_state["hc_role_toggle"] = "👤 User"
+        st.session_state["current_user"] = _demo_login("user") or _GUEST
+        for _key in ("_db_query_history", "_cached_bookmarks", "_user_sessions",
+                     "_active_session_id", "_active_session_title"):
+            st.session_state.pop(_key, None)
     if "hc_role_toggle" not in st.session_state:
         _initial_hc_role = _current_user().get("role", "user")
         st.session_state["hc_role_toggle"] = (
@@ -1755,8 +1771,12 @@ with st.sidebar:
                 st.session_state["current_user"] = _selected_user
                 st.session_state["_role_switch_error"] = ""
         else:
-            st.session_state["current_user"] = _GUEST
-            st.session_state["_role_switch_error"] = ""
+            _selected_user = _demo_login("user")
+            st.session_state["current_user"] = _selected_user or _GUEST
+            st.session_state["_role_switch_error"] = (
+                "No active User account is available; session history is unavailable."
+                if not _selected_user else ""
+            )
         _clear_hc_role_state()
 
     st.markdown(
@@ -1963,11 +1983,14 @@ with st.sidebar:
                 _sess_num = _si + 1
 
                 _q_label   = f"{_s_q_count}Q" if _s_q_count > 0 else "—"
-                _s_display = f"Session #{_sess_num}  ·  {_date_part}  ·  {_q_label}  🏥"
+                _s_preview = " ".join(_s_title.split())
+                if len(_s_preview) > 34:
+                    _s_preview = _s_preview[:31].rstrip() + "…"
+                _s_display = f"{_s_preview or f'Session #{_sess_num}'}  ·  {_date_part}  ·  {_q_label}"
 
                 if st.button(_s_display, key=f"sess_btn_{_si}",
                              use_container_width=True,
-                             type=_btn_style):
+                             type=_btn_style, help=_s_title):
                     _loaded = load_session(_sess["id"])
                     if _loaded:
                         st.session_state["messages"] = _loaded.get("messages", [])
