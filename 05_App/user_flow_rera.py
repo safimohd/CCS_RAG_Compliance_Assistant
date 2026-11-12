@@ -1812,17 +1812,28 @@ def _render_admin_mode():
                 "</div>",
                 unsafe_allow_html=True,
             )
+            _adm_user = st.text_input("Username", key="adm_user_input",
+                                      label_visibility="collapsed",
+                                      placeholder="Enter admin username")
             _adm_pwd = st.text_input("Password", type="password", key="adm_pwd_input",
                                      label_visibility="collapsed",
                                      placeholder="Enter admin password")
             if st.button("Sign in", key="adm_login_btn", use_container_width=True):
+                _correct_user = _secret("ADMIN_USERNAME")
                 _correct = _secret("ADMIN_SECRET") or _secret("ADMIN_PASSWORD") or ""
-                if _adm_pwd == _correct and _correct:
+                if (
+                    _correct_user
+                    and _correct
+                    and _adm_user.strip() == _correct_user
+                    and _adm_pwd == _correct
+                ):
                     st.session_state["adm_auth"] = True
                     st.session_state["adm_is_admin"] = True
                     st.rerun()
+                elif not _correct_user:
+                    st.error("Admin username is not configured.")
                 else:
-                    st.error("Incorrect password.")
+                    st.error("Incorrect username or password.")
         st.stop()
 
     # Signed-in header
