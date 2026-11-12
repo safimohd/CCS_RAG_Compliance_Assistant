@@ -10,6 +10,6 @@ No RERA, property, or market-rates code lives here.
 from structured_chat_healthcare import render_user_chat
 
 
-def render_user_flow() -> None:
+def set_user_rag_store(store) -> None:\n    \"\"\"Pass the already-loaded document index to the patient chat.\"\"\"\n    render_user_chat.__globals__[\"_USER_RAG_STORE\"] = store\n\n\ndef render_user_flow() -> None:
     """Entry point: render the healthcare user chat. Call from app_healthcare.py."""
     render_user_chat()
