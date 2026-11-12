@@ -2216,8 +2216,8 @@ if _hc_role == "user":
     try:
         from structured_chat_healthcare import render_user_chat as _render_user_chat_hc
         _render_user_chat_hc()
-    except TypeError as _user_view_error:
-        st.error(f"Patient view error: {type(_user_view_error).__name__}: {_user_view_error}")
+    except Exception:
+        st.error("The patient chat is temporarily unavailable. Please refresh and try again.")
 else:
 
     # ── Main tabs (compliance_officer / admin) ────────────────────────────────────
