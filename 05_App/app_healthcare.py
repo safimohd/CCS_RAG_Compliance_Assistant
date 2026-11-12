@@ -2213,8 +2213,8 @@ def _render_hospital_finder() -> None:
 # ── User role: clean guided chat (no compliance tabs) ─────────────────────────
 _hc_role = _current_user().get("role", "user")
 if _hc_role == "user":
-    from structured_chat_healthcare import render_user_chat as _render_user_chat_hc
     try:
+        from structured_chat_healthcare import render_user_chat as _render_user_chat_hc
         _render_user_chat_hc()
     except TypeError as _user_view_error:
         st.error(f"Patient view error: {type(_user_view_error).__name__}: {_user_view_error}")
