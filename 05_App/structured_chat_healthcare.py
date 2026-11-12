@@ -507,7 +507,7 @@ def render_user_chat(store=None):
             from rag_query import format_sources, retrieve
 
             try:
-                source_rows = retrieve(store, prompt, "Healthcare", 5) if store else []
+                source_rows = retrieve(store, prompt, "Healthcare", 5) if store is not None else []
                 source_rows = [row for row in source_rows
                                if row.get("similarity", 0) >= 0.35]
                 retrieval_failed = False
