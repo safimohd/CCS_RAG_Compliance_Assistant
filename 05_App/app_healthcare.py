@@ -2213,7 +2213,12 @@ def _render_hospital_finder() -> None:
 # ── User role: clean guided chat (no compliance tabs) ─────────────────────────
 _hc_role = _current_user().get("role", "user")
 if _hc_role == "user":
-    from user_flow_healthcare import (\n        render_user_flow as _render_user_chat_hc,\n        set_user_rag_store as _set_user_rag_store,\n    )\n    _set_user_rag_store(store)\n    _render_user_chat_hc()
+    from user_flow_healthcare import (
+        render_user_flow as _render_user_chat_hc,
+        set_user_rag_store as _set_user_rag_store,
+    )
+    _set_user_rag_store(store)
+    _render_user_chat_hc()
 else:
 
     # ── Main tabs (compliance_officer / admin) ────────────────────────────────────
