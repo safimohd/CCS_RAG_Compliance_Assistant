@@ -70,6 +70,14 @@ except Exception:
 import streamlit as st
 import streamlit.components.v1 as _stc
 
+# Route the Healthcare admin URL to the existing dashboard with a locked
+# Healthcare domain. Normal visits continue into the Healthcare bot below.
+if st.query_params.get("admin") == "1":
+    os.environ["APP_DOMAIN"] = "Healthcare"
+    _admin_path = Path(__file__).resolve().parent / "admin_healthcare.py"
+    exec(compile(_admin_path.read_text(encoding="utf-8"), str(_admin_path), "exec"))
+    st.stop()
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from rag_query import (  # noqa: E402
     COLLECTION, EMBED_MODEL, INDEX_DIR, LLM_BASE_URL, LLM_MODEL,
