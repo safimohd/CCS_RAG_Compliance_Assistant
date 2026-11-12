@@ -70,8 +70,8 @@ except Exception:
 import streamlit as st
 import streamlit.components.v1 as _stc
 
-# Route the Healthcare admin URL to the existing dashboard with a locked
-# Healthcare domain. Normal visits continue into the Healthcare bot below.
+# Normal visits open the Healthcare assistant. Choosing Admin in its role
+# switch sets this route and opens the separate, Healthcare-only dashboard.
 if st.query_params.get("admin") == "1":
     os.environ["APP_DOMAIN"] = "Healthcare"
     _admin_path = Path(__file__).resolve().parent / "admin_healthcare.py"
@@ -1763,7 +1763,7 @@ with st.sidebar:
             st.rerun()
         if st.button("🔑 Admin", key="sb_rp_admin", use_container_width=True,
                      type="primary" if _cu["role"] == "admin" else "secondary"):
-            st.session_state["_pending_role_switch"] = "admin"
+            st.query_params["admin"] = "1"
             st.rerun()
         st.divider()
         st.markdown("<p style='font-size:.65rem;color:#8FA8C4;margin:0 0 4px'>"

@@ -180,16 +180,20 @@ else:
 # Streamlit's password toggle falls back to the literal Material icon name
 # when the icon font is unavailable. Replace that label with a compact eye.
 st.markdown("""<style>
-  button[data-testid="stTextInputPasswordVisibility"] span,
-  button[aria-label*="password" i] span {
+  [aria-label="Show password"] {
     font-size: 0 !important;
-    line-height: 1 !important;
+    color: transparent !important;
+    position: relative !important;
   }
-  button[data-testid="stTextInputPasswordVisibility"] span::after,
-  button[aria-label*="password" i] span::after {
+  [aria-label="Show password"] > * {
+    display: none !important;
+  }
+  [aria-label="Show password"]::after {
     content: "👁";
     font-size: 15px !important;
     line-height: 1 !important;
+    color: #14233c !important;
+    display: inline-block !important;
   }
 </style>""", unsafe_allow_html=True)
 
@@ -216,6 +220,11 @@ if not st.session_state.authenticated:
           <p style='color:#6b7a99;margin:8px 0 0;font-size:14px;font-weight:500;'>Compliance Intelligence Dashboard</p>
         </div>
         """, unsafe_allow_html=True)
+
+        if st.button("← Healthcare Assistant", key="back_to_healthcare_login",
+                     use_container_width=True):
+            st.query_params.clear()
+            st.rerun()
 
         login_type = st.radio(
             "Login as",
@@ -402,6 +411,10 @@ with hdr_col:
 
 with btn_col:
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+    if st.button("Healthcare App", key="back_to_healthcare_dashboard",
+                 use_container_width=True):
+        st.query_params.clear()
+        st.rerun()
     dm_label = "☀️ Light" if is_dark else "🌙 Dark"
     if st.button(dm_label, key="dark_mode_toggle", use_container_width=True):
         st.session_state.dark_mode = not st.session_state.dark_mode
