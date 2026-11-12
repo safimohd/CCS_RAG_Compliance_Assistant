@@ -1715,11 +1715,68 @@ if "dq_session_id" not in st.session_state:
     st.session_state["dq_session_id"] = str(_uuid_startup.uuid4())
 
 with st.sidebar:
-    # ── Account popover — sits at the very top of the sidebar ─────────────────
+    # ── Persistent role switch ───────────────────────────────────────────────
+    # Keep the three Healthcare views visible without opening the account menu.
     if "current_user" not in st.session_state:
-        _auto = _demo_login("user")
-        st.session_state["current_user"] = _auto
+        st.session_state["current_user"] = _demo_login("user")
+    if "_pending_hc_view" in st.session_state:
+        st.session_state["hc_role_toggle"] = st.session_state.pop("_pending_hc_view")
+    if st.session_state.get("hc_role_toggle") == "🔑 Admin":
+        # The separate dashboard's "Healthcare App" button clears the query
+        # parameter; return the assistant toggle to the user's landing view.
+        st.session_state["hc_role_toggle"] = "👤 User"
+    if "hc_role_toggle" not in st.session_state:
+        _initial_hc_role = _current_user().get("role", "user")
+        st.session_state["hc_role_toggle"] = (
+            "🎖 Compliance Officer" if _initial_hc_role == "compliance_officer"
+            else "👤 User"
+        )
 
+    def _clear_hc_role_state() -> None:
+        for _key in ("_db_query_history", "_cached_bookmarks", "_user_sessions",
+                     "_active_session_id", "_active_session_title"):
+            st.session_state.pop(_key, None)
+        st.session_state["messages"] = []
+        st.session_state["feedback"] = {}
+        st.session_state["_auth_err"] = ""
+
+    def _on_hc_role_toggle() -> None:
+        _selection = st.session_state.get("hc_role_toggle", "👤 User")
+        if _selection == "🔑 Admin":
+            st.query_params["admin"] = "1"
+            return
+        if _selection == "🎖 Compliance Officer":
+            _selected_user = _demo_login("compliance_officer")
+            if not _selected_user:
+                st.session_state["current_user"] = _GUEST
+                st.session_state["hc_role_toggle"] = "👤 User"
+                st.session_state["_role_switch_error"] = "No active Compliance Officer account is available."
+            else:
+                st.session_state["current_user"] = _selected_user
+                st.session_state["_role_switch_error"] = ""
+        else:
+            st.session_state["current_user"] = _GUEST
+            st.session_state["_role_switch_error"] = ""
+        _clear_hc_role_state()
+
+    st.markdown(
+        "<div style='margin-bottom:2px;font-size:11px;color:#9ca3af;"
+        "text-transform:uppercase;letter-spacing:.06em;font-weight:600'>View</div>",
+        unsafe_allow_html=True,
+    )
+    st.radio(
+        "View",
+        ["👤 User", "🎖 Compliance Officer", "🔑 Admin"],
+        key="hc_role_toggle",
+        horizontal=True,
+        label_visibility="collapsed",
+        on_change=_on_hc_role_toggle,
+    )
+    if st.session_state.get("_role_switch_error"):
+        st.caption(st.session_state.pop("_role_switch_error"))
+    st.markdown("<hr style='margin:6px 0 10px;opacity:.15'>", unsafe_allow_html=True)
+
+    # ── Account popover — sits at the very top of the sidebar ─────────────────
     _cu = _current_user()
     _role_labels = {
         "user": "User",
@@ -1745,26 +1802,9 @@ with st.sidebar:
             f"<div style='font-size:.6rem;color:#8FA8C4;margin-bottom:2px'>Signed in as</div>"
             f"<div style='font-size:.85rem;font-weight:700;color:#CFE0F2'>{_cu['name']}</div>"
             f"<div style='font-size:.65rem;color:{_rc_bd};font-weight:600'>{_sb_label}</div>"
-            f"</div>"
-            f"<p style='font-size:.6rem;color:#7E99BA;text-transform:uppercase;"
-            f"letter-spacing:.07em;font-weight:700;text-align:center;margin:0 0 6px'>"
-            f"Switch role</p>",
+            f"</div>",
             unsafe_allow_html=True,
         )
-        # _do_role_switch is defined just below — forward reference is fine
-        # because the button callbacks run on next rerun after _do_role_switch is defined
-        if st.button("👤 Guest", key="sb_rp_guest", use_container_width=True,
-                     type="primary" if not _cu["id"] else "secondary"):
-            st.session_state["_pending_role_switch"] = "guest"
-            st.rerun()
-        if st.button("🎖 Compliance Officer", key="sb_rp_co", use_container_width=True,
-                     type="primary" if _cu["role"] == "compliance_officer" else "secondary"):
-            st.session_state["_pending_role_switch"] = "compliance_officer"
-            st.rerun()
-        if st.button("🔑 Admin", key="sb_rp_admin", use_container_width=True,
-                     type="primary" if _cu["role"] == "admin" else "secondary"):
-            st.query_params["admin"] = "1"
-            st.rerun()
         st.divider()
         st.markdown("<p style='font-size:.65rem;color:#8FA8C4;margin:0 0 4px'>"
                     "Sign in with credentials</p>", unsafe_allow_html=True)
@@ -1779,6 +1819,10 @@ with st.sidebar:
             if _sb_found:
                 st.session_state["current_user"] = _sb_found
                 st.session_state["_auth_err"] = ""
+                if _sb_found.get("role") == "compliance_officer":
+                    st.session_state["_pending_hc_view"] = "🎖 Compliance Officer"
+                else:
+                    st.session_state["_pending_hc_view"] = "👤 User"
                 for _k in ("_db_query_history", "_cached_bookmarks", "_user_sessions",
                            "_active_session_id", "_active_session_title"):
                     st.session_state.pop(_k, None)
@@ -1794,24 +1838,6 @@ with st.sidebar:
                 f"{DOMAIN_META[_default_domain]['title']}</div>"
                 "<div class='rc-brand-sub'>IIM Bangalore · ClaritAI</div>",
                 unsafe_allow_html=True)
-
-    # _do_role_switch helper
-    def _do_role_switch(role_key: str) -> None:
-        _found = _demo_login(role_key) if role_key != "guest" else None
-        st.session_state["current_user"] = _found
-        st.session_state["_auth_err"] = ""
-        for _k in ("_db_query_history", "_cached_bookmarks", "_user_sessions",
-                   "_active_session_id", "_active_session_title"):
-            st.session_state.pop(_k, None)
-        st.session_state["messages"] = []
-        st.session_state["feedback"] = {}
-        st.rerun()
-
-    # Handle role switch triggered from within the popover (buttons inside popovers
-    # fire a rerun before the sidebar scope closes, so we process it here)
-    if st.session_state.get("_pending_role_switch"):
-        _pending = st.session_state.pop("_pending_role_switch")
-        _do_role_switch(_pending)
 
     st.divider()
 
@@ -2643,3 +2669,4 @@ with _tab_chat:
                                      use_container_width=True):
                             st.session_state["pending_q"] = fq
                             st.rerun()
+
