@@ -706,7 +706,7 @@ with tab3:
           <p style='color:#4a6f9a;font-size:13px;margin:0 0 24px;line-height:1.5;'>
             Drug and Cosmetics Act, NDCT Rules, Medical Device Regulations
           </p>
-          <a href='https://ccsragcomplianceassistant-6hug2utprjrpwtyijwjanr.streamlit.app/' target='_blank'
+          <a href='https://ccsragcomplianceassistant-healthcare.streamlit.app/' target='_blank'
              style='background:#2563eb;color:#fff;padding:11px 24px;border-radius:8px;
                     text-decoration:none;font-size:13px;font-weight:700;letter-spacing:0.01em;
                     display:inline-block;'>
@@ -731,7 +731,7 @@ with tab3:
           <p style='color:#2d5a40;font-size:13px;margin:0 0 24px;line-height:1.5;'>
             RERA Act 2016, K-RERA Rules, Project Registration, Agent Licensing
           </p>
-          <a href='https://ccsragcomplianceassistant-cisyv46xzq7kte95ywkmhg.streamlit.app/' target='_blank'
+          <a href='https://ccsragcomplianceassistant-rera.streamlit.app/' target='_blank'
              style='background:#16a34a;color:#fff;padding:11px 24px;border-radius:8px;
                     text-decoration:none;font-size:13px;font-weight:700;letter-spacing:0.01em;
                     display:inline-block;'>
@@ -955,3 +955,4 @@ with tab4:
       MoHFW returned 404/403 errors and mciindia.org DNS lookup fails (MCI was dissolved in 2020).
       These are excluded from all counts above.
     </div>""", unsafe_allow_html=True)
+
