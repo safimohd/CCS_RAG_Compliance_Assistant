@@ -14,6 +14,6 @@ def set_user_rag_store(store) -> None:
     """Pass the already-loaded document index to the patient chat."""
     render_user_chat.__globals__["_USER_RAG_STORE"] = store
 
-\ndef render_user_flow() -> None:
+def render_user_flow() -> None:
     """Entry point: render the healthcare user chat. Call from app_healthcare.py."""
     render_user_chat()
