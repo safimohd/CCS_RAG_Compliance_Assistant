@@ -2215,7 +2215,7 @@ _hc_role = _current_user().get("role", "user")
 if _hc_role == "user":
     try:
         from structured_chat_healthcare import render_user_chat as _render_user_chat_hc
-        _render_user_chat_hc()
+        _render_user_chat_hc(store=store)
     except Exception:
         st.error("The patient chat is temporarily unavailable. Please refresh and try again.")
 else:
