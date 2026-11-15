@@ -1504,6 +1504,35 @@ def fetch_user_sessions(limit: int = 20, _cu: dict | None = None) -> list[dict]:
         return []
 
 
+def _jsonable(obj):
+    """Recursively coerce numpy/non-serializable scalars to plain Python types.
+
+    ChromaDB / LangChain similarity scores sometimes come back as numpy.float32
+    or numpy.float64.  Python's json module cannot serialize those, so the POST
+    to Supabase raises a TypeError that the outer except swallows silently.
+    This helper converts every float-like scalar to a plain Python float and
+    every int-like scalar to a plain Python int so the payload is always safe.
+    """
+    import math as _math
+    if isinstance(obj, dict):
+        return {k: _jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_jsonable(v) for v in obj]
+    # Catch numpy numeric scalars and any other float/int subclasses
+    try:
+        if isinstance(obj, float) or hasattr(obj, "__float__"):
+            f = float(obj)
+            return None if _math.isnan(f) or _math.isinf(f) else f
+    except (TypeError, ValueError):
+        pass
+    try:
+        if isinstance(obj, int) or hasattr(obj, "__int__"):
+            return int(obj)
+    except (TypeError, ValueError):
+        pass
+    return obj
+
+
 def save_session(session_id: str | None, title: str, domain: str,
                  messages: list) -> str | None:
     """Create or update a conversation session. Returns the session id.
@@ -1518,6 +1547,7 @@ def save_session(session_id: str | None, title: str, domain: str,
     url = _secret("SUPABASE_URL")
     svc_key = _secret("SUPABASE_SERVICE_KEY")
     if not url or not svc_key:
+        st.session_state["_save_err"] = "Session save skipped: Supabase credentials not configured."
         return None
     _role = _cu.get("role", "user")
     # This app is dedicated to Healthcare; never write sessions under another
@@ -1525,12 +1555,18 @@ def save_session(session_id: str | None, title: str, domain: str,
     domain = LOCKED_DOMAIN
     try:
         import requests as _req  # noqa: PLC0415
+        from datetime import timezone as _tz, datetime as _dt  # noqa: PLC0415
         hdrs = {"apikey": svc_key, "Authorization": f"Bearer {svc_key}",
                 "Content-Type": "application/json", "Prefer": "return=representation"}
         _msg_count = sum(1 for m in messages if m.get("role") == "user")
+        # Coerce all messages to plain JSON-safe types (numpy floats in sources
+        # would cause a silent TypeError on json.dumps inside requests).
+        _safe_msgs = _jsonable(messages)
+        _now_iso = _dt.now(tz=_tz.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
         payload = {"title": title, "domain": domain,
                    "user_type": _role,
-                   "messages": messages, "updated_at": "now()",
+                   "messages": _safe_msgs,
+                   "updated_at": _now_iso,
                    "message_count": _msg_count}
         if session_id:
             r = _req.patch(f"{url}/rest/v1/sessions",
@@ -1542,15 +1578,20 @@ def save_session(session_id: str | None, title: str, domain: str,
                            json=payload, timeout=5)
             if r.ok and r.json():
                 return r.json()[0]["id"]
-            return session_id
-        else:
+            # PATCH found 0 rows (user_type mismatch or stale session_id).
+            # Fall through to POST a fresh row instead of silently doing nothing.
+            session_id = None
+        if not session_id:
             payload["user_id"] = _cu["id"]
             r = _req.post(f"{url}/rest/v1/sessions",
                           headers=hdrs, json=payload, timeout=5)
             if r.ok and r.json():
                 return r.json()[0]["id"]
+            st.session_state["_save_err"] = (
+                f"Session save failed ({r.status_code}): {r.text[:200]}")
             return None
-    except Exception:
+    except Exception as _e:
+        st.session_state["_save_err"] = f"Session save error: {_e}"
         return None
 
 
@@ -1882,6 +1923,8 @@ with st.sidebar:
         st.caption(st.session_state.pop("_role_switch_error"))
     if st.session_state.get("_load_err"):
         st.warning(st.session_state.pop("_load_err"))
+    if st.session_state.get("_save_err"):
+        st.warning(st.session_state.pop("_save_err"))
     st.markdown("<hr style='margin:6px 0 10px;opacity:.15'>", unsafe_allow_html=True)
 
     # Resolve the active role selected by the toggle above.
@@ -2735,10 +2778,10 @@ else:
                         if _new_sid:
                             st.session_state["_active_session_id"] = _new_sid
                             st.session_state["_active_session_title"] = _sess_title
-                            # Refresh session list so sidebar shows latest.
-                            # Pass _sess_cu so the refresh uses the same user dict
-                            # already resolved above, avoiding a stale re-read.
-                            st.session_state["_user_sessions"] = fetch_user_sessions(20, _cu=_sess_cu)
+                        # Always refresh the sidebar session list — whether save
+                        # succeeded or failed — so the user sees the current state
+                        # and any error surfaces on the next rerun.
+                        st.session_state["_user_sessions"] = fetch_user_sessions(20, _cu=_sess_cu)
     
                     # Action row: copy + share + feedback + bookmark buttons
                     if not low_confidence and client is not None and daily_usage() < DAILY_LIMIT:
