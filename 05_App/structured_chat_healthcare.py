@@ -508,8 +508,13 @@ def render_user_chat(store=None):
 
             try:
                 source_rows = retrieve(store, prompt, "Healthcare", 5) if store is not None else []
+                # Apply threshold on converted cosine similarity, not on the raw L2-based score.
+                # Raw score of 0.35 is equivalent to cosine ~0.578, which is too strict for
+                # conversational user questions. Using cosine >= 0.45 recovers regulatory
+                # policy questions that are phrased informally (e.g. "I'm 72, do I get separate
+                # cover?") while still filtering genuinely unrelated chunks.
                 source_rows = [row for row in source_rows
-                               if row.get("similarity", 0) >= 0.35]
+                               if (1.0 - (1.0 - row.get("similarity", 0)) ** 2) >= 0.45]
                 retrieval_failed = False
             except Exception:
                 source_rows = []
