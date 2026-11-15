@@ -108,8 +108,10 @@ def _save_rera_feedback(question: str, answer_snippet: str, feedback_type: str,
             },
             timeout=5,
         )
+        print(f"[RERA_FB] status={r.status_code} body={r.text[:200]}", flush=True)
         return r.status_code in (200, 201)
-    except Exception:
+    except Exception as _e:
+        print(f"[RERA_FB] exception {type(_e).__name__}: {_e}", flush=True)
         return False
 
 
