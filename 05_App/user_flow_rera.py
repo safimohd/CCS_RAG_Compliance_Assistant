@@ -116,6 +116,158 @@ def _fetch_rera_user_history(limit: int = 15) -> list:
         return []
 
 
+def _fetch_feedback_stats() -> dict:
+    """Fetch aggregate feedback stats for RERA from the feedback table in Supabase.
+
+    Returns a dict with keys: total, helpful, not_helpful, helpful_pct,
+    by_confidence (list of dicts), by_role (list of dicts),
+    recent_thumbsdown (list of dicts), daily_trend (list of dicts).
+    Returns empty/zero values on any failure so callers never crash.
+    """
+    url = _secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL", "")
+    key = _secret("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY", "")
+    _empty = {
+        "total": 0, "helpful": 0, "not_helpful": 0, "helpful_pct": 0.0,
+        "by_confidence": [], "by_role": [], "recent_thumbsdown": [], "daily_trend": [],
+        "avg_confidence": None,
+    }
+    if not url or not key:
+        return _empty
+    try:
+        import requests as _req
+        resp = _req.get(
+            f"{url}/rest/v1/feedback",
+            headers={"apikey": key, "Authorization": f"Bearer {key}"},
+            params={
+                "domain": "eq.RERA",
+                "select": "id,created_at,question,confidence_score,confidence_label,"
+                          "feedback_type,user_role",
+                "order": "created_at.desc",
+                "limit": "1000",
+            },
+            timeout=8,
+        )
+        if not resp.ok:
+            return _empty
+        rows = resp.json()
+        if not rows:
+            return _empty
+
+        total = len(rows)
+        helpful = sum(1 for r in rows if r.get("feedback_type") == "up")
+        not_helpful = total - helpful
+        helpful_pct = round(helpful / total * 100, 1) if total else 0.0
+
+        # Average confidence score
+        scores = [r.get("confidence_score") for r in rows if r.get("confidence_score") is not None]
+        avg_confidence = round(sum(scores) / len(scores), 3) if scores else None
+
+        # Breakdown by confidence label
+        from collections import defaultdict
+        conf_map: dict = defaultdict(lambda: {"up": 0, "down": 0})
+        for r in rows:
+            lbl = r.get("confidence_label") or "Unknown"
+            ft = r.get("feedback_type", "")
+            if ft == "up":
+                conf_map[lbl]["up"] += 1
+            else:
+                conf_map[lbl]["down"] += 1
+        by_confidence = [
+            {"label": lbl, "helpful": v["up"], "not_helpful": v["down"],
+             "total": v["up"] + v["down"]}
+            for lbl, v in conf_map.items()
+        ]
+        # Sort: High, Medium, Low, then others
+        _order = {"High": 0, "Medium": 1, "Low": 2}
+        by_confidence.sort(key=lambda x: _order.get(x["label"], 99))
+
+        # Breakdown by user role
+        role_map: dict = defaultdict(lambda: {"up": 0, "down": 0})
+        for r in rows:
+            rl = r.get("user_role") or "unknown"
+            ft = r.get("feedback_type", "")
+            if ft == "up":
+                role_map[rl]["up"] += 1
+            else:
+                role_map[rl]["down"] += 1
+        by_role = [
+            {"role": rl, "helpful": v["up"], "not_helpful": v["down"],
+             "total": v["up"] + v["down"]}
+            for rl, v in role_map.items()
+        ]
+        by_role.sort(key=lambda x: -x["total"])
+
+        # Recent thumbs-down (last 10)
+        thumbsdown = [r for r in rows if r.get("feedback_type") == "down"][:10]
+        recent_thumbsdown = [
+            {"question": r.get("question", "")[:120],
+             "confidence_label": r.get("confidence_label") or "",
+             "confidence_score": r.get("confidence_score"),
+             "created_at": r.get("created_at", "")}
+            for r in thumbsdown
+        ]
+
+        # Daily trend for last 30 days
+        from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+        now = _dt.now(_tz.utc)
+        day_map: dict = {}
+        for i in range(30):
+            d = (now - _td(days=i)).strftime("%Y-%m-%d")
+            day_map[d] = {"date": d, "helpful": 0, "not_helpful": 0}
+        for r in rows:
+            ts = r.get("created_at", "")
+            try:
+                d = _dt.fromisoformat(ts.replace("Z", "+00:00")).strftime("%Y-%m-%d")
+            except Exception:
+                continue
+            if d in day_map:
+                if r.get("feedback_type") == "up":
+                    day_map[d]["helpful"] += 1
+                else:
+                    day_map[d]["not_helpful"] += 1
+        daily_trend = sorted(day_map.values(), key=lambda x: x["date"])
+
+        return {
+            "total": total,
+            "helpful": helpful,
+            "not_helpful": not_helpful,
+            "helpful_pct": helpful_pct,
+            "avg_confidence": avg_confidence,
+            "by_confidence": by_confidence,
+            "by_role": by_role,
+            "recent_thumbsdown": recent_thumbsdown,
+            "daily_trend": daily_trend,
+        }
+    except Exception:
+        return _empty
+
+
+def _render_feedback_stats_bar():
+    """Render a compact 3-metric feedback bar for the sidebar. Visible to all roles."""
+    stats = _fetch_feedback_stats()
+    total = stats["total"]
+    if total == 0:
+        st.markdown(
+            "<div style='font-size:.72rem;color:#9ca3af;margin:4px 0 6px'>"
+            "No feedback yet.</div>",
+            unsafe_allow_html=True,
+        )
+        return
+    helpful_pct = stats["helpful_pct"]
+    not_helpful = stats["not_helpful"]
+    st.markdown(
+        f"<div style='display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 6px'>"
+        f"<span style='background:#f3f4f6;border-radius:4px;padding:2px 7px;"
+        f"font-size:.7rem;color:#374151'>⭐ {total} rated</span>"
+        f"<span style='background:#dcfce7;border-radius:4px;padding:2px 7px;"
+        f"font-size:.7rem;color:#166534'>✅ {helpful_pct}% helpful</span>"
+        f"<span style='background:#fee2e2;border-radius:4px;padding:2px 7px;"
+        f"font-size:.7rem;color:#991b1b'>❌ {not_helpful} not helpful</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def _fetch_rera_sessions(limit: int = 5) -> list:
     """Return up to `limit` distinct recent sessions with a preview and message count.
 
@@ -1156,9 +1308,18 @@ def _render_chat():
 # ── Compliance Officer: 4-tab view ────────────────────────────────────────────
 
 def _render_co_tabs():
-    """Render the 4-tab Compliance Officer interface."""
+    """Render the 5-tab Compliance Officer interface."""
     _sidebar_project_search()
     _sidebar_document_context()
+    with st.sidebar:
+        st.markdown("<hr style='margin:4px 0 8px;opacity:.15'>", unsafe_allow_html=True)
+        st.markdown(
+            "<div style='margin-bottom:4px;font-size:11px;color:#9ca3af;"
+            "text-transform:uppercase;letter-spacing:.06em;font-weight:600'>"
+            "Feedback</div>",
+            unsafe_allow_html=True,
+        )
+        _render_feedback_stats_bar()
 
     st.markdown(
         "<h2 style='margin-bottom:2px'>Karnataka RERA Compliance Dashboard</h2>"
@@ -1167,11 +1328,12 @@ def _render_co_tabs():
         unsafe_allow_html=True,
     )
 
-    _t_chat, _t_lookup, _t_invest, _t_docqa = st.tabs([
+    _t_chat, _t_lookup, _t_invest, _t_docqa, _t_feedback = st.tabs([
         "💬 Compliance Chat",
         "🔍 K-RERA Project Lookup",
         "📊 Investment Signals",
         "📄 Document Q&A",
+        "📈 Feedback",
     ])
 
     # ── Tab 1: Compliance Chat ───────────────────────────────────────────────
@@ -1792,6 +1954,96 @@ def _render_co_tabs():
             else:
                 st.info("Upload your sales deed or builder-buyer agreement PDF to get started.")
 
+    # ── Tab 5: Feedback Analytics ────────────────────────────────────────────
+    with _t_feedback:
+        st.markdown(
+            "<h3 style='margin-bottom:4px'>📈 Feedback Analytics</h3>"
+            "<p style='color:#6b7280;font-size:.85rem;margin-top:0'>"
+            "Live ratings from all users on RERA answers — updated in real time.</p>",
+            unsafe_allow_html=True,
+        )
+        _fb = _fetch_feedback_stats()
+        _total = _fb["total"]
+
+        if _total == 0:
+            st.info("No feedback collected yet. Ratings will appear here once users start rating answers.")
+        else:
+            # ── KPI row ────────────────────────────────────────────────────
+            _k1, _k2, _k3, _k4, _k5 = st.columns(5)
+            _k1.metric("Total Rated", _total)
+            _k2.metric("Satisfaction", f"{_fb['helpful_pct']}%")
+            _k3.metric("Helpful", _fb["helpful"])
+            _k4.metric("Not Helpful", _fb["not_helpful"])
+            _avg = _fb.get("avg_confidence")
+            _k5.metric("Avg Confidence", f"{_avg:.2f}" if _avg is not None else "—")
+
+            st.markdown("<hr style='margin:12px 0;opacity:.15'>", unsafe_allow_html=True)
+
+            # ── Daily trend (last 30 days) ──────────────────────────────
+            _trend = _fb.get("daily_trend", [])
+            _trend_has_data = any(d["helpful"] + d["not_helpful"] > 0 for d in _trend)
+            if _trend_has_data:
+                st.markdown("**Feedback trend — last 30 days**")
+                import pandas as _pd
+                _df_trend = _pd.DataFrame(_trend)
+                _df_trend = _df_trend.set_index("date")[["helpful", "not_helpful"]]
+                _df_trend.columns = ["Helpful", "Not Helpful"]
+                st.bar_chart(_df_trend, color=["#22c55e", "#ef4444"])
+
+                st.markdown("<hr style='margin:12px 0;opacity:.15'>", unsafe_allow_html=True)
+
+            # ── Bottom two columns ──────────────────────────────────────
+            _col_a, _col_b = st.columns(2)
+
+            with _col_a:
+                # Confidence label breakdown
+                _by_conf = _fb.get("by_confidence", [])
+                if _by_conf:
+                    st.markdown("**By confidence label**")
+                    import pandas as _pd
+                    _df_conf = _pd.DataFrame(_by_conf)[["label", "helpful", "not_helpful", "total"]]
+                    _df_conf.columns = ["Confidence", "Helpful", "Not Helpful", "Total"]
+                    _df_conf["Satisfaction %"] = (_df_conf["Helpful"] / _df_conf["Total"] * 100).round(1)
+                    st.dataframe(_df_conf, use_container_width=True, hide_index=True)
+
+            with _col_b:
+                # Feedback by user role
+                _by_role = _fb.get("by_role", [])
+                if _by_role:
+                    st.markdown("**By user role**")
+                    import pandas as _pd
+                    _df_role = _pd.DataFrame(_by_role)[["role", "helpful", "not_helpful", "total"]]
+                    _df_role.columns = ["Role", "Helpful", "Not Helpful", "Total"]
+                    _df_role["Satisfaction %"] = (_df_role["Helpful"] / _df_role["Total"] * 100).round(1)
+                    st.dataframe(_df_role, use_container_width=True, hide_index=True)
+
+            st.markdown("<hr style='margin:12px 0;opacity:.15'>", unsafe_allow_html=True)
+
+            # ── Recent thumbs-down questions ───────────────────────────
+            _thumbsdown = _fb.get("recent_thumbsdown", [])
+            if _thumbsdown:
+                st.markdown("**Recent not-helpful responses (last 10)**")
+                for _i, _r in enumerate(_thumbsdown, 1):
+                    _q = _r.get("question") or ""
+                    _cl = _r.get("confidence_label") or ""
+                    _cs = _r.get("confidence_score")
+                    _cs_str = f" · confidence {_cs:.2f}" if _cs is not None else ""
+                    _ts = _r.get("created_at", "")
+                    try:
+                        from datetime import datetime as _dt2
+                        _ts_fmt = _dt2.fromisoformat(_ts.replace("Z", "+00:00")).strftime("%d %b %H:%M")
+                    except Exception:
+                        _ts_fmt = ""
+                    st.markdown(
+                        f"<div style='border-left:3px solid #ef4444;padding:6px 10px;"
+                        f"margin-bottom:6px;border-radius:0 4px 4px 0;background:#fff5f5'>"
+                        f"<div style='font-size:.82rem;color:#1f2937'>{_i}. {_q}</div>"
+                        f"<div style='font-size:.7rem;color:#9ca3af;margin-top:2px'>"
+                        f"{_cl}{_cs_str} &nbsp;·&nbsp; {_ts_fmt}</div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+
 
 # ── Admin: password-gated 4-tab dashboard ─────────────────────────────────────
 
@@ -1829,6 +2081,7 @@ def _render_admin_mode():
                 ):
                     st.session_state["adm_auth"] = True
                     st.session_state["adm_is_admin"] = True
+                    st.session_state["adm_username"] = _adm_user.strip()
                     st.rerun()
                 elif not _correct_user:
                     st.error("Admin username is not configured.")
@@ -1998,33 +2251,67 @@ def _render_admin_mode():
     with _at2:
         import requests as _req_docs
         import pandas as _pd_docs
+        import datetime as _dt_docs
 
         _docs_url = _secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL", "")
         _docs_svc = _secret("SUPABASE_SERVICE_KEY") or _secret("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY", "")
+        _docs_headers = {
+            "apikey": _docs_svc,
+            "Authorization": f"Bearer {_docs_svc}",
+        }
 
         st.markdown("### RERA Knowledge Base Documents")
         if _docs_url and _docs_svc:
             try:
                 _dr = _req_docs.get(
                     f"{_docs_url}/rest/v1/kb_documents",
-                    headers={"apikey": _docs_svc, "Authorization": f"Bearer {_docs_svc}"},
+                    headers=_docs_headers,
                     params={
-                        "select": "bot,doc_id,title,status,expected_update_date,source_url",
+                        "select": "bot,doc_id,title,status,expected_update_date,alert_days_before,source_url",
                         "bot": "eq.RERA",
                         "order": "doc_id.asc",
                     },
                     timeout=15,
                 )
-                _docs = _dr.json() if _dr.ok else []
+                if not _dr.ok:
+                    st.error(f"Failed to load RERA documents ({_dr.status_code}): {_dr.text[:200]}")
+                    _docs = []
+                else:
+                    _docs = _dr.json()
             except Exception:
                 _docs = []
 
+            try:
+                _er = _req_docs.get(
+                    f"{_docs_url}/rest/v1/doc_exclusions",
+                    headers=_docs_headers,
+                    params={
+                        "select": "bot,doc_id,excluded_by,excluded_by_email,excluded_at,reason,status,expires_at",
+                        "bot": "eq.RERA",
+                        "order": "excluded_at.desc",
+                    },
+                    timeout=15,
+                )
+                if not _er.ok:
+                    st.error(f"Failed to load RERA document access records ({_er.status_code}): {_er.text[:200]}")
+                    _exclusions = []
+                else:
+                    _exclusions = _er.json()
+            except Exception:
+                _exclusions = []
+
             if _docs:
                 _statuses = sorted({str(d.get("status") or "unknown") for d in _docs})
-                _doc_filter_col, _doc_search_col, _doc_refresh_col = st.columns([2, 4, 1])
+                _excl_keys = {(e["bot"], e["doc_id"]): e for e in _exclusions}
+                _doc_filter_col, _access_filter_col, _doc_search_col, _doc_refresh_col = st.columns([2, 2, 4, 1])
                 with _doc_filter_col:
                     _status_filter = st.selectbox(
-                        "Status", ["All statuses", *_statuses], key="rera_admin_doc_status",
+                        "Status", ["All", *_statuses], key="rera_admin_doc_status",
+                    )
+                with _access_filter_col:
+                    _access_filter = st.selectbox(
+                        "RAG Access", ["All", "Active", "Excluded", "Expired"],
+                        key="rera_admin_doc_access",
                     )
                 with _doc_search_col:
                     _doc_search = st.text_input(
@@ -2037,8 +2324,16 @@ def _render_admin_mode():
                         st.rerun()
 
                 _filtered = _docs
-                if _status_filter != "All statuses":
+                if _status_filter != "All":
                     _filtered = [d for d in _filtered if str(d.get("status") or "unknown") == _status_filter]
+                if _access_filter == "Active":
+                    _filtered = [d for d in _filtered if (d["bot"], d["doc_id"]) not in _excl_keys]
+                elif _access_filter in ("Excluded", "Expired"):
+                    _target_status = "excluded" if _access_filter == "Excluded" else "expired"
+                    _filtered = [
+                        d for d in _filtered
+                        if _excl_keys.get((d["bot"], d["doc_id"]), {}).get("status") == _target_status
+                    ]
                 if _doc_search:
                     _filtered = [
                         d for d in _filtered
@@ -2049,22 +2344,145 @@ def _render_admin_mode():
                 _current_docs = sum(1 for d in _docs if (d.get("status") or "").lower() == "current")
                 _pending_docs = sum(1 for d in _docs if (d.get("status") or "").lower() == "pending")
                 _archived_docs = sum(1 for d in _docs if (d.get("status") or "").lower() == "archived")
+                _excluded_count = sum(1 for d in _docs if _excl_keys.get((d["bot"], d["doc_id"]), {}).get("status") == "excluded")
+                _expired_count = sum(1 for d in _docs if _excl_keys.get((d["bot"], d["doc_id"]), {}).get("status") == "expired")
                 _doc_m1, _doc_m2, _doc_m3 = st.columns(3)
                 _doc_m1.metric("RERA Documents", len(_docs))
                 _doc_m2.metric("Current", _current_docs)
                 _doc_m3.metric("Pending / Archived", f"{_pending_docs} / {_archived_docs}")
+                st.caption(f"RAG access: {_excluded_count} excluded · {_expired_count} marked expired")
                 st.info(f"Showing {len(_filtered)} of {len(_docs)} RERA documents")
-                _df_docs = _pd_docs.DataFrame([
-                    {
-                        "Document ID": d.get("doc_id", ""),
-                        "Title": d.get("title", "") or "",
-                        "Status": d.get("status", "") or "",
-                        "Review date": d.get("expected_update_date", "") or "",
-                    }
-                    for d in _filtered
-                ])
                 if _filtered:
-                    st.dataframe(_df_docs, use_container_width=True, hide_index=True)
+                    if st.session_state.get("adm_is_admin") and _exclusions:
+                        with st.expander(f"📋 RERA exclusion log ({len(_exclusions)} entries)", expanded=False):
+                            from datetime import datetime as _dt_parse, timezone as _tz_parse, timedelta as _td_parse
+                            _ist = _tz_parse(_td_parse(hours=5, minutes=30))
+
+                            def _rera_ist(value, fmt="%d %b %Y  %I:%M %p"):
+                                if not value:
+                                    return ""
+                                try:
+                                    _stamp = _dt_parse.fromisoformat(value.replace("Z", "+00:00"))
+                                    if _stamp.tzinfo is None:
+                                        _stamp = _stamp.replace(tzinfo=_tz_parse.utc)
+                                    return _stamp.astimezone(_ist).strftime(fmt) + " IST"
+                                except Exception:
+                                    return value[:19].replace("T", " ")
+
+                            _df_exclusions = _pd_docs.DataFrame([
+                                {
+                                    "Document ID": e.get("doc_id", ""),
+                                    "Type": "⏳ Expired" if e.get("status") == "expired" else "🚫 Excluded",
+                                    "By": e.get("excluded_by", "unknown"),
+                                    "Email": e.get("excluded_by_email") or "",
+                                    "At (IST)": _rera_ist(e.get("excluded_at") or ""),
+                                    "Expires": (e.get("expires_at") or "")[:10],
+                                    "Reason": e.get("reason") or "",
+                                }
+                                for e in _exclusions
+                            ])
+                            st.dataframe(_df_exclusions, use_container_width=True, hide_index=True)
+
+                    _admin_mode = bool(st.session_state.get("adm_is_admin"))
+                    _admin_name = st.session_state.get("adm_username") or _secret("ADMIN_USERNAME") or "Admin"
+                    _admin_email = _secret("ADMIN_EMAIL")
+                    _label_color = _muted
+                    _headers = ["Document ID", "Title", "Status", "Review date", "Days", "RAG Access"]
+                    _visible_headers = _headers if _admin_mode else ["Document ID", "Title", "Status", "Review date", "RAG Access"]
+                    _weights = [1.35, 4.2, 1.0, 1.1, 0.85, 1.5] if _admin_mode else [1.5, 4.7, 1.1, 1.3, 1.4]
+                    _heading_cols = st.columns(_weights)
+                    for _col, _heading in zip(_heading_cols, _visible_headers):
+                        _col.markdown(
+                            f"<span style='color:{_label_color};font-size:11px;font-weight:700;text-transform:uppercase'>{_heading}</span>",
+                            unsafe_allow_html=True,
+                        )
+
+                    for _index, _doc in enumerate(_filtered):
+                        _doc_key = (_doc.get("bot", "RERA"), _doc.get("doc_id", ""))
+                        _ex_record = _excl_keys.get(_doc_key, {})
+                        _row_cols = st.columns(_weights)
+                        _doc_title = str(_doc.get("title") or "")
+                        _review_date = _doc.get("expected_update_date") or ""
+                        try:
+                            _days_until = (_dt_docs.date.fromisoformat(_review_date) - _dt_docs.date.today()).days
+                            _days_text = f"OVERDUE ({abs(_days_until)}d)" if _days_until < 0 else (f"Due in {_days_until}d" if _days_until <= 7 else f"{_days_until}d")
+                        except (TypeError, ValueError):
+                            _days_text = ""
+
+                        _row_cols[0].write(_doc.get("doc_id", ""))
+                        _row_cols[1].markdown(
+                            f"<span title='{_doc_title.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')}'>{_doc_title[:70]}{'…' if len(_doc_title) > 70 else ''}</span>",
+                            unsafe_allow_html=True,
+                        )
+                        _row_cols[2].write(_doc.get("status") or "")
+                        _row_cols[3].write(_review_date)
+                        if _admin_mode:
+                            _row_cols[4].write(_days_text)
+                            with _row_cols[5]:
+                                if _ex_record:
+                                    _is_expired = _ex_record.get("status") == "expired"
+                                    st.write("⏳ Expired" if _is_expired else "🚫 Excluded")
+                                    st.caption(f"by {_ex_record.get('excluded_by', 'unknown')}")
+                                    if _ex_record.get("expires_at"):
+                                        st.caption(f"Expires {(str(_ex_record['expires_at']))[:10]}")
+                                    if st.button("Reinstate", key=f"rera_reinstate_{_index}", use_container_width=True):
+                                        _rr = _req_docs.delete(
+                                            f"{_docs_url}/rest/v1/doc_exclusions",
+                                            headers=_docs_headers,
+                                            params={"bot": "eq.RERA", "doc_id": f"eq.{_doc_key[1]}"},
+                                            timeout=10,
+                                        )
+                                        if _rr.status_code in (200, 204):
+                                            st.success("RERA document reinstated.")
+                                            st.rerun()
+                                        else:
+                                            st.error(f"Could not reinstate document ({_rr.status_code}).")
+                                else:
+                                    _exclude_col, _expire_col = st.columns(2)
+                                    if _exclude_col.button("🚫", key=f"rera_exclude_{_index}", help="Exclude from RAG", use_container_width=True):
+                                        st.session_state[f"rera_exclusion_action_{_index}"] = "excluded"
+                                    if _expire_col.button("⏳", key=f"rera_expire_{_index}", help="Mark as expired", use_container_width=True):
+                                        st.session_state[f"rera_exclusion_action_{_index}"] = "expired"
+
+                                    _action = st.session_state.get(f"rera_exclusion_action_{_index}")
+                                    if _action:
+                                        st.caption("Exclude from RAG" if _action == "excluded" else "Mark as expired")
+                                        _reason = st.text_input(
+                                            "Reason (optional)", key=f"rera_exclusion_reason_{_index}",
+                                            placeholder="Reason (optional)", label_visibility="collapsed",
+                                        )
+                                        _expiry = None
+                                        if _action == "expired":
+                                            _expiry_value = st.date_input(
+                                                "Expiry date", value=_dt_docs.date.today(),
+                                                min_value=_dt_docs.date.today(), key=f"rera_expiry_date_{_index}",
+                                                help="The document will be removed from RAG retrieval once this date has passed.",
+                                            )
+                                            _expiry = _expiry_value.isoformat()
+                                        _confirm_col, _cancel_col = st.columns(2)
+                                        if _confirm_col.button("Confirm", key=f"rera_confirm_action_{_index}", type="primary"):
+                                            _payload = {
+                                                "bot": "RERA", "doc_id": _doc_key[1],
+                                                "excluded_by": _admin_name, "excluded_by_email": _admin_email or None,
+                                                "reason": _reason or None, "status": _action, "expires_at": _expiry,
+                                            }
+                                            _write = _req_docs.post(
+                                                f"{_docs_url}/rest/v1/doc_exclusions",
+                                                headers={**_docs_headers, "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates"},
+                                                json=_payload, timeout=10,
+                                            )
+                                            if _write.status_code in (200, 201, 204):
+                                                st.session_state.pop(f"rera_exclusion_action_{_index}", None)
+                                                st.success("RERA document access updated.")
+                                                st.rerun()
+                                            else:
+                                                st.error(f"Could not update document access ({_write.status_code}): {_write.text[:200]}")
+                                        if _cancel_col.button("Cancel", key=f"rera_cancel_action_{_index}"):
+                                            st.session_state.pop(f"rera_exclusion_action_{_index}", None)
+                                            st.rerun()
+                        else:
+                            _rag_access = "Active" if not _ex_record else ("Expired" if _ex_record.get("status") == "expired" else "Excluded")
+                            _row_cols[4].write(_rag_access)
                 else:
                     st.info("No RERA documents match those filters.")
             else:
@@ -2208,8 +2626,16 @@ def main():
         _sidebar_project_search()
         _sidebar_document_context()
 
-        # ── Past sessions panel — bottom of sidebar ────────────────────────
+        # ── Feedback stats bar + Past sessions panel — bottom of sidebar ─────
         with st.sidebar:
+            st.markdown("<hr style='margin:4px 0 8px;opacity:.15'>", unsafe_allow_html=True)
+            st.markdown(
+                "<div style='margin-bottom:4px;font-size:11px;color:#9ca3af;"
+                "text-transform:uppercase;letter-spacing:.06em;font-weight:600'>"
+                "Feedback</div>",
+                unsafe_allow_html=True,
+            )
+            _render_feedback_stats_bar()
             st.markdown("<hr style='margin:4px 0 8px;opacity:.15'>", unsafe_allow_html=True)
             st.markdown(
                 "<div style='margin-bottom:6px;font-size:11px;color:#9ca3af;"

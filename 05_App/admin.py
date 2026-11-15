@@ -308,6 +308,74 @@ def reinstate_doc(bot: str, doc_id: str):
     return r.status_code in (200, 204)
 
 
+@st.cache_data(ttl=120)
+def fetch_rera_feedback() -> dict:
+    """Fetch feedback stats for RERA domain only from the feedback table."""
+    import datetime as _dt
+    empty = {
+        "total": 0, "helpful": 0, "not_helpful": 0,
+        "helpful_pct": 0, "avg_confidence": 0,
+        "by_confidence": {}, "by_role": {},
+        "recent_thumbsdown": [], "daily_trend": {},
+    }
+    try:
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/feedback"
+            f"?select=created_at,feedback_type,confidence_score,confidence_label,user_role,question"
+            f"&domain=eq.RERA&order=created_at.desc&limit=500",
+            headers=HDRS, timeout=15,
+        )
+        if r.status_code != 200:
+            return empty
+        rows = r.json()
+        if not rows:
+            return empty
+
+        total      = len(rows)
+        helpful    = sum(1 for x in rows if x.get("feedback_type") == "up")
+        not_helpful = total - helpful
+        helpful_pct = round(helpful / total * 100) if total else 0
+
+        scores = [x.get("confidence_score") or 0 for x in rows]
+        avg_conf = round(sum(scores) / len(scores), 2) if scores else 0
+
+        by_conf = {}
+        for x in rows:
+            lbl = x.get("confidence_label") or "Unknown"
+            by_conf[lbl] = by_conf.get(lbl, 0) + 1
+
+        by_role = {}
+        for x in rows:
+            role = x.get("user_role") or "Unknown"
+            by_role[role] = by_role.get(role, 0) + 1
+
+        recent_down = [
+            {"q": x.get("question", ""), "ts": x.get("created_at", "")}
+            for x in rows if x.get("feedback_type") == "down"
+        ][:10]
+
+        cutoff = (_dt.date.today() - _dt.timedelta(days=29)).isoformat()
+        daily = {}
+        for x in rows:
+            ts = (x.get("created_at") or "")[:10]
+            if ts >= cutoff:
+                bucket = daily.setdefault(ts, {"up": 0, "down": 0})
+                ft = x.get("feedback_type", "")
+                if ft == "up":
+                    bucket["up"] += 1
+                elif ft == "down":
+                    bucket["down"] += 1
+
+        return {
+            "total": total, "helpful": helpful, "not_helpful": not_helpful,
+            "helpful_pct": helpful_pct, "avg_confidence": avg_conf,
+            "by_confidence": by_conf, "by_role": by_role,
+            "recent_thumbsdown": recent_down, "daily_trend": daily,
+        }
+    except Exception:
+        return empty
+
+
 # ─── Header ─────────────────────────────────────────────────────────────────
 is_dark = st.session_state.dark_mode
 hdr_bg   = "linear-gradient(135deg, #0f1e38 0%, #0a1322 100%)" if is_dark else "linear-gradient(135deg, #1e3a6e 0%, #0f1f40 100%)"
@@ -361,11 +429,12 @@ with btn_col:
 st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
 # ─── Tabs ───────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "  Activity  ",
     "  Documents  ",
     "  Bots  ",
     "  KB Coverage  ",
+    "  📈 RERA Feedback  ",
 ])
 # Force center tabs via JS (CSS alone can't override Streamlit's tab container)
 st.markdown("""
@@ -706,7 +775,7 @@ with tab3:
           <p style='color:#4a6f9a;font-size:13px;margin:0 0 24px;line-height:1.5;'>
             Drug and Cosmetics Act, NDCT Rules, Medical Device Regulations
           </p>
-          <a href='https://ccsragcomplianceassistant-6hug2utprjrpwtyijwjanr.streamlit.app/' target='_blank'
+          <a href='https://ccsragcomplianceassistant-healthcare.streamlit.app/' target='_blank'
              style='background:#2563eb;color:#fff;padding:11px 24px;border-radius:8px;
                     text-decoration:none;font-size:13px;font-weight:700;letter-spacing:0.01em;
                     display:inline-block;'>
@@ -731,7 +800,7 @@ with tab3:
           <p style='color:#2d5a40;font-size:13px;margin:0 0 24px;line-height:1.5;'>
             RERA Act 2016, K-RERA Rules, Project Registration, Agent Licensing
           </p>
-          <a href='https://ccsragcomplianceassistant-cisyv46xzq7kte95ywkmhg.streamlit.app/' target='_blank'
+          <a href='https://ccsragcomplianceassistant-rera.streamlit.app/' target='_blank'
              style='background:#16a34a;color:#fff;padding:11px 24px;border-radius:8px;
                     text-decoration:none;font-size:13px;font-weight:700;letter-spacing:0.01em;
                     display:inline-block;'>
@@ -955,3 +1024,118 @@ with tab4:
       MoHFW returned 404/403 errors and mciindia.org DNS lookup fails (MCI was dissolved in 2020).
       These are excluded from all counts above.
     </div>""", unsafe_allow_html=True)
+
+
+# ─── Tab 5: RERA Feedback Analytics ─────────────────────────────────────────
+with tab5:
+    import pandas as _pd
+    import datetime as _dt
+
+    if st.button("Refresh Feedback", key="refresh_feedback"):
+        st.cache_data.clear()
+        st.rerun()
+
+    fb = fetch_rera_feedback()
+    total_fb = fb["total"]
+
+    is_dark_fb = st.session_state.dark_mode
+    card_bg_fb = "#131929" if is_dark_fb else "#ffffff"
+    bdr_fb     = "#1e2d45" if is_dark_fb else "#e2e8f0"
+    text_fb    = "#e4ecf7" if is_dark_fb else "#141c2e"
+    muted_fb   = "#6b7f9a" if is_dark_fb else "#6b7a99"
+
+    if total_fb == 0:
+        st.markdown("""
+        <div style='text-align:center;padding:60px 0;color:#6b7a99;font-size:15px;font-weight:500;'>
+          No RERA feedback recorded yet. Ratings will appear here once users start thumbs-up / thumbs-down.
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        # KPI row
+        k1, k2, k3, k4, k5 = st.columns(5)
+        k1.metric("Total Rated",     total_fb)
+        k2.metric("Satisfaction",    f"{fb['helpful_pct']}%")
+        k3.metric("Helpful",         fb["helpful"])
+        k4.metric("Not Helpful",     fb["not_helpful"])
+        k5.metric("Avg Confidence",  f"{fb['avg_confidence']:.2f}")
+
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+
+        # 30-day trend chart
+        st.markdown(
+            f"<div style='color:{text_fb};font-size:13px;font-weight:700;text-transform:uppercase;"
+            f"letter-spacing:0.07em;margin-bottom:10px;'>30-Day Feedback Trend</div>",
+            unsafe_allow_html=True,
+        )
+        today_str = _dt.date.today().isoformat()
+        all_days  = [
+            (_dt.date.today() - _dt.timedelta(days=i)).isoformat()
+            for i in range(29, -1, -1)
+        ]
+        trend_rows = []
+        for d in all_days:
+            bucket = fb["daily_trend"].get(d, {})
+            trend_rows.append({
+                "Date":         d,
+                "Helpful":      bucket.get("up", 0),
+                "Not Helpful":  bucket.get("down", 0),
+            })
+        df_trend = _pd.DataFrame(trend_rows).set_index("Date")
+        st.bar_chart(df_trend, color=["#22c55e", "#ef4444"])
+
+        st.markdown("<div style='height:24px'></div>", unsafe_allow_html=True)
+
+        # Two-column breakdown
+        col_conf, col_role = st.columns(2)
+
+        with col_conf:
+            st.markdown(
+                f"<div style='color:{text_fb};font-size:13px;font-weight:700;text-transform:uppercase;"
+                f"letter-spacing:0.07em;margin-bottom:10px;'>By Confidence Label</div>",
+                unsafe_allow_html=True,
+            )
+            if fb["by_confidence"]:
+                conf_rows = [
+                    {"Label": lbl, "Count": cnt}
+                    for lbl, cnt in sorted(fb["by_confidence"].items(), key=lambda x: -x[1])
+                ]
+                st.dataframe(_pd.DataFrame(conf_rows), use_container_width=True, hide_index=True)
+            else:
+                st.markdown(f"<span style='color:{muted_fb};font-size:13px;'>No data</span>", unsafe_allow_html=True)
+
+        with col_role:
+            st.markdown(
+                f"<div style='color:{text_fb};font-size:13px;font-weight:700;text-transform:uppercase;"
+                f"letter-spacing:0.07em;margin-bottom:10px;'>By User Role</div>",
+                unsafe_allow_html=True,
+            )
+            if fb["by_role"]:
+                role_rows = [
+                    {"Role": role, "Count": cnt}
+                    for role, cnt in sorted(fb["by_role"].items(), key=lambda x: -x[1])
+                ]
+                st.dataframe(_pd.DataFrame(role_rows), use_container_width=True, hide_index=True)
+            else:
+                st.markdown(f"<span style='color:{muted_fb};font-size:13px;'>No data</span>", unsafe_allow_html=True)
+
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+
+        # Last 10 thumbs-down questions
+        if fb["recent_thumbsdown"]:
+            st.markdown(
+                f"<div style='color:{text_fb};font-size:13px;font-weight:700;text-transform:uppercase;"
+                f"letter-spacing:0.07em;margin-bottom:10px;'>Last 10 Thumbs-Down Questions</div>",
+                unsafe_allow_html=True,
+            )
+            for item in fb["recent_thumbsdown"]:
+                q   = item.get("q") or "(no question recorded)"
+                ts  = to_ist(item.get("ts", "")) or ""
+                st.markdown(f"""
+                <div style='border-left:3px solid #ef4444;background:rgba(239,68,68,0.06);
+                            border-radius:0 8px 8px 0;padding:10px 16px;margin-bottom:8px;'>
+                  <div style='color:{text_fb};font-size:13px;font-weight:500;'>{q}</div>
+                  <div style='color:{muted_fb};font-size:11px;margin-top:4px;'>{ts}</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
