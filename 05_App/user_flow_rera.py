@@ -104,7 +104,7 @@ def _save_rera_feedback(question: str, answer_snippet: str, feedback_type: str,
                 "answer_snippet": answer_snippet[:500],
                 "feedback_type": feedback_type,
                 "user_role": user_role,
-                "user_id": session_id or None,
+                "user_id": None,
             },
             timeout=5,
         )
