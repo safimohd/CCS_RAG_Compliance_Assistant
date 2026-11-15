@@ -1396,6 +1396,33 @@ def log_feedback(domain: str, question: str, answer: str,
         st.session_state["_fb_err"] = str(_log_err)
 
 
+
+@st.cache_data(ttl=120)
+def fetch_feedback_stats() -> dict:
+    """Return aggregate feedback counts from Supabase. Cached 2 min."""
+    url = _secret("SUPABASE_URL")
+    key = _secret("SUPABASE_KEY")
+    if not url or not key:
+        return {}
+    try:
+        import requests as _req  # noqa: PLC0415
+        resp = _req.get(
+            f"{url}/rest/v1/feedback",
+            headers={"apikey": key, "Authorization": f"Bearer {key}"},
+            params={"select": "feedback_type"},
+            timeout=5,
+        )
+        if not resp.ok:
+            return {}
+        rows = resp.json() or []
+        total = len(rows)
+        ups = sum(1 for r in rows if r.get("feedback_type") == "up")
+        pct = int(ups / total * 100) if total else 0
+        return {"total": total, "ups": ups, "downs": total - ups, "pct": pct}
+    except Exception:
+        return {}
+
+
 def log_bookmark(domain: str, question: str, answer: str, sources: list) -> bool:
     """Save a Q&A pair to the bookmarks table. Returns True on success."""
     _cu = _current_user()
@@ -3371,12 +3398,28 @@ with _rera_tab_ctx:
                 st.session_state.pending_q = q
                 st.rerun()
 
+    # Feedback stats bar — visible to all roles above the chat
+    _fb_stats = fetch_feedback_stats()
+    if _fb_stats.get("total", 0) > 0:
+        _fs_t = _fb_stats["total"]
+        _fs_pct = _fb_stats["pct"]
+        _fs_ups = _fb_stats["ups"]
+        st.markdown(
+            f"<div style='font-size:.72rem;color:#6B7C93;margin-bottom:.4rem;'>"
+            f"📊 Community feedback: "
+            f"<b style='color:#1a7f4b'>{_fs_ups} 👍</b> "
+            f"out of <b>{_fs_t}</b> ratings "
+            f"<span style='color:#1a7f4b;font-weight:600'>({_fs_pct}% helpful)</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
     for msg_idx, msg in enumerate(st.session_state.messages):
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
             if msg.get("sources"):
                 render_sources(msg["sources"], domain)
-            if msg["role"] == "assistant" and msg.get("rated"):
+            if msg["role"] == "assistant" and (msg.get("rated") or msg.get("sources")):
                 # Confidence badge from stored similarity scores
                 hist_sim = max((r["similarity"] for r in msg.get("sources", [])), default=0.0)
                 if hist_sim >= 0.65:
@@ -3686,9 +3729,12 @@ with _rera_tab_ctx:
                     f"border-radius:10px;margin-right:6px'>{_sys_icon} {_sys_label}</span>",
                     unsafe_allow_html=True)
 
-                # Confidence badge
-                if not low_confidence:
-                    if best_sim >= 0.65:
+                # Confidence badge — always shown
+                if True:
+                    if low_confidence or best_sim < 0.35:
+                        badge_color, badge_label = "#6B7C93", "Low confidence"
+                        badge_icon = "⚠️"
+                    elif best_sim >= 0.65:
                         badge_color, badge_label = "#1a7f4b", "High confidence"
                         badge_icon = "✅"
                     elif best_sim >= 0.45:
@@ -3728,7 +3774,7 @@ with _rera_tab_ctx:
                 _conf_label = badge_label if not low_confidence else "Low confidence"
                 st.session_state.messages.append(
                     {"role": "assistant", "content": answer, "sources": results,
-                     "rated": not low_confidence, "followups": followups,
+                     "rated": True, "followups": followups,
                      "conf_label": _conf_label, "conf_score": best_sim,
                      "timestamp": datetime.now(tz=IST).strftime("%b %d, %Y  %I:%M %p IST")})
 
