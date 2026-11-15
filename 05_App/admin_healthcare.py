@@ -349,8 +349,8 @@ with btn_col:
 st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
 # ─── Tabs ───────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs([
-    "  Activity  ", "  Documents  ", "  Bots  ", "  KB Coverage  ",
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "  Activity  ", "  Documents  ", "  Bots  ", "  KB Coverage  ", "  Feedback  ",
 ])
 # Force center tabs via JS (CSS alone can't override Streamlit's tab container)
 st.markdown("""
@@ -959,3 +959,108 @@ with tab4:
       These are excluded from all counts above.
     </div>""", unsafe_allow_html=True)
 
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+with tab5:
+    is_dark = st.session_state.dark_mode
+    label_c = "#6b7f9a" if is_dark else "#6b7a99"
+    text_c  = "#e4ecf7" if is_dark else "#141c2e"
+
+    st.markdown(
+        f"<h3 style='margin:0 0 18px;font-size:1.1rem;color:{text_c}'>User Feedback</h3>",
+        unsafe_allow_html=True,
+    )
+
+    try:
+        fb_resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/feedback",
+            headers={"apikey": SVC_KEY, "Authorization": f"Bearer {SVC_KEY}"},
+            params={"select": "*", "order": "created_at.desc", "limit": "500"},
+            timeout=10,
+        )
+        fb_resp.raise_for_status()
+        fb_rows = fb_resp.json() or []
+    except Exception as _fe:
+        st.error(f"Could not load feedback: {_fe}")
+        fb_rows = []
+
+    total_fb = len(fb_rows)
+    ups_fb   = sum(1 for r in fb_rows if r.get("feedback_type") == "up")
+    dns_fb   = total_fb - ups_fb
+    pct_fb   = int(ups_fb / total_fb * 100) if total_fb else 0
+
+    # Summary metrics
+    mc1, mc2, mc3, mc4 = st.columns(4)
+    mc1.metric("Total ratings", total_fb)
+    mc2.metric("👍 Helpful", ups_fb)
+    mc3.metric("👎 Not helpful", dns_fb)
+    mc4.metric("Helpfulness %", f"{pct_fb}%")
+
+    if total_fb == 0:
+        st.info("No feedback has been submitted yet.")
+    else:
+        import pandas as pd
+
+        # Helpfulness breakdown bar
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        bar_pct = pct_fb
+        bar_color = "#1a7f4b" if bar_pct >= 70 else ("#b45309" if bar_pct >= 40 else "#dc2626")
+        st.markdown(
+            f"<div style='margin-bottom:18px;'>"
+            f"<div style='font-size:.75rem;color:{label_c};margin-bottom:4px;'>"
+            f"Helpfulness rate</div>"
+            f"<div style='background:#e5e7eb;border-radius:4px;height:8px;'>"
+            f"<div style='background:{bar_color};width:{bar_pct}%;height:8px;border-radius:4px;'></div>"
+            f"</div></div>",
+            unsafe_allow_html=True,
+        )
+
+        # Domain breakdown
+        df_fb = pd.DataFrame(fb_rows)
+        if "domain" in df_fb.columns:
+            st.markdown(
+                f"<div style='font-size:.8rem;font-weight:600;color:{label_c};"
+                f"margin-bottom:8px;'>Ratings by domain</div>",
+                unsafe_allow_html=True,
+            )
+            domain_grp = (
+                df_fb.groupby("domain")["feedback_type"]
+                .value_counts()
+                .unstack(fill_value=0)
+                .rename(columns={"up": "👍 Helpful", "down": "👎 Not helpful"})
+                .reset_index()
+            )
+            st.dataframe(domain_grp, use_container_width=True, hide_index=True)
+
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
+        # Recent thumbs-down questions
+        down_rows = [r for r in fb_rows if r.get("feedback_type") == "down"]
+        if down_rows:
+            st.markdown(
+                f"<div style='font-size:.8rem;font-weight:600;color:{label_c};"
+                f"margin-bottom:8px;'>Recent thumbs-down questions</div>",
+                unsafe_allow_html=True,
+            )
+            for r in down_rows[:15]:
+                q_text = (r.get("question") or "")[:100]
+                dom    = r.get("domain", "")
+                reason = r.get("feedback_reason", "")
+                ts     = (r.get("created_at") or "")[:10]
+                st.markdown(
+                    f"<div style='padding:8px 12px;border-left:3px solid #dc2626;"
+                    f"margin-bottom:6px;background:rgba(220,38,38,.06);"
+                    f"border-radius:0 6px 6px 0;font-size:.8rem;'>"
+                    f"<b>{dom}</b> · {ts}<br>{q_text}"
+                    f"{'<br><span style=\"color:#6B7C93\">' + reason + '</span>' if reason else ''}"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+        # Full table toggle
+        with st.expander("View all feedback rows"):
+            cols_show = [c for c in ["created_at", "domain", "feedback_type",
+                                     "feedback_reason", "question", "confidence_label",
+                                     "confidence_score"] if c in df_fb.columns]
+            st.dataframe(df_fb[cols_show], use_container_width=True)
