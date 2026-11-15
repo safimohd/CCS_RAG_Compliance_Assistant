@@ -1694,7 +1694,7 @@ def log_query(bot: str, question: str, answer: str,
                 "answer_snippet": (answer or "")[:300],
                 "confidence": round(confidence, 4),
                 "source_docs": source_docs,
-                "session_id": st.session_state.get("session_id", ""),
+                "session_id": st.session_state.get("_active_session_id", ""),
                 "flagged_low_conf": flagged,
                 "user_id": _cu.get("id"),
                 "user_role": _cu.get("role"),
@@ -2707,6 +2707,7 @@ else:
                     elif hit:
                         answer = hit["answer"]
                         st.markdown(answer)
+                        log_query(domain, prompt, answer, best_sim, results, low_confidence)
                     elif client is None:
                         answer = "Answer generation is not configured; see the sources below."
                         st.markdown(answer)
