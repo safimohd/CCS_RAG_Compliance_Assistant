@@ -96,8 +96,8 @@ if st.session_state.dark_mode:
         background: var(--surface) !important; border: 1px solid var(--border) !important;
         border-radius: 12px; padding: 20px 24px !important;
       }
-      [data-testid="stMetricValue"] { color: var(--text) !important; font-size: 36px !important; font-weight: 800 !important; }
-      [data-testid="stMetricLabel"] { color: var(--muted) !important; font-size: 12px !important; font-weight: 600 !important; text-transform: uppercase; letter-spacing: 0.06em; }
+      [data-testid="stMetricValue"] { color: var(--text) !important; font-size: 24px !important; font-weight: 700 !important; }
+      [data-testid="stMetricLabel"] { color: var(--muted) !important; font-size: 11px !important; font-weight: 600 !important; text-transform: uppercase; letter-spacing: 0.06em; }
       /* Buttons */
       .stButton > button {
         background: var(--surface) !important; border: 1px solid var(--border) !important;
@@ -156,8 +156,8 @@ else:
         background: var(--surface) !important; border: 1px solid var(--border) !important;
         border-radius: 12px; padding: 20px 24px !important;
       }
-      [data-testid="stMetricValue"] { color: var(--text) !important; font-size: 36px !important; font-weight: 800 !important; }
-      [data-testid="stMetricLabel"] { color: var(--muted) !important; font-size: 12px !important; font-weight: 600 !important; text-transform: uppercase; letter-spacing: 0.06em; }
+      [data-testid="stMetricValue"] { color: var(--text) !important; font-size: 24px !important; font-weight: 700 !important; }
+      [data-testid="stMetricLabel"] { color: var(--muted) !important; font-size: 11px !important; font-weight: 600 !important; text-transform: uppercase; letter-spacing: 0.06em; }
       .stButton > button {
         background: var(--surface) !important; border: 1px solid var(--border) !important;
         color: var(--text) !important; border-radius: 8px; font-weight: 600; font-size: 13px;
@@ -1082,12 +1082,11 @@ with tab5:
                     unsafe_allow_html=True,
                 )
 
-        # Full table toggle — column names come from Supabase as conf_label / conf_score
         with st.expander("📋 All feedback rows"):
             _col_map = {
                 "created_at": "Time", "domain": "Domain",
                 "feedback_type": "👍/👎", "question": "Question",
-                "conf_label": "Confidence", "conf_score": "Score",
+                "confidence_label": "Confidence", "confidence_score": "Score",
             }
             cols_show = [c for c in _col_map if c in df_fb.columns]
             st.dataframe(
