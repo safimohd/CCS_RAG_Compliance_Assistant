@@ -1465,15 +1465,20 @@ def fetch_user_query_history(limit: int = 20) -> list[str]:
         return []
 
 
-def fetch_user_sessions(limit: int = 20) -> list[dict]:
+def fetch_user_sessions(limit: int = 20, _cu: dict | None = None) -> list[dict]:
     """Fetch sessions scoped to the current user, domain, AND user_type.
 
     Healthcare users only see Healthcare-user sessions; compliance officers
     see Healthcare-compliance_officer sessions; admins see Healthcare-admin
-    sessions. Session numbers shown in the UI are always relative to this
+    sessions.  Session numbers shown in the UI are always relative to this
     filtered list (Session #1 = most recent for that role in this domain).
+
+    Pass `_cu` explicitly (from the call site's _current_user() result) to
+    avoid a Streamlit re-run timing race where an internal _current_user()
+    call could read a briefly-stale role after a role toggle.
     """
-    _cu = _current_user()
+    if _cu is None:
+        _cu = _current_user()
     if not _cu.get("id"):
         return []
     url = _secret("SUPABASE_URL")
@@ -1550,7 +1555,15 @@ def save_session(session_id: str | None, title: str, domain: str,
 
 
 def load_session(session_id: str) -> dict | None:
-    """Load full messages for a session."""
+    """Load full messages for a session.
+
+    Filters by id + user_id + domain only — NOT by user_type.
+    Removing the user_type filter prevents a Streamlit re-run timing race
+    where _current_user() briefly returns stale role data on a button-click
+    re-run, causing the query to match nothing even though the session exists.
+    The session ID (UUID) is unguessable; user_id scopes it to the owner;
+    domain scopes it to this app.  That is sufficient for a demo app.
+    """
     _cu = _current_user()
     if not _cu.get("id"):
         return None
@@ -1558,7 +1571,6 @@ def load_session(session_id: str) -> dict | None:
     svc_key = _secret("SUPABASE_SERVICE_KEY")
     if not url or not svc_key:
         return None
-    _role = _cu.get("role", "user")
     try:
         import requests as _req  # noqa: PLC0415
         r = _req.get(f"{url}/rest/v1/sessions",
@@ -1566,7 +1578,6 @@ def load_session(session_id: str) -> dict | None:
                      params={"id": f"eq.{session_id}",
                              "user_id": f"eq.{_cu['id']}",
                              "domain": f"eq.{LOCKED_DOMAIN}",
-                             "user_type": f"eq.{_role}",
                              "select": "id,title,domain,messages"},
                      timeout=5)
         if r.ok and r.json():
@@ -1869,6 +1880,8 @@ with st.sidebar:
     )
     if st.session_state.get("_role_switch_error"):
         st.caption(st.session_state.pop("_role_switch_error"))
+    if st.session_state.get("_load_err"):
+        st.warning(st.session_state.pop("_load_err"))
     st.markdown("<hr style='margin:6px 0 10px;opacity:.15'>", unsafe_allow_html=True)
 
     # Resolve the active role selected by the toggle above.
@@ -1994,9 +2007,12 @@ with st.sidebar:
 
     # ── Sessions (Claude-style conversation history) ──────────────────────────
     _cu_sess = _current_user()
-    # Fetch on first load or after a role switch clears the cache
+    # Fetch on first load or after a role switch clears the cache.
+    # Pass _cu_sess explicitly so fetch_user_sessions uses the same user dict
+    # already resolved here — avoids a secondary _current_user() call inside
+    # the function potentially reading stale role data after a toggle.
     if _cu_sess.get("id") and "_user_sessions" not in st.session_state:
-        st.session_state["_user_sessions"] = fetch_user_sessions(20)
+        st.session_state["_user_sessions"] = fetch_user_sessions(20, _cu=_cu_sess)
 
     # Sessions are already pre-filtered by domain=Healthcare AND user_type=role
     # inside fetch_user_sessions(), so no secondary filter needed here.
@@ -2042,10 +2058,20 @@ with st.sidebar:
                              type=_btn_style, help=_s_title):
                     _loaded = load_session(_sess["id"])
                     if _loaded:
-                        st.session_state["messages"] = _loaded.get("messages", [])
-                        st.session_state["feedback"] = {}
-                        st.session_state["_active_session_id"] = _sess["id"]
-                        st.session_state["_active_session_title"] = _loaded.get("title", "")
+                        _loaded_msgs = _loaded.get("messages") or []
+                        if _loaded_msgs:
+                            st.session_state["messages"] = _loaded_msgs
+                            st.session_state["feedback"] = {}
+                            st.session_state["_active_session_id"] = _sess["id"]
+                            st.session_state["_active_session_title"] = _loaded.get("title", "")
+                        else:
+                            # Session exists but has no messages — treat as new chat
+                            st.session_state["messages"] = []
+                            st.session_state["feedback"] = {}
+                            st.session_state["_active_session_id"] = _sess["id"]
+                            st.session_state["_active_session_title"] = _loaded.get("title", "")
+                    else:
+                        st.session_state["_load_err"] = "Could not load session. Please try again."
                     st.rerun()
         else:
             if _cu_sess.get("id"):
@@ -2709,8 +2735,10 @@ else:
                         if _new_sid:
                             st.session_state["_active_session_id"] = _new_sid
                             st.session_state["_active_session_title"] = _sess_title
-                            # Refresh session list so sidebar shows latest
-                            st.session_state["_user_sessions"] = fetch_user_sessions(20)
+                            # Refresh session list so sidebar shows latest.
+                            # Pass _sess_cu so the refresh uses the same user dict
+                            # already resolved above, avoiding a stale re-read.
+                            st.session_state["_user_sessions"] = fetch_user_sessions(20, _cu=_sess_cu)
     
                     # Action row: copy + share + feedback + bookmark buttons
                     if not low_confidence and client is not None and daily_usage() < DAILY_LIMIT:
