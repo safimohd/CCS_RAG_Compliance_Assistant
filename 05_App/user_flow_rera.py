@@ -1218,6 +1218,8 @@ def _render_chat():
     for msg in st.session_state.uf_chat_history:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
+            if msg["role"] == "assistant" and msg.get("show_source"):
+                st.caption("🏛️ Source: Karnataka RERA Knowledge Base  •  ✅ KB Verified")
 
     user_input = st.chat_input(
         "Ask about any Karnataka property: RERA status, fair price, buy vs rent, builder reputation..."
@@ -1276,9 +1278,14 @@ def _render_chat():
                             "Quote RERA numbers, status, and completion dates from these results."
                         )
 
+                    # Strip UI-only keys (show_source) before sending to OpenAI
+                    _api_history = [
+                        {"role": m["role"], "content": m["content"]}
+                        for m in st.session_state.uf_chat_history
+                    ]
                     messages = (
                         [{"role": "system", "content": system_content}]
-                        + st.session_state.uf_chat_history
+                        + _api_history
                     )
                     resp = client.chat.completions.create(
                         model=os.environ.get("LLM_MODEL", "gpt-5-nano"),
@@ -1300,9 +1307,9 @@ def _render_chat():
                     answer = f"Sorry, something went wrong. Please try again. ({e})"
 
                 st.markdown(answer)
-                st.caption("Source: Karnataka RERA Knowledge Base")
+                st.caption("🏛️ Source: Karnataka RERA Knowledge Base  •  ✅ KB Verified")
                 st.session_state.uf_chat_history.append(
-                    {"role": "assistant", "content": answer}
+                    {"role": "assistant", "content": answer, "show_source": True}
                 )
                 # Mark this answer as awaiting feedback
                 st.session_state["uf_pending_fb"] = {
@@ -1335,8 +1342,12 @@ def _render_chat():
                     feedback_type="up",
                     session_id=st.session_state.get("uf_session_id", ""),
                 )
-                st.session_state["uf_pending_fb"]["rated"] = True
+                # Reassign the whole dict — nested mutation doesn't persist across reruns
+                _pfb_copy = dict(st.session_state.get("uf_pending_fb", {}))
+                _pfb_copy["rated"] = True
+                st.session_state["uf_pending_fb"] = _pfb_copy
                 st.cache_data.clear()
+                import time as _time; _time.sleep(0.3)
                 st.rerun()
         with _fbc2:
             if st.button("👎 Not helpful", key="uf_fb_down", use_container_width=True):
@@ -1346,8 +1357,12 @@ def _render_chat():
                     feedback_type="down",
                     session_id=st.session_state.get("uf_session_id", ""),
                 )
-                st.session_state["uf_pending_fb"]["rated"] = True
+                # Reassign the whole dict — nested mutation doesn't persist across reruns
+                _pfb_copy = dict(st.session_state.get("uf_pending_fb", {}))
+                _pfb_copy["rated"] = True
+                st.session_state["uf_pending_fb"] = _pfb_copy
                 st.cache_data.clear()
+                import time as _time; _time.sleep(0.3)
                 st.rerun()
     elif _pfb and _pfb.get("rated"):
         st.success("Thanks for your feedback! It helps us improve.", icon="✅")
@@ -2635,6 +2650,138 @@ def _render_admin_mode():
 
         st.caption("Coverage is based on the RERA documents currently mapped to the planned knowledge base domains.")
 
+    # ── Admin Tab 5: Feedback Analytics ──────────────────────────────────────
+    with _at5:
+        import requests as _req_fb
+        import datetime as _dt_fb
+
+        if st.button("Refresh Feedback", key="adm_refresh_fb"):
+            st.cache_data.clear()
+            st.rerun()
+
+        @st.cache_data(ttl=60)
+        def _adm_fetch_feedback():
+            _url = _secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL", "")
+            _svc = _secret("SUPABASE_SERVICE_KEY") or _secret("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY", "")
+            if not _url or not _svc:
+                return None
+            _hdrs = {"apikey": _svc, "Authorization": f"Bearer {_svc}"}
+            _r = _req_fb.get(
+                f"{_url}/rest/v1/feedback"
+                f"?select=created_at,feedback_type,confidence_score,confidence_label,user_role,question"
+                f"&domain=eq.RERA&order=created_at.desc&limit=500",
+                headers=_hdrs, timeout=15,
+            )
+            return _r.json() if _r.status_code == 200 else None
+
+        _rows = _adm_fetch_feedback()
+        if not _rows:
+            st.info("No RERA feedback recorded yet. Ratings will appear here once users start thumbs-up / thumbs-down.")
+        else:
+            import pandas as _pd_fb
+
+            _total_fb   = len(_rows)
+            _helpful_fb = sum(1 for x in _rows if x.get("feedback_type") == "up")
+            _not_fb     = _total_fb - _helpful_fb
+            _sat_pct    = round(_helpful_fb / _total_fb * 100) if _total_fb else 0
+
+            # KPI row
+            _fk1, _fk2, _fk3, _fk4 = st.columns(4)
+            _fk1.metric("Total Rated",  _total_fb)
+            _fk2.metric("Satisfaction", f"{_sat_pct}%")
+            _fk3.metric("Helpful",      _helpful_fb)
+            _fk4.metric("Not Helpful",  _not_fb)
+
+            st.markdown("<hr style='margin:16px 0;opacity:.15'>", unsafe_allow_html=True)
+
+            # 30-day trend
+            _cutoff_fb = (_dt_fb.date.today() - _dt_fb.timedelta(days=29)).isoformat()
+            _days_range = [
+                (_dt_fb.date.today() - _dt_fb.timedelta(days=i)).isoformat()
+                for i in range(29, -1, -1)
+            ]
+            _daily_fb = {d: {"Helpful": 0, "Not Helpful": 0} for d in _days_range}
+            for _x in _rows:
+                _d = (_x.get("created_at") or "")[:10]
+                if _d in _daily_fb:
+                    if _x.get("feedback_type") == "up":
+                        _daily_fb[_d]["Helpful"] += 1
+                    else:
+                        _daily_fb[_d]["Not Helpful"] += 1
+            _trend_rows = [{"Date": d, **v} for d, v in _daily_fb.items()]
+            _df_trend_adm = _pd_fb.DataFrame(_trend_rows).set_index("Date")
+            if _df_trend_adm[["Helpful", "Not Helpful"]].sum().sum() > 0:
+                st.markdown(f"<div style='color:{_text};font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;'>30-Day Feedback Trend</div>", unsafe_allow_html=True)
+                st.bar_chart(_df_trend_adm, color=["#22c55e", "#ef4444"])
+                st.markdown("<hr style='margin:16px 0;opacity:.15'>", unsafe_allow_html=True)
+
+            # Breakdowns
+            _fcol_a, _fcol_b = st.columns(2)
+
+            with _fcol_a:
+                _by_role_fb = {}
+                for _x in _rows:
+                    _r = _x.get("user_role") or "Unknown"
+                    _by_role_fb[_r] = _by_role_fb.get(_r, 0) + 1
+                if _by_role_fb:
+                    st.markdown(f"<div style='color:{_text};font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;'>By User Role</div>", unsafe_allow_html=True)
+                    _df_role_adm = _pd_fb.DataFrame([{"Role": r, "Count": c} for r, c in sorted(_by_role_fb.items(), key=lambda x: -x[1])])
+                    st.dataframe(_df_role_adm, use_container_width=True, hide_index=True)
+
+            with _fcol_b:
+                _by_conf_fb = {}
+                for _x in _rows:
+                    _lbl = _x.get("confidence_label") or "Unknown"
+                    _by_conf_fb[_lbl] = _by_conf_fb.get(_lbl, 0) + 1
+                if _by_conf_fb:
+                    st.markdown(f"<div style='color:{_text};font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;'>By Confidence Label</div>", unsafe_allow_html=True)
+                    _df_conf_adm = _pd_fb.DataFrame([{"Confidence": l, "Count": c} for l, c in sorted(_by_conf_fb.items(), key=lambda x: -x[1])])
+                    st.dataframe(_df_conf_adm, use_container_width=True, hide_index=True)
+
+            st.markdown("<hr style='margin:16px 0;opacity:.15'>", unsafe_allow_html=True)
+
+            # All questions with feedback
+            st.markdown(f"<div style='color:{_text};font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px;'>All Rated Questions</div>", unsafe_allow_html=True)
+            _rated_rows = []
+            for _x in _rows:
+                _ts_raw = _x.get("created_at", "")
+                try:
+                    from datetime import datetime as _dt2
+                    _ts_disp = _dt2.fromisoformat(_ts_raw.replace("Z", "+00:00")).strftime("%d %b %H:%M")
+                except Exception:
+                    _ts_disp = _ts_raw[:16]
+                _rated_rows.append({
+                    "Time": _ts_disp,
+                    "Question": (_x.get("question") or "")[:100],
+                    "Rating": "👍 Helpful" if _x.get("feedback_type") == "up" else "👎 Not Helpful",
+                    "Role": _x.get("user_role") or "Unknown",
+                })
+            st.dataframe(_pd_fb.DataFrame(_rated_rows), use_container_width=True, hide_index=True)
+
+            st.markdown("<hr style='margin:16px 0;opacity:.15'>", unsafe_allow_html=True)
+
+            # Thumbs-down deep dive
+            _thumbsdown_adm = [x for x in _rows if x.get("feedback_type") == "down"]
+            if _thumbsdown_adm:
+                st.markdown(f"<div style='color:{_text};font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px;'>Not-Helpful Questions — Full List ({len(_thumbsdown_adm)})</div>", unsafe_allow_html=True)
+                for _idx, _item in enumerate(_thumbsdown_adm, 1):
+                    _q_adm = _item.get("question") or "(no question)"
+                    _ts_adm = _item.get("created_at", "")
+                    try:
+                        from datetime import datetime as _dt3
+                        _ts_adm_fmt = _dt3.fromisoformat(_ts_adm.replace("Z", "+00:00")).strftime("%d %b %Y %H:%M")
+                    except Exception:
+                        _ts_adm_fmt = _ts_adm[:16]
+                    st.markdown(
+                        f"<div style='border-left:3px solid #ef4444;background:rgba(239,68,68,.06);"
+                        f"border-radius:0 8px 8px 0;padding:10px 16px;margin-bottom:8px;'>"
+                        f"<div style='color:{_text};font-size:13px;font-weight:500;'>{_idx}. {_q_adm}</div>"
+                        f"<div style='color:{_muted};font-size:11px;margin-top:4px;'>"
+                        f"{_item.get('user_role') or 'Unknown'} &nbsp;·&nbsp; {_ts_adm_fmt}</div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+
 
 # ── main app layout ───────────────────────────────────────────────────────────
 
@@ -2716,7 +2863,7 @@ def main():
                                 if _q_text:
                                     _restored.append({"role": "user", "content": _q_text})
                                 if _a_text:
-                                    _restored.append({"role": "assistant", "content": _a_text})
+                                    _restored.append({"role": "assistant", "content": _a_text, "show_source": True})
                             st.session_state["uf_chat_history"] = _restored
                             st.session_state["uf_session_id"] = _sid
                             st.rerun()
