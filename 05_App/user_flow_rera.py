@@ -283,6 +283,14 @@ def _render_feedback_stats_bar():
     """Render a compact 3-metric feedback bar for the sidebar. Visible to all roles."""
     stats = _fetch_feedback_stats()
     # Merge in any optimistic increments from this session so the bar updates instantly
+    if "uf_fb_optimistic" not in st.session_state:
+        try:
+            _fb_rows = _adm_fetch_feedback()
+            _fb_total = len(_fb_rows) if _fb_rows else 0
+            _fb_helpful = sum(1 for r in (_fb_rows or []) if r.get("feedback_type") == "up")
+            st.session_state["uf_fb_optimistic"] = {"total": _fb_total, "helpful": _fb_helpful, "not_helpful": _fb_total - _fb_helpful}
+        except Exception:
+            st.session_state["uf_fb_optimistic"] = {"total": 0, "helpful": 0, "not_helpful": 0}
     _opt = st.session_state.get("uf_fb_optimistic", {"total": 0, "helpful": 0, "not_helpful": 0})
     total = stats["total"] + _opt["total"]
     helpful = stats["helpful"] + _opt["helpful"]
