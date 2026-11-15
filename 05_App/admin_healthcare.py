@@ -341,6 +341,7 @@ with btn_col:
     if st.button("Healthcare App", key="back_to_healthcare_dashboard",
                  use_container_width=True):
         st.query_params.clear()
+        st.session_state.pop("_hc_admin_mode", None)
         st.rerun()
     dm_label = "☀️ Light" if is_dark else "🌙 Dark"
     if st.button(dm_label, key="dark_mode_toggle", use_container_width=True):
