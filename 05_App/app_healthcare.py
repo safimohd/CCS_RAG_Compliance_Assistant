@@ -546,7 +546,9 @@ CSS = """
   --ink:#0E2439; --muted:#6B7C93; --line:#E3E9F2; --paper:#F6F8FC;
   --card:#FFFFFF; --brand:#1B4F8C; --brand-2:#2E6FB7; --gold:#B8860B;
 }
-html, body, [class*="css"] { font-family:'DM Sans',-apple-system,'Segoe UI',sans-serif; }
+html, body, [class*="css"], button, input, textarea, select {
+  font-family:'DM Sans',-apple-system,'Segoe UI',sans-serif;
+}
 .stApp { background:var(--paper); }
 .block-container { padding-top:1.1rem; padding-bottom:3rem; max-width:1100px; }
 
@@ -606,26 +608,51 @@ html, body, [class*="css"] { font-family:'DM Sans',-apple-system,'Segoe UI',sans
   border-color:var(--brand-2); color:var(--brand);
   box-shadow:0 6px 16px -9px rgba(27,79,140,.55); transform:translateY(-1px);
 }
-[data-testid="stSidebar"]{ background:#0E2439; }
-[data-testid="stSidebar"] *{ color:#D9E4F1; }
-/* Sidebar selectbox — match the dark navy sidebar in light mode */
+[data-testid="stSidebar"],
+[data-testid="stSidebar"] > div,
+[data-testid="stSidebarContent"] { background:#EEF3F8 !important; }
+[data-testid="stSidebar"] * { color:#17324D; }
+[data-testid="stSidebar"] .rc-brand { color:#0E2439 !important; }
+[data-testid="stSidebar"] .rc-brand-sub,
+[data-testid="stSidebar"] .rc-side-h { color:#647A91 !important; }
+[data-testid="stSidebar"] .rc-how-to {
+  color:#29445F !important; background:#FFFFFF !important;
+  border:1px solid #DCE5EF !important;
+}
+[data-testid="stSidebar"] .rc-how-to b { color:#17324D !important; }
+[data-testid="stSidebar"] .stButton > button,
+[data-testid="stSidebar"] [data-testid="stPopoverButton"],
+[data-testid="stSidebar"] [data-testid="stPopoverButton"] > button {
+  background:#FFFFFF !important; color:#17324D !important;
+  border:1px solid #D4DFEA !important; border-radius:9px !important;
+}
+[data-testid="stSidebar"] .stButton > button:hover,
+[data-testid="stSidebar"] [data-testid="stPopoverButton"]:hover {
+  background:#F7FAFD !important; border-color:#7EA9D2 !important;
+}
 [data-testid="stSidebar"] [data-baseweb="select"],
 [data-testid="stSidebar"] [data-baseweb="select"] > div,
 [data-testid="stSidebar"] [data-baseweb="select"] > div > div,
-[data-testid="stSidebar"] [data-baseweb="select"] > div > div > div,
 [data-testid="stSidebar"] [data-testid="stSelectbox"] > div > div,
-[data-testid="stSidebar"] [data-testid="stSelectbox"] > div > div > div {
-  background:#1A3352 !important;
-  border-color:#2E4E6E !important;
-  color:#D9E4F1 !important;
+[data-testid="stSidebar"] input,
+[data-testid="stSidebar"] textarea {
+  background:#FFFFFF !important; color:#17324D !important;
+  border-color:#D4DFEA !important;
 }
-[data-testid="stSidebar"] [data-baseweb="select"] span,
-[data-testid="stSidebar"] [data-baseweb="select"] div,
-[data-testid="stSidebar"] [data-baseweb="select"] svg { color:#D9E4F1 !important; fill:#D9E4F1 !important; }
-/* Sidebar "Start a new conversation" button — white text on visible dark bg */
-[data-testid="stSidebar"] .stButton > button{
-  background:#1A3352 !important; color:#D9E4F1 !important;
-  border:1px solid #2E4E6E !important; border-radius:9px !important;
+[data-testid="stSidebar"] [data-testid="stExpander"] summary,
+[data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stExpanderDetails"] {
+  background:#FFFFFF !important; color:#17324D !important;
+  border-color:#DCE5EF !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] [data-testid^="stBaseButton-"],
+[data-testid="stSidebar"] [data-testid="stExpander"] button {
+  background:#FFFFFF !important; background-color:#FFFFFF !important;
+  color:#17324D !important; border-color:#D4DFEA !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] button p,
+[data-testid="stSidebar"] [data-testid="stExpander"] button span,
+[data-testid="stSidebar"] [data-testid="stExpander"] button div {
+  color:#17324D !important;
 }
 .rc-brand{
   font-family:'Playfair Display',Georgia,serif; font-size:1.02rem; font-weight:700;
@@ -1444,6 +1471,9 @@ def save_session(session_id: str | None, title: str, domain: str,
     if not url or not svc_key:
         return None
     _role = _cu.get("role", "user")
+    # This app is dedicated to Healthcare; never write sessions under another
+    # domain even if a caller passes an unexpected value.
+    domain = LOCKED_DOMAIN
     try:
         import requests as _req  # noqa: PLC0415
         hdrs = {"apikey": svc_key, "Authorization": f"Bearer {svc_key}",
@@ -1457,7 +1487,9 @@ def save_session(session_id: str | None, title: str, domain: str,
             r = _req.patch(f"{url}/rest/v1/sessions",
                            headers=hdrs,
                            params={"id": f"eq.{session_id}",
-                                   "user_id": f"eq.{_cu['id']}"},
+                                   "user_id": f"eq.{_cu['id']}",
+                                   "domain": f"eq.{LOCKED_DOMAIN}",
+                                   "user_type": f"eq.{_role}"},
                            json=payload, timeout=5)
             if r.ok and r.json():
                 return r.json()[0]["id"]
@@ -1482,12 +1514,15 @@ def load_session(session_id: str) -> dict | None:
     svc_key = _secret("SUPABASE_SERVICE_KEY")
     if not url or not svc_key:
         return None
+    _role = _cu.get("role", "user")
     try:
         import requests as _req  # noqa: PLC0415
         r = _req.get(f"{url}/rest/v1/sessions",
                      headers={"apikey": svc_key, "Authorization": f"Bearer {svc_key}"},
                      params={"id": f"eq.{session_id}",
                              "user_id": f"eq.{_cu['id']}",
+                             "domain": f"eq.{LOCKED_DOMAIN}",
+                             "user_type": f"eq.{_role}",
                              "select": "id,title,domain,messages"},
                      timeout=5)
         if r.ok and r.json():
@@ -1704,6 +1739,8 @@ _default_domain = "Healthcare"
 st.set_page_config(page_title=DOMAIN_META[_default_domain]["title"],
                    page_icon="📋", layout="wide",
                    initial_sidebar_state="expanded")
+if "dark_mode" not in st.session_state:
+    st.session_state["dark_mode"] = False
 st.markdown(CSS, unsafe_allow_html=True)
 if st.session_state.get("dark_mode"):
     st.markdown(DARK_CSS, unsafe_allow_html=True)
@@ -1715,103 +1752,82 @@ if "dq_session_id" not in st.session_state:
     st.session_state["dq_session_id"] = str(_uuid_startup.uuid4())
 
 with st.sidebar:
-    # ── Account popover — sits at the very top of the sidebar ─────────────────
+    # ── Persistent role switch ───────────────────────────────────────────────
+    # Keep the three Healthcare views visible without opening the account menu.
     if "current_user" not in st.session_state:
-        _auto = _demo_login("user")
-        st.session_state["current_user"] = _auto
-
-    _cu = _current_user()
-    _role_labels = {
-        "user": "User",
-        "compliance_officer": "Compliance Officer",
-        "admin": "Admin",
-    }
-    _role_badge = _role_labels.get(_cu["role"], _cu["role"].title())
-    _role_colors = {
-        "user": ("#1a3352", "#4A90D9"),
-        "compliance_officer": ("#1a3d2a", "#34A853"),
-        "admin": ("#3d1a1a", "#D94A4A"),
-    }
-    _rc_bg, _rc_bd = _role_colors.get(_cu["role"], ("#1a3352", "#4A90D9"))
-    _sb_icon = "🟢" if _cu["id"] else "⚪"
-    _sb_label = _role_labels.get(_cu["role"], "Guest")
-
-    with st.popover(f"👤  {_cu['name']}  ·  {_sb_icon} {_sb_label}",
-                    use_container_width=True):
-        st.markdown(
-            f"<div style='background:{_rc_bg};border:1px solid {_rc_bd};"
-            f"border-radius:8px;padding:10px;text-align:center;margin-bottom:10px'>"
-            f"<div style='font-size:1.6rem;margin-bottom:4px'>👤</div>"
-            f"<div style='font-size:.6rem;color:#8FA8C4;margin-bottom:2px'>Signed in as</div>"
-            f"<div style='font-size:.85rem;font-weight:700;color:#CFE0F2'>{_cu['name']}</div>"
-            f"<div style='font-size:.65rem;color:{_rc_bd};font-weight:600'>{_sb_label}</div>"
-            f"</div>"
-            f"<p style='font-size:.6rem;color:#7E99BA;text-transform:uppercase;"
-            f"letter-spacing:.07em;font-weight:700;text-align:center;margin:0 0 6px'>"
-            f"Switch role</p>",
-            unsafe_allow_html=True,
+        st.session_state["current_user"] = _demo_login("user")
+    if "_pending_hc_view" in st.session_state:
+        st.session_state["hc_role_toggle"] = st.session_state.pop("_pending_hc_view")
+    if st.session_state.get("hc_role_toggle") == "🔑 Admin":
+        # The separate dashboard's "Healthcare App" button clears the query
+        # parameter; return the assistant toggle to the user's landing view.
+        st.session_state["hc_role_toggle"] = "👤 User"
+        st.session_state["current_user"] = _demo_login("user") or _GUEST
+        for _key in ("_db_query_history", "_cached_bookmarks", "_user_sessions",
+                     "_active_session_id", "_active_session_title"):
+            st.session_state.pop(_key, None)
+    if "hc_role_toggle" not in st.session_state:
+        _initial_hc_role = _current_user().get("role", "user")
+        st.session_state["hc_role_toggle"] = (
+            "🎖 Compliance Officer" if _initial_hc_role == "compliance_officer"
+            else "👤 User"
         )
-        # _do_role_switch is defined just below — forward reference is fine
-        # because the button callbacks run on next rerun after _do_role_switch is defined
-        if st.button("👤 Guest", key="sb_rp_guest", use_container_width=True,
-                     type="primary" if not _cu["id"] else "secondary"):
-            st.session_state["_pending_role_switch"] = "guest"
-            st.rerun()
-        if st.button("🎖 Compliance Officer", key="sb_rp_co", use_container_width=True,
-                     type="primary" if _cu["role"] == "compliance_officer" else "secondary"):
-            st.session_state["_pending_role_switch"] = "compliance_officer"
-            st.rerun()
-        if st.button("🔑 Admin", key="sb_rp_admin", use_container_width=True,
-                     type="primary" if _cu["role"] == "admin" else "secondary"):
+
+    def _clear_hc_role_state() -> None:
+        for _key in ("_db_query_history", "_cached_bookmarks", "_user_sessions",
+                     "_active_session_id", "_active_session_title"):
+            st.session_state.pop(_key, None)
+        st.session_state["messages"] = []
+        st.session_state["feedback"] = {}
+        st.session_state["_auth_err"] = ""
+
+    def _on_hc_role_toggle() -> None:
+        _selection = st.session_state.get("hc_role_toggle", "👤 User")
+        if _selection == "🔑 Admin":
             st.query_params["admin"] = "1"
-            st.rerun()
-        st.divider()
-        st.markdown("<p style='font-size:.65rem;color:#8FA8C4;margin:0 0 4px'>"
-                    "Sign in with credentials</p>", unsafe_allow_html=True)
-        _sb_email = st.text_input("Email", key="_sb_login_email",
-                                  placeholder="you@claritai.in",
-                                  label_visibility="collapsed")
-        _sb_pw = st.text_input("Password", type="password", key="_sb_login_pw",
-                               placeholder="Password",
-                               label_visibility="collapsed")
-        if st.button("Sign in", use_container_width=True, key="_sb_login_btn", type="primary"):
-            _sb_found = _auth_lookup(_sb_email, _sb_pw)
-            if _sb_found:
-                st.session_state["current_user"] = _sb_found
-                st.session_state["_auth_err"] = ""
-                for _k in ("_db_query_history", "_cached_bookmarks", "_user_sessions",
-                           "_active_session_id", "_active_session_title"):
-                    st.session_state.pop(_k, None)
-                st.session_state["messages"] = []
-                st.session_state["feedback"] = {}
-                st.rerun()
+            return
+        if _selection == "🎖 Compliance Officer":
+            _selected_user = _demo_login("compliance_officer")
+            if not _selected_user:
+                st.session_state["current_user"] = _GUEST
+                st.session_state["hc_role_toggle"] = "👤 User"
+                st.session_state["_role_switch_error"] = "No active Compliance Officer account is available."
             else:
-                st.session_state["_auth_err"] = "Incorrect email or password."
-        if st.session_state.get("_auth_err"):
-            st.error(st.session_state["_auth_err"])
+                st.session_state["current_user"] = _selected_user
+                st.session_state["_role_switch_error"] = ""
+        else:
+            _selected_user = _demo_login("user")
+            st.session_state["current_user"] = _selected_user or _GUEST
+            st.session_state["_role_switch_error"] = (
+                "No active User account is available; session history is unavailable."
+                if not _selected_user else ""
+            )
+        _clear_hc_role_state()
+
+    st.markdown(
+        "<div style='margin-bottom:2px;font-size:11px;color:#9ca3af;"
+        "text-transform:uppercase;letter-spacing:.06em;font-weight:600'>View</div>",
+        unsafe_allow_html=True,
+    )
+    st.radio(
+        "View",
+        ["👤 User", "🎖 Compliance Officer", "🔑 Admin"],
+        key="hc_role_toggle",
+        horizontal=True,
+        label_visibility="collapsed",
+        on_change=_on_hc_role_toggle,
+    )
+    if st.session_state.get("_role_switch_error"):
+        st.caption(st.session_state.pop("_role_switch_error"))
+    st.markdown("<hr style='margin:6px 0 10px;opacity:.15'>", unsafe_allow_html=True)
+
+    # Resolve the active role selected by the toggle above.
+    _cu = _current_user()
 
     st.markdown(f"<div class='rc-brand' style='margin-top:.6rem'>"
                 f"{DOMAIN_META[_default_domain]['title']}</div>"
                 "<div class='rc-brand-sub'>IIM Bangalore · ClaritAI</div>",
                 unsafe_allow_html=True)
-
-    # _do_role_switch helper
-    def _do_role_switch(role_key: str) -> None:
-        _found = _demo_login(role_key) if role_key != "guest" else None
-        st.session_state["current_user"] = _found
-        st.session_state["_auth_err"] = ""
-        for _k in ("_db_query_history", "_cached_bookmarks", "_user_sessions",
-                   "_active_session_id", "_active_session_title"):
-            st.session_state.pop(_k, None)
-        st.session_state["messages"] = []
-        st.session_state["feedback"] = {}
-        st.rerun()
-
-    # Handle role switch triggered from within the popover (buttons inside popovers
-    # fire a rerun before the sidebar scope closes, so we process it here)
-    if st.session_state.get("_pending_role_switch"):
-        _pending = st.session_state.pop("_pending_role_switch")
-        _do_role_switch(_pending)
 
     st.divider()
 
@@ -1920,7 +1936,7 @@ with st.sidebar:
                 _s_updated  = _sess.get("updated_at", "")
                 _s_q_count  = _sess.get("message_count", 0) or 0
                 _s_usertype = _sess.get("user_type", "user")
-                _btn_style  = "primary"
+                _btn_style  = "secondary"
 
                 # Parse timestamp to IST for display
                 try:
@@ -1937,11 +1953,14 @@ with st.sidebar:
                 _sess_num = _si + 1
 
                 _q_label   = f"{_s_q_count}Q" if _s_q_count > 0 else "—"
-                _s_display = f"Session #{_sess_num}  ·  {_date_part}  ·  {_q_label}  🏥"
+                _s_preview = " ".join(_s_title.split())
+                if len(_s_preview) > 34:
+                    _s_preview = _s_preview[:31].rstrip() + "…"
+                _s_display = f"{_s_preview or f'Session #{_sess_num}'}  ·  {_date_part}  ·  {_q_label}"
 
                 if st.button(_s_display, key=f"sess_btn_{_si}",
                              use_container_width=True,
-                             type=_btn_style):
+                             type=_btn_style, help=_s_title):
                     _loaded = load_session(_sess["id"])
                     if _loaded:
                         st.session_state["messages"] = _loaded.get("messages", [])
@@ -2062,18 +2081,19 @@ client = get_client()
 _hero_cu = _current_user()
 _hero_role = _hero_cu.get("role", "user")
 
-_hero_html = (
-    "<div class='rc-hero'>"
-    f"<h1>{meta['title']}</h1>"
-    f"<p>{meta['lede']} Answers come only from these official documents. Where they "
-    "do not settle a question, the assistant says so rather than guessing, and "
-    "every answer shows the sources it relied on.</p>"
-    "<div class='rc-stats'>"
-    + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"])
-    + "</div></div>"
-)
-
-st.markdown(_hero_html, unsafe_allow_html=True)
+if _hero_role != "user":
+    _hero_html = (
+        "<div class='rc-hero'>"
+        f"<h1>{meta['title']}</h1>"
+        f"<p>{meta['lede']} Answers come only from these official documents. Where they "
+        "do not settle a question, the assistant says so rather than guessing, and "
+        "every answer shows the sources it relied on.</p>"
+        "<div class='rc-stats'>"
+        + "".join(f"<span class='rc-stat'>{f}</span>" for f in meta["facts"])
+        + "</div></div>"
+    )
+    
+    st.markdown(_hero_html, unsafe_allow_html=True)
 
 
 # ── Hospital Finder helper ────────────────────────────────────────────────────
@@ -2193,453 +2213,458 @@ def _render_hospital_finder() -> None:
 # ── User role: clean guided chat (no compliance tabs) ─────────────────────────
 _hc_role = _current_user().get("role", "user")
 if _hc_role == "user":
-    from user_flow_healthcare import render_user_flow as _render_user_chat_hc
-    _render_user_chat_hc()
-    st.stop()
+    try:
+        from structured_chat_healthcare import render_user_chat as _render_user_chat_hc
+        _render_user_chat_hc()
+    except Exception:
+        st.error("The patient chat is temporarily unavailable. Please refresh and try again.")
+else:
 
-# ── Main tabs (compliance_officer / admin) ────────────────────────────────────
-_tab_chat, _tab_hospitals, _tab_smart = st.tabs([
-    "💬 Ask a question",
-    "🏥 Hospital Finder",
-    "🤖 Smart Data Chat",
-])
-
-with _tab_hospitals:
-    _render_hospital_finder()
-
-with _tab_smart:
-    from structured_chat_healthcare import render_smart_tab as _render_smart_tab_hc
-    _render_smart_tab_hc()
-
-with _tab_chat:
-    if client is None:
-        st.warning("Answer generation is not configured. Source search still works.")
-
-    _scope_tail = ""
-    if n_scoped is not None and _any_filter:
-        if n_scoped:
-            _scope_tail = (f" — {n_scoped} document" + ("" if n_scoped == 1 else "s")
-                           + " specific to this, plus the general rules")
-        elif n_general:
-            _scope_tail = " — the general rules only"
-        else:
-            _scope_tail = " — no documents cover this"
-    st.markdown(f"<div class='rc-scope'>Searching <b>{html.escape(scope_label)}</b>"
-                f"{html.escape(_scope_tail)}</div>", unsafe_allow_html=True)
-
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-    if "feedback" not in st.session_state:
-        # Maps message index → "up" | "down"
-        st.session_state.feedback = {}
-
-    # Clear-chat shortcut in the main area (complement to sidebar button)
-    if st.session_state.get("messages"):
-        _cc_cols = st.columns([9, 1])
-        if _cc_cols[1].button("🗑️", key="main_clear", help="Clear conversation"):
+    # ── Main tabs (compliance_officer / admin) ────────────────────────────────────
+    _tab_chat, _tab_hospitals, _tab_smart = st.tabs([
+        "💬 Ask a question",
+        "🏥 Hospital Finder",
+        "🤖 Smart Data Chat",
+    ])
+    
+    with _tab_hospitals:
+        _render_hospital_finder()
+    
+    with _tab_smart:
+        from structured_chat_healthcare import render_smart_tab as _render_smart_tab_hc
+        _render_smart_tab_hc()
+    
+    with _tab_chat:
+        if client is None:
+            st.warning("Answer generation is not configured. Source search still works.")
+    
+        _scope_tail = ""
+        if n_scoped is not None and _any_filter:
+            if n_scoped:
+                _scope_tail = (f" — {n_scoped} document" + ("" if n_scoped == 1 else "s")
+                               + " specific to this, plus the general rules")
+            elif n_general:
+                _scope_tail = " — the general rules only"
+            else:
+                _scope_tail = " — no documents cover this"
+        st.markdown(f"<div class='rc-scope'>Searching <b>{html.escape(scope_label)}</b>"
+                    f"{html.escape(_scope_tail)}</div>", unsafe_allow_html=True)
+    
+        if "messages" not in st.session_state:
             st.session_state.messages = []
+        if "feedback" not in st.session_state:
+            # Maps message index → "up" | "down"
             st.session_state.feedback = {}
-            st.rerun()
-
-    # Examples sit directly above the chat and ask the question in place. An earlier
-    # version put them behind a tab; the answer rendered in a tab the reader was not
-    # looking at, so the buttons appeared to do nothing. Reviewed 9 Oct.
-    if not st.session_state.messages:
-        st.markdown("<div class='rc-kicker'>Try one of these</div>", unsafe_allow_html=True)
-        cols = st.columns(2)
-        for i, q in enumerate(examples):
-            # The key carries the scope, so changing the dropdown gives Streamlit new
-            # widgets rather than stale ones wearing new labels.
-            if cols[i % 2].button(q, key=f"ex{scope_label}{i}"):
-                st.session_state.pending_q = q
+    
+        # Clear-chat shortcut in the main area (complement to sidebar button)
+        if st.session_state.get("messages"):
+            _cc_cols = st.columns([9, 1])
+            if _cc_cols[1].button("🗑️", key="main_clear", help="Clear conversation"):
+                st.session_state.messages = []
+                st.session_state.feedback = {}
                 st.rerun()
-
-    for msg_idx, msg in enumerate(st.session_state.messages):
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-            if msg.get("sources"):
-                render_sources(msg["sources"], domain)
-            if msg["role"] == "assistant" and msg.get("rated"):
-                # Confidence badge from stored similarity scores
-                hist_sim = max((r["similarity"] for r in msg.get("sources", [])), default=0.0)
-                if hist_sim >= 0.65:
-                    h_color, h_label, h_icon = "#1a7f4b", "High confidence", "✅"
-                elif hist_sim >= 0.45:
-                    h_color, h_label, h_icon = "#b45309", "Medium confidence", "🟡"
-                else:
-                    h_color, h_label, h_icon = "#6B7C93", "Low confidence", "⚠️"
-                st.markdown(
-                    f"<span style='font-size:.75rem;color:{h_color};"
-                    f"font-weight:600;background:{h_color}18;padding:2px 8px;"
-                    f"border-radius:10px;'>{h_icon} {h_label}</span>",
-                    unsafe_allow_html=True)
-
-                # Copy button
-                render_copy_button(msg["content"], f"hist_{msg_idx}")
-
-                # Share answer button
-                _prev_q = ""
-                for _pi in range(msg_idx - 1, -1, -1):
-                    if st.session_state.messages[_pi]["role"] == "user":
-                        _prev_q = st.session_state.messages[_pi]["content"]
-                        break
-                render_share_button(_prev_q, msg["content"],
-                                    msg.get("sources", []), f"hist_{msg_idx}")
-
-                # Bookmark + Checklist action row
-                _bk_col, _cl_col, _ = st.columns([1, 1, 6])
-                _bk_saved_key = f"_bm_saved_{msg_idx}"
-                if _bk_col.button(
-                    "🔖 Save" if not st.session_state.get(_bk_saved_key) else "✅ Saved",
-                    key=f"bm_btn_{msg_idx}",
-                    help="Save this answer to your bookmarks",
-                    disabled=st.session_state.get(_bk_saved_key, False),
-                ):
-                    _cu_now = _current_user()
-                    if not _cu_now.get("id"):
-                        st.toast("Sign in to save bookmarks.", icon="🔐")
-                    else:
-                        _ok = log_bookmark(domain, _prev_q, msg["content"],
-                                           msg.get("sources", []))
-                        if _ok:
-                            st.session_state[_bk_saved_key] = True
-                            st.toast("Answer saved to bookmarks!", icon="🔖")
-                            st.rerun()
-                        else:
-                            st.toast("Could not save bookmark. Try again.", icon="⚠️")
-
-                _cl_key = f"_show_cl_{msg_idx}"
-                _cl_role = _current_user().get("role", "user")
-                _cl_allowed = _cl_role in ("compliance_officer", "admin")
-                _cl_label = "📋 Hide Checklist" if st.session_state.get(_cl_key) else "📋 Checklist"
-                if _cl_allowed and _cl_col.button(_cl_label, key=f"cl_btn_{msg_idx}",
-                                  help="Convert answer to a compliance checklist"):
-                    st.session_state[_cl_key] = not st.session_state.get(_cl_key, False)
-
-                if _cl_allowed and st.session_state.get(_cl_key):
-                    _items = _extract_checklist(msg["content"])
-                    st.markdown(
-                        "<div style='font-size:.78rem;font-weight:600;color:#CFE0F2;"
-                        "margin:.5rem 0 .3rem'>📋 Compliance Action Checklist</div>",
-                        unsafe_allow_html=True)
-                    if _items:
-                        for _ci, _item in enumerate(_items, 1):
-                            st.checkbox(f"{_ci}. {_item}", key=f"cl_check_{msg_idx}_{_ci}")
-                    else:
-                        st.info("No specific action items found in this answer. "
-                                "Try asking a more targeted compliance question, "
-                                "for example: 'What steps must a telemedicine platform follow?'",
-                                icon="ℹ️")
-
-            # Timestamp -- shown for any assistant message that has one
-            if msg["role"] == "assistant":
-                _ts = msg.get("timestamp", "")
-                if _ts:
-                    st.markdown(
-                        f"<div style='font-size:.68rem;color:#9CA3AF;margin-top:.2rem;'>"
-                        f"🕐 Answered {_ts}</div>",
-                        unsafe_allow_html=True)
-
-            # Feedback buttons for rated answers with sources
-            if msg["role"] == "assistant" and msg.get("sources") and msg.get("rated"):
-                existing = st.session_state.feedback.get(msg_idx)
-                _fb_thanks = st.session_state.get("_fb_thanks", set())
-                fb_cols = st.columns([1, 1, 8])
-                up_type = "primary" if existing == "up" else "secondary"
-                dn_type = "primary" if existing == "down" else "secondary"
-                if fb_cols[0].button("👍", key=f"fb_up_{msg_idx}",
-                                     type=up_type, help="This answer was helpful"):
-                    new_val = None if existing == "up" else "up"
-                    st.session_state.feedback[msg_idx] = new_val
-                    if new_val is not None:
-                        # Find the preceding user question for this answer
-                        _q = ""
-                        for _pi in range(msg_idx - 1, -1, -1):
-                            if st.session_state.messages[_pi]["role"] == "user":
-                                _q = st.session_state.messages[_pi]["content"]
-                                break
-                        log_feedback(domain, _q, msg["content"],
-                                     msg.get("conf_label", ""), msg.get("conf_score", 0.0),
-                                     "up")
-                        st.session_state.setdefault("_fb_thanks", set()).add(msg_idx)
+    
+        # Examples sit directly above the chat and ask the question in place. An earlier
+        # version put them behind a tab; the answer rendered in a tab the reader was not
+        # looking at, so the buttons appeared to do nothing. Reviewed 9 Oct.
+        if not st.session_state.messages:
+            st.markdown("<div class='rc-kicker'>Try one of these</div>", unsafe_allow_html=True)
+            cols = st.columns(2)
+            for i, q in enumerate(examples):
+                # The key carries the scope, so changing the dropdown gives Streamlit new
+                # widgets rather than stale ones wearing new labels.
+                if cols[i % 2].button(q, key=f"ex{scope_label}{i}"):
+                    st.session_state.pending_q = q
                     st.rerun()
-                if fb_cols[1].button("👎", key=f"fb_dn_{msg_idx}",
-                                     type=dn_type, help="This answer needs improvement"):
-                    new_val = None if existing == "down" else "down"
-                    st.session_state.feedback[msg_idx] = new_val
-                    if new_val is not None:
-                        _q = ""
-                        for _pi in range(msg_idx - 1, -1, -1):
-                            if st.session_state.messages[_pi]["role"] == "user":
-                                _q = st.session_state.messages[_pi]["content"]
-                                break
-                        log_feedback(domain, _q, msg["content"],
-                                     msg.get("conf_label", ""), msg.get("conf_score", 0.0),
-                                     "down")
-                        st.session_state.setdefault("_fb_thanks", set()).add(msg_idx)
-                    st.rerun()
-                # Show visual confirmation after feedback
-                if msg_idx in _fb_thanks:
-                    fb_cols[2].markdown(
-                        "<span class='rc-fb-thanks'>Thanks for your feedback!</span>",
-                        unsafe_allow_html=True)
-
-                # Surface any feedback-logging error
-                if st.session_state.get("_fb_err"):
-                    st.warning(f"Feedback not saved: {st.session_state.pop('_fb_err')}")
-
-            # Follow-up questions -- only show for the last assistant message
-            if (msg["role"] == "assistant"
-                    and msg_idx == len(st.session_state.messages) - 1
-                    and msg.get("followups")):
-                st.markdown(
-                    "<div style='font-size:.8rem;color:#6B7C93;margin-top:.6rem;"
-                    "margin-bottom:.25rem;font-weight:600'>💡 You might also ask:</div>",
-                    unsafe_allow_html=True)
-                for i, fq in enumerate(msg["followups"]):
-                    if st.button(fq, key=f"hist_followup_{msg_idx}_{i}",
-                                 use_container_width=True):
-                        st.session_state["pending_q"] = fq
-                        st.rerun()
-
-    _mic_widget("pending_q", _secret("OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY", ""), "mic_chat")
-    prompt = st.chat_input(meta["placeholder"])
-    if not prompt:
-        prompt = st.session_state.pop("pending_q", None)
-
-    if prompt:
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        with st.chat_message("assistant"):
-            # Resolve the scope to exact titles BEFORE searching, so the constraint
-            # goes into the query. An empty scope is an answer ("we hold nothing on
-            # this"), never a reason to search outside it.
-            if scope_needles:
-                specific, general = resolve_scope(domain, scope_needles)
-            else:
-                specific, general = [], []
-            scope_titles = sorted(set(specific) | set(general))
-
-
-            scope_empty = bool(scope_needles) and not scope_titles
-
-            if specific == [] and general and scope_needles:
-                st.info(f"No document is specific to **{scope_label}**. Answering "
-                        f"from the rules that apply throughout.")
-
-            if scope_empty:
-                answer = (f"The library holds no documents specific to "
-                          f"**{scope_label}**, so there is nothing here to answer "
-                          f"from. Nothing outside that selection was searched. "
-                          f"Change the selection in the sidebar to search more widely.")
-                st.markdown(answer)
-                st.session_state.messages.append(
-                    {"role": "assistant", "content": answer, "sources": []})
-                results = []
-            else:
-                with st.spinner("Searching the documents…"):
-                    # For Kannada mode, prepend a language hint to improve retrieval
-                    # of bilingual/Kannada documents without changing the core query
-                    search_prompt = prompt
-                    results = retrieve(store, search_prompt, domain, 6,
-                                       include_drafts, include_review,
-                                       titles=scope_titles or None)
-
-            if not results and not scope_empty:
-                scoped_note = (f" within {scope_label}" if scope_titles else "")
-                answer = (f"Nothing in these documents addresses that question{scoped_note}, "
-                          "so there is no basis here for an answer. It may fall outside "
-                          "what this collection covers.")
-                st.markdown(answer)
-                st.session_state.messages.append(
-                    {"role": "assistant", "content": answer, "sources": []})
-            elif results:
-                # Low-confidence guard: if the best-scoring chunk is below the
-                # threshold the question is likely outside what the collection covers.
-                # We still show the sources (they are the closest we found) but warn
-                # the reader that the match is weak rather than silently generating
-                # a potentially misleading answer.
-                best_sim = max((r["similarity"] for r in results), default=0.0)
-                low_confidence = best_sim < LOW_CONFIDENCE_THRESHOLD
-                if any(r["tier"] == "D" for r in results):
-                    st.warning("Some of this comes from **draft or proposed** rules, "
-                               "which are not in force.")
-                if any(r["tier"] == "E" for r in results):
-                    st.warning("Some of this comes from documents whose **legal status "
-                               "has not been verified**.")
-
-                if low_confidence:
-                    st.info(
-                        "The documents found are only loosely related to your question "
-                        "so this answer may be incomplete or off-target. "
-                        "The closest passages are shown below; consider rephrasing or "
-                        "checking whether the topic falls within this collection.",
-                        icon="ℹ️")
-                    # Show clickable rephrasing suggestions
-                    _suggestions = _LOW_CONF_SUGGESTIONS.get(domain, [])
-                    if _suggestions:
-                        st.markdown(
-                            "<div style='font-size:.8rem;color:#6B7C93;margin-top:.5rem;"
-                            "margin-bottom:.25rem;font-weight:600'>💬 Try one of these instead:</div>",
-                            unsafe_allow_html=True)
-                        for _si, _sq in enumerate(_suggestions):
-                            if st.button(_sq, key=f"lc_suggest_{new_msg_idx}_{_si}",
-                                         use_container_width=True):
-                                st.session_state["pending_q"] = _sq
-                                st.rerun()
-
-                effort = choose_effort(results, prompt)
-                key = cache_key(prompt, domain, scope_label, include_drafts,
-                                include_review, effort)
-                hit = answer_cache().get(key)
-
-                st.markdown(f"<div class='rc-basis'>{basis_sentence(results)}</div>",
-                            unsafe_allow_html=True)
-
-                if low_confidence:
-                    # Skip LLM call for low-confidence matches; show raw passages only.
-                    answer = ("The question does not closely match the documents in "
-                              "this collection. The nearest passages are shown in the "
-                              "sources panel; please review them directly or try a "
-                              "more specific query.")
-                    st.markdown(answer)
-                    log_query(domain, prompt, answer, best_sim, results, True)  # 3A-patch-applied
-                elif hit:
-                    answer = hit["answer"]
-                    st.markdown(answer)
-                elif client is None:
-                    answer = "Answer generation is not configured; see the sources below."
-                    st.markdown(answer)
-                elif daily_usage() >= DAILY_LIMIT:
-                    answer = ("This demonstration has reached its limit of questions for "
-                              "today. The sources found for your question are shown "
-                              "below, and the service resets tomorrow.")
-                    if CONTACT:
-                        answer += f" For access, contact {CONTACT}."
-                    st.warning(answer)
-                else:
-                    answer = generate(client, prompt, domain, results, effort)
-                    bump_usage()
-                    cache_put(key, {"answer": answer, "question": prompt,
-                                    "domain": domain})
-                    log_query(domain, prompt, answer, best_sim, results, low_confidence)
-                    st.caption(
-                        "⚠️ This answer is AI-generated from regulatory documents. "
-                        "Always verify with the official source before acting on it."
-                    )
-
-                # Confidence badge
-                if not low_confidence:
-                    if best_sim >= 0.65:
-                        badge_color, badge_label = "#1a7f4b", "High confidence"
-                        badge_icon = "✅"
-                    elif best_sim >= 0.45:
-                        badge_color, badge_label = "#b45309", "Medium confidence"
-                        badge_icon = "🟡"
+    
+        for msg_idx, msg in enumerate(st.session_state.messages):
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+                if msg.get("sources"):
+                    render_sources(msg["sources"], domain)
+                if msg["role"] == "assistant" and msg.get("rated"):
+                    # Confidence badge from stored similarity scores
+                    hist_sim = max((r["similarity"] for r in msg.get("sources", [])), default=0.0)
+                    if hist_sim >= 0.65:
+                        h_color, h_label, h_icon = "#1a7f4b", "High confidence", "✅"
+                    elif hist_sim >= 0.45:
+                        h_color, h_label, h_icon = "#b45309", "Medium confidence", "🟡"
                     else:
-                        badge_color, badge_label = "#6B7C93", "Low confidence"
-                        badge_icon = "⚠️"
+                        h_color, h_label, h_icon = "#6B7C93", "Low confidence", "⚠️"
                     st.markdown(
-                        f"<span style='font-size:.75rem;color:{badge_color};"
-                        f"font-weight:600;background:{badge_color}18;padding:2px 8px;"
-                        f"border-radius:10px;'>{badge_icon} {badge_label}"
-                        f"<span style='font-weight:400;opacity:.75;margin-left:6px'>"
-                        f"(score: {best_sim:.2f})</span></span>",
+                        f"<span style='font-size:.75rem;color:{h_color};"
+                        f"font-weight:600;background:{h_color}18;padding:2px 8px;"
+                        f"border-radius:10px;'>{h_icon} {h_label}</span>",
                         unsafe_allow_html=True)
-                    # Regulation currency footer
-                    _reg_date = _REG_DATE.get(domain, "2024")
-                    st.markdown(
-                        f"<div style='font-size:.7rem;color:#9CA3AF;margin-top:.3rem;'>"
-                        f"📅 Based on regulations current as of {_reg_date}</div>",
-                        unsafe_allow_html=True)
-
-                    # Timestamp
-                    _now_ts = datetime.now(tz=IST).strftime("%b %d, %Y  %I:%M %p IST")
-                    st.markdown(
-                        f"<div style='font-size:.68rem;color:#9CA3AF;margin-top:.2rem;'>"
-                        f"🕐 Answered {_now_ts}</div>",
-                        unsafe_allow_html=True)
-
-                # Generate follow-ups before appending so they are stored with the message
-                followups: list[str] = []
-                if not low_confidence:
-                    followups = get_contextual_followups(domain, prompt, answer)
-
-                render_sources(results, domain)
-                new_msg_idx = len(st.session_state.messages)
-                _conf_label = badge_label if not low_confidence else "Low confidence"
-                st.session_state.messages.append(
-                    {"role": "assistant", "content": answer, "sources": results,
-                     "rated": not low_confidence, "followups": followups,
-                     "conf_label": _conf_label, "conf_score": best_sim,
-                     "timestamp": datetime.now(tz=IST).strftime("%b %d, %Y  %I:%M %p IST")})
-
-                # Auto-save this conversation as a session for signed-in users
-                _sess_cu = _current_user()
-                if _sess_cu.get("id"):
-                    _sess_msgs = st.session_state.messages
-                    # Title = first user question (trimmed)
-                    _first_q = next((m["content"] for m in _sess_msgs if m["role"] == "user"), "Conversation")
-                    _sess_title = (_first_q[:80] + "…") if len(_first_q) > 80 else _first_q
-                    _existing_sid = st.session_state.get("_active_session_id")
-                    _new_sid = save_session(_existing_sid, _sess_title, domain, _sess_msgs)
-                    if _new_sid:
-                        st.session_state["_active_session_id"] = _new_sid
-                        st.session_state["_active_session_title"] = _sess_title
-                        # Refresh session list so sidebar shows latest
-                        st.session_state["_user_sessions"] = fetch_user_sessions(20)
-
-                # Action row: copy + share + feedback + bookmark buttons
-                if not low_confidence and client is not None and daily_usage() < DAILY_LIMIT:
-                    render_copy_button(answer, f"new_{new_msg_idx}")
-                    render_share_button(prompt, answer, results, f"new_{new_msg_idx}")
-                    fb_cols = st.columns([1, 1, 1, 7])
-                    if fb_cols[0].button("👍", key=f"fb_up_{new_msg_idx}",
-                                         type="secondary", help="This answer was helpful"):
-                        st.session_state.feedback[new_msg_idx] = "up"
-                        st.session_state.setdefault("_fb_thanks", set()).add(new_msg_idx)
-                        log_feedback(domain, prompt, answer, _conf_label, best_sim, "up")
-                        st.rerun()
-                    if fb_cols[1].button("👎", key=f"fb_dn_{new_msg_idx}",
-                                         type="secondary", help="This answer needs improvement"):
-                        st.session_state.feedback[new_msg_idx] = "down"
-                        st.session_state.setdefault("_fb_thanks", set()).add(new_msg_idx)
-                        log_feedback(domain, prompt, answer, _conf_label, best_sim, "down")
-                        st.rerun()
-                    # Save bookmark — available immediately after answer is generated
-                    _new_bk_key = f"_bm_saved_{new_msg_idx}"
-                    if fb_cols[2].button(
-                        "🔖 Save" if not st.session_state.get(_new_bk_key) else "✅ Saved",
-                        key=f"bm_btn_new_{new_msg_idx}",
-                        help="Save this answer to your benchmarks",
-                        disabled=st.session_state.get(_new_bk_key, False),
+    
+                    # Copy button
+                    render_copy_button(msg["content"], f"hist_{msg_idx}")
+    
+                    # Share answer button
+                    _prev_q = ""
+                    for _pi in range(msg_idx - 1, -1, -1):
+                        if st.session_state.messages[_pi]["role"] == "user":
+                            _prev_q = st.session_state.messages[_pi]["content"]
+                            break
+                    render_share_button(_prev_q, msg["content"],
+                                        msg.get("sources", []), f"hist_{msg_idx}")
+    
+                    # Bookmark + Checklist action row
+                    _bk_col, _cl_col, _ = st.columns([1, 1, 6])
+                    _bk_saved_key = f"_bm_saved_{msg_idx}"
+                    if _bk_col.button(
+                        "🔖 Save" if not st.session_state.get(_bk_saved_key) else "✅ Saved",
+                        key=f"bm_btn_{msg_idx}",
+                        help="Save this answer to your bookmarks",
+                        disabled=st.session_state.get(_bk_saved_key, False),
                     ):
                         _cu_now = _current_user()
                         if not _cu_now.get("id"):
-                            st.toast("Sign in to save benchmarks.", icon="🔐")
+                            st.toast("Sign in to save bookmarks.", icon="🔐")
                         else:
-                            _ok = log_bookmark(domain, prompt, answer, results)
+                            _ok = log_bookmark(domain, _prev_q, msg["content"],
+                                               msg.get("sources", []))
                             if _ok:
-                                st.session_state[_new_bk_key] = True
-                                st.toast("Answer saved to benchmarks!", icon="🔖")
+                                st.session_state[_bk_saved_key] = True
+                                st.toast("Answer saved to bookmarks!", icon="🔖")
                                 st.rerun()
                             else:
-                                st.toast("Could not save benchmark. Try again.", icon="⚠️")
-
-                # Surface any feedback-logging error as a warning
-                if st.session_state.get("_fb_err"):
-                    st.warning(f"Feedback not saved: {st.session_state.pop('_fb_err')}")
-
-                # Suggested follow-up questions (rendered from stored list)
-                if followups:
+                                st.toast("Could not save bookmark. Try again.", icon="⚠️")
+    
+                    _cl_key = f"_show_cl_{msg_idx}"
+                    _cl_role = _current_user().get("role", "user")
+                    _cl_allowed = _cl_role in ("compliance_officer", "admin")
+                    _cl_label = "📋 Hide Checklist" if st.session_state.get(_cl_key) else "📋 Checklist"
+                    if _cl_allowed and _cl_col.button(_cl_label, key=f"cl_btn_{msg_idx}",
+                                      help="Convert answer to a compliance checklist"):
+                        st.session_state[_cl_key] = not st.session_state.get(_cl_key, False)
+    
+                    if _cl_allowed and st.session_state.get(_cl_key):
+                        _items = _extract_checklist(msg["content"])
+                        st.markdown(
+                            "<div style='font-size:.78rem;font-weight:600;color:#CFE0F2;"
+                            "margin:.5rem 0 .3rem'>📋 Compliance Action Checklist</div>",
+                            unsafe_allow_html=True)
+                        if _items:
+                            for _ci, _item in enumerate(_items, 1):
+                                st.checkbox(f"{_ci}. {_item}", key=f"cl_check_{msg_idx}_{_ci}")
+                        else:
+                            st.info("No specific action items found in this answer. "
+                                    "Try asking a more targeted compliance question, "
+                                    "for example: 'What steps must a telemedicine platform follow?'",
+                                    icon="ℹ️")
+    
+                # Timestamp -- shown for any assistant message that has one
+                if msg["role"] == "assistant":
+                    _ts = msg.get("timestamp", "")
+                    if _ts:
+                        st.markdown(
+                            f"<div style='font-size:.68rem;color:#9CA3AF;margin-top:.2rem;'>"
+                            f"🕐 Answered {_ts}</div>",
+                            unsafe_allow_html=True)
+    
+                # Feedback buttons for rated answers with sources
+                if msg["role"] == "assistant" and msg.get("sources") and msg.get("rated"):
+                    existing = st.session_state.feedback.get(msg_idx)
+                    _fb_thanks = st.session_state.get("_fb_thanks", set())
+                    fb_cols = st.columns([1, 1, 8])
+                    up_type = "primary" if existing == "up" else "secondary"
+                    dn_type = "primary" if existing == "down" else "secondary"
+                    if fb_cols[0].button("👍", key=f"fb_up_{msg_idx}",
+                                         type=up_type, help="This answer was helpful"):
+                        new_val = None if existing == "up" else "up"
+                        st.session_state.feedback[msg_idx] = new_val
+                        if new_val is not None:
+                            # Find the preceding user question for this answer
+                            _q = ""
+                            for _pi in range(msg_idx - 1, -1, -1):
+                                if st.session_state.messages[_pi]["role"] == "user":
+                                    _q = st.session_state.messages[_pi]["content"]
+                                    break
+                            log_feedback(domain, _q, msg["content"],
+                                         msg.get("conf_label", ""), msg.get("conf_score", 0.0),
+                                         "up")
+                            st.session_state.setdefault("_fb_thanks", set()).add(msg_idx)
+                        st.rerun()
+                    if fb_cols[1].button("👎", key=f"fb_dn_{msg_idx}",
+                                         type=dn_type, help="This answer needs improvement"):
+                        new_val = None if existing == "down" else "down"
+                        st.session_state.feedback[msg_idx] = new_val
+                        if new_val is not None:
+                            _q = ""
+                            for _pi in range(msg_idx - 1, -1, -1):
+                                if st.session_state.messages[_pi]["role"] == "user":
+                                    _q = st.session_state.messages[_pi]["content"]
+                                    break
+                            log_feedback(domain, _q, msg["content"],
+                                         msg.get("conf_label", ""), msg.get("conf_score", 0.0),
+                                         "down")
+                            st.session_state.setdefault("_fb_thanks", set()).add(msg_idx)
+                        st.rerun()
+                    # Show visual confirmation after feedback
+                    if msg_idx in _fb_thanks:
+                        fb_cols[2].markdown(
+                            "<span class='rc-fb-thanks'>Thanks for your feedback!</span>",
+                            unsafe_allow_html=True)
+    
+                    # Surface any feedback-logging error
+                    if st.session_state.get("_fb_err"):
+                        st.warning(f"Feedback not saved: {st.session_state.pop('_fb_err')}")
+    
+                # Follow-up questions -- only show for the last assistant message
+                if (msg["role"] == "assistant"
+                        and msg_idx == len(st.session_state.messages) - 1
+                        and msg.get("followups")):
                     st.markdown(
                         "<div style='font-size:.8rem;color:#6B7C93;margin-top:.6rem;"
                         "margin-bottom:.25rem;font-weight:600'>💡 You might also ask:</div>",
                         unsafe_allow_html=True)
-                    for i, fq in enumerate(followups):
-                        if st.button(fq, key=f"followup_{new_msg_idx}_{i}",
+                    for i, fq in enumerate(msg["followups"]):
+                        if st.button(fq, key=f"hist_followup_{msg_idx}_{i}",
                                      use_container_width=True):
                             st.session_state["pending_q"] = fq
                             st.rerun()
+    
+        _mic_widget("pending_q", _secret("OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY", ""), "mic_chat")
+        prompt = st.chat_input(meta["placeholder"])
+        if not prompt:
+            prompt = st.session_state.pop("pending_q", None)
+    
+        if prompt:
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
+    
+            with st.chat_message("assistant"):
+                # Resolve the scope to exact titles BEFORE searching, so the constraint
+                # goes into the query. An empty scope is an answer ("we hold nothing on
+                # this"), never a reason to search outside it.
+                if scope_needles:
+                    specific, general = resolve_scope(domain, scope_needles)
+                else:
+                    specific, general = [], []
+                scope_titles = sorted(set(specific) | set(general))
+    
+    
+                scope_empty = bool(scope_needles) and not scope_titles
+    
+                if specific == [] and general and scope_needles:
+                    st.info(f"No document is specific to **{scope_label}**. Answering "
+                            f"from the rules that apply throughout.")
+    
+                if scope_empty:
+                    answer = (f"The library holds no documents specific to "
+                              f"**{scope_label}**, so there is nothing here to answer "
+                              f"from. Nothing outside that selection was searched. "
+                              f"Change the selection in the sidebar to search more widely.")
+                    st.markdown(answer)
+                    st.session_state.messages.append(
+                        {"role": "assistant", "content": answer, "sources": []})
+                    results = []
+                else:
+                    with st.spinner("Searching the documents…"):
+                        # For Kannada mode, prepend a language hint to improve retrieval
+                        # of bilingual/Kannada documents without changing the core query
+                        search_prompt = prompt
+                        results = retrieve(store, search_prompt, domain, 6,
+                                           include_drafts, include_review,
+                                           titles=scope_titles or None)
+    
+                if not results and not scope_empty:
+                    scoped_note = (f" within {scope_label}" if scope_titles else "")
+                    answer = (f"Nothing in these documents addresses that question{scoped_note}, "
+                              "so there is no basis here for an answer. It may fall outside "
+                              "what this collection covers.")
+                    st.markdown(answer)
+                    st.session_state.messages.append(
+                        {"role": "assistant", "content": answer, "sources": []})
+                elif results:
+                    # Low-confidence guard: if the best-scoring chunk is below the
+                    # threshold the question is likely outside what the collection covers.
+                    # We still show the sources (they are the closest we found) but warn
+                    # the reader that the match is weak rather than silently generating
+                    # a potentially misleading answer.
+                    best_sim = max((r["similarity"] for r in results), default=0.0)
+                    low_confidence = best_sim < LOW_CONFIDENCE_THRESHOLD
+                    if any(r["tier"] == "D" for r in results):
+                        st.warning("Some of this comes from **draft or proposed** rules, "
+                                   "which are not in force.")
+                    if any(r["tier"] == "E" for r in results):
+                        st.warning("Some of this comes from documents whose **legal status "
+                                   "has not been verified**.")
+    
+                    if low_confidence:
+                        st.info(
+                            "The documents found are only loosely related to your question "
+                            "so this answer may be incomplete or off-target. "
+                            "The closest passages are shown below; consider rephrasing or "
+                            "checking whether the topic falls within this collection.",
+                            icon="ℹ️")
+                        # Show clickable rephrasing suggestions
+                        _suggestions = _LOW_CONF_SUGGESTIONS.get(domain, [])
+                        if _suggestions:
+                            st.markdown(
+                                "<div style='font-size:.8rem;color:#6B7C93;margin-top:.5rem;"
+                                "margin-bottom:.25rem;font-weight:600'>💬 Try one of these instead:</div>",
+                                unsafe_allow_html=True)
+                            for _si, _sq in enumerate(_suggestions):
+                                if st.button(_sq, key=f"lc_suggest_{new_msg_idx}_{_si}",
+                                             use_container_width=True):
+                                    st.session_state["pending_q"] = _sq
+                                    st.rerun()
+    
+                    effort = choose_effort(results, prompt)
+                    key = cache_key(prompt, domain, scope_label, include_drafts,
+                                    include_review, effort)
+                    hit = answer_cache().get(key)
+    
+                    st.markdown(f"<div class='rc-basis'>{basis_sentence(results)}</div>",
+                                unsafe_allow_html=True)
+    
+                    if low_confidence:
+                        # Skip LLM call for low-confidence matches; show raw passages only.
+                        answer = ("The question does not closely match the documents in "
+                                  "this collection. The nearest passages are shown in the "
+                                  "sources panel; please review them directly or try a "
+                                  "more specific query.")
+                        st.markdown(answer)
+                        log_query(domain, prompt, answer, best_sim, results, True)  # 3A-patch-applied
+                    elif hit:
+                        answer = hit["answer"]
+                        st.markdown(answer)
+                    elif client is None:
+                        answer = "Answer generation is not configured; see the sources below."
+                        st.markdown(answer)
+                    elif daily_usage() >= DAILY_LIMIT:
+                        answer = ("This demonstration has reached its limit of questions for "
+                                  "today. The sources found for your question are shown "
+                                  "below, and the service resets tomorrow.")
+                        if CONTACT:
+                            answer += f" For access, contact {CONTACT}."
+                        st.warning(answer)
+                    else:
+                        answer = generate(client, prompt, domain, results, effort)
+                        bump_usage()
+                        cache_put(key, {"answer": answer, "question": prompt,
+                                        "domain": domain})
+                        log_query(domain, prompt, answer, best_sim, results, low_confidence)
+                        st.caption(
+                            "⚠️ This answer is AI-generated from regulatory documents. "
+                            "Always verify with the official source before acting on it."
+                        )
+    
+                    # Confidence badge
+                    if not low_confidence:
+                        if best_sim >= 0.65:
+                            badge_color, badge_label = "#1a7f4b", "High confidence"
+                            badge_icon = "✅"
+                        elif best_sim >= 0.45:
+                            badge_color, badge_label = "#b45309", "Medium confidence"
+                            badge_icon = "🟡"
+                        else:
+                            badge_color, badge_label = "#6B7C93", "Low confidence"
+                            badge_icon = "⚠️"
+                        st.markdown(
+                            f"<span style='font-size:.75rem;color:{badge_color};"
+                            f"font-weight:600;background:{badge_color}18;padding:2px 8px;"
+                            f"border-radius:10px;'>{badge_icon} {badge_label}"
+                            f"<span style='font-weight:400;opacity:.75;margin-left:6px'>"
+                            f"(score: {best_sim:.2f})</span></span>",
+                            unsafe_allow_html=True)
+                        # Regulation currency footer
+                        _reg_date = _REG_DATE.get(domain, "2024")
+                        st.markdown(
+                            f"<div style='font-size:.7rem;color:#9CA3AF;margin-top:.3rem;'>"
+                            f"📅 Based on regulations current as of {_reg_date}</div>",
+                            unsafe_allow_html=True)
+    
+                        # Timestamp
+                        _now_ts = datetime.now(tz=IST).strftime("%b %d, %Y  %I:%M %p IST")
+                        st.markdown(
+                            f"<div style='font-size:.68rem;color:#9CA3AF;margin-top:.2rem;'>"
+                            f"🕐 Answered {_now_ts}</div>",
+                            unsafe_allow_html=True)
+    
+                    # Generate follow-ups before appending so they are stored with the message
+                    followups: list[str] = []
+                    if not low_confidence:
+                        followups = get_contextual_followups(domain, prompt, answer)
+    
+                    render_sources(results, domain)
+                    new_msg_idx = len(st.session_state.messages)
+                    _conf_label = badge_label if not low_confidence else "Low confidence"
+                    st.session_state.messages.append(
+                        {"role": "assistant", "content": answer, "sources": results,
+                         "rated": not low_confidence, "followups": followups,
+                         "conf_label": _conf_label, "conf_score": best_sim,
+                         "timestamp": datetime.now(tz=IST).strftime("%b %d, %Y  %I:%M %p IST")})
+    
+                    # Auto-save this conversation as a session for signed-in users
+                    _sess_cu = _current_user()
+                    if _sess_cu.get("id"):
+                        _sess_msgs = st.session_state.messages
+                        # Title = first user question (trimmed)
+                        _first_q = next((m["content"] for m in _sess_msgs if m["role"] == "user"), "Conversation")
+                        _sess_title = (_first_q[:80] + "…") if len(_first_q) > 80 else _first_q
+                        _existing_sid = st.session_state.get("_active_session_id")
+                        _new_sid = save_session(_existing_sid, _sess_title, domain, _sess_msgs)
+                        if _new_sid:
+                            st.session_state["_active_session_id"] = _new_sid
+                            st.session_state["_active_session_title"] = _sess_title
+                            # Refresh session list so sidebar shows latest
+                            st.session_state["_user_sessions"] = fetch_user_sessions(20)
+    
+                    # Action row: copy + share + feedback + bookmark buttons
+                    if not low_confidence and client is not None and daily_usage() < DAILY_LIMIT:
+                        render_copy_button(answer, f"new_{new_msg_idx}")
+                        render_share_button(prompt, answer, results, f"new_{new_msg_idx}")
+                        fb_cols = st.columns([1, 1, 1, 7])
+                        if fb_cols[0].button("👍", key=f"fb_up_{new_msg_idx}",
+                                             type="secondary", help="This answer was helpful"):
+                            st.session_state.feedback[new_msg_idx] = "up"
+                            st.session_state.setdefault("_fb_thanks", set()).add(new_msg_idx)
+                            log_feedback(domain, prompt, answer, _conf_label, best_sim, "up")
+                            st.rerun()
+                        if fb_cols[1].button("👎", key=f"fb_dn_{new_msg_idx}",
+                                             type="secondary", help="This answer needs improvement"):
+                            st.session_state.feedback[new_msg_idx] = "down"
+                            st.session_state.setdefault("_fb_thanks", set()).add(new_msg_idx)
+                            log_feedback(domain, prompt, answer, _conf_label, best_sim, "down")
+                            st.rerun()
+                        # Save bookmark — available immediately after answer is generated
+                        _new_bk_key = f"_bm_saved_{new_msg_idx}"
+                        if fb_cols[2].button(
+                            "🔖 Save" if not st.session_state.get(_new_bk_key) else "✅ Saved",
+                            key=f"bm_btn_new_{new_msg_idx}",
+                            help="Save this answer to your benchmarks",
+                            disabled=st.session_state.get(_new_bk_key, False),
+                        ):
+                            _cu_now = _current_user()
+                            if not _cu_now.get("id"):
+                                st.toast("Sign in to save benchmarks.", icon="🔐")
+                            else:
+                                _ok = log_bookmark(domain, prompt, answer, results)
+                                if _ok:
+                                    st.session_state[_new_bk_key] = True
+                                    st.toast("Answer saved to benchmarks!", icon="🔖")
+                                    st.rerun()
+                                else:
+                                    st.toast("Could not save benchmark. Try again.", icon="⚠️")
+    
+                    # Surface any feedback-logging error as a warning
+                    if st.session_state.get("_fb_err"):
+                        st.warning(f"Feedback not saved: {st.session_state.pop('_fb_err')}")
+    
+                    # Suggested follow-up questions (rendered from stored list)
+                    if followups:
+                        st.markdown(
+                            "<div style='font-size:.8rem;color:#6B7C93;margin-top:.6rem;"
+                            "margin-bottom:.25rem;font-weight:600'>💡 You might also ask:</div>",
+                            unsafe_allow_html=True)
+                        for i, fq in enumerate(followups):
+                            if st.button(fq, key=f"followup_{new_msg_idx}_{i}",
+                                         use_container_width=True):
+                                st.session_state["pending_q"] = fq
+                                st.rerun()
+    
+    

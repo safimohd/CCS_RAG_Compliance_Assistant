@@ -6,9 +6,6 @@ Deployed as a separate app on Streamlit Community Cloud pointing to this file.
 Secrets required (same Supabase project as main app):
     SUPABASE_URL
     SUPABASE_SERVICE_KEY
-    ADMIN_PASSWORD   -- password for regular access (Prof, reviewers)
-    ADMIN_USERNAME   -- username for admin-level access
-    ADMIN_SECRET     -- password for admin-level access
 """
 import datetime
 import os
@@ -177,82 +174,12 @@ else:
       hr { border-color: var(--border) !important; }
     </style>""", unsafe_allow_html=True)
 
-# Streamlit's password toggle falls back to the literal Material icon name
-# when the icon font is unavailable. Replace that label with a compact eye.
-st.markdown("""<style>
-  [aria-label="Show password"] {
-    font-size: 0 !important;
-    color: transparent !important;
-    position: relative !important;
-  }
-  [aria-label="Show password"] > * {
-    display: none !important;
-  }
-  [aria-label="Show password"]::after {
-    content: "👁";
-    font-size: 15px !important;
-    line-height: 1 !important;
-    color: #14233c !important;
-    display: inline-block !important;
-  }
-</style>""", unsafe_allow_html=True)
-
-# ─── Auth guard ────────────────────────────────────────────────────────────
-ADMIN_PASSWORD = _secret("ADMIN_PASSWORD")
-ADMIN_USERNAME = _secret("ADMIN_USERNAME")
-ADMIN_SECRET   = _secret("ADMIN_SECRET")
-
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-if "is_admin" not in st.session_state:
-    st.session_state.is_admin = False
-
-if not st.session_state.authenticated:
-    _, center_col, _ = st.columns([1, 1.2, 1])
-    with center_col:
-        st.markdown("<div style='height:72px'></div>", unsafe_allow_html=True)
-        st.markdown("""
-        <div style='text-align:center;margin-bottom:32px;'>
-          <div style='width:64px;height:64px;background:linear-gradient(135deg,#1e3a6e,#2563eb);
-                      border-radius:16px;margin:0 auto 16px;display:flex;align-items:center;
-                      justify-content:center;font-size:30px;'>🛡️</div>
-          <h2 style='margin:0;font-size:26px;font-weight:800;letter-spacing:-0.02em;'>CCS RAG Admin</h2>
-          <p style='color:#6b7a99;margin:8px 0 0;font-size:14px;font-weight:500;'>Compliance Intelligence Dashboard</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        if st.button("← Healthcare Assistant", key="back_to_healthcare_login",
-                     use_container_width=True):
-            st.query_params.clear()
-            st.rerun()
-
-        login_type = st.radio(
-            "Login as",
-            ["Reviewer / Guest", "Admin"],
-            horizontal=True,
-            key="login_type_radio",
-        )
-        if login_type == "Admin":
-            uname = st.text_input("Username", key="login_uname")
-            pwd   = st.text_input("Password", type="password", key="login_pwd_admin")
-            if st.button("Sign in", key="btn_admin_login", use_container_width=True):
-                if uname == ADMIN_USERNAME and pwd == ADMIN_SECRET:
-                    st.session_state.authenticated = True
-                    st.session_state.is_admin = True
-                    st.session_state.admin_username = uname
-                    st.rerun()
-                else:
-                    st.error("Invalid username or password.")
-        else:
-            pwd = st.text_input("Password", type="password", key="login_pwd_guest")
-            if st.button("Sign in", key="btn_guest_login", use_container_width=True):
-                if pwd == ADMIN_PASSWORD:
-                    st.session_state.authenticated = True
-                    st.session_state.is_admin = False
-                    st.rerun()
-                else:
-                    st.error("Incorrect password.")
-    st.stop()
+# ─── Demo access: open the Healthcare dashboard directly ────────────────────
+# The dashboard route is already selected explicitly from the Healthcare app.
+# Keep its admin controls available for the demo without a second login step.
+st.session_state.authenticated = True
+st.session_state.is_admin = True
+st.session_state.setdefault("admin_username", "Demo Admin")
 
 
 # ─── Supabase config ────────────────────────────────────────────────────────
@@ -419,12 +346,6 @@ with btn_col:
     if st.button(dm_label, key="dark_mode_toggle", use_container_width=True):
         st.session_state.dark_mode = not st.session_state.dark_mode
         st.rerun()
-    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-    if st.button("Sign out", key="logout_btn", use_container_width=True):
-        st.session_state.authenticated = False
-        st.session_state.is_admin = False
-        st.rerun()
-
 st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
 # ─── Tabs ───────────────────────────────────────────────────────────────────
@@ -1037,3 +958,4 @@ with tab4:
       MoHFW returned 404/403 errors and mciindia.org DNS lookup fails (MCI was dissolved in 2020).
       These are excluded from all counts above.
     </div>""", unsafe_allow_html=True)
+
