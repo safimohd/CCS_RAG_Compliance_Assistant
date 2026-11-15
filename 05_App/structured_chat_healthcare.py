@@ -73,7 +73,7 @@ def _log_hc_feedback(question: str, answer: str, conf_label: str,
         _opt["not_helpful"] += 1
 
     try:
-        _req.post(
+        resp = _req.post(
             f"{url}/rest/v1/feedback",
             headers={
                 "apikey": key,
@@ -93,15 +93,18 @@ def _log_hc_feedback(question: str, answer: str, conf_label: str,
             },
             timeout=5,
         )
-        # POST succeeded: bust the stats cache so the next full fetch reflects
-        # the new row, then zero out the optimistic overlay so counts stay
-        # accurate after the cache refreshes (avoids the +1 double-count).
-        st.cache_data.clear()
-        _opt["total"] = 0
-        _opt["helpful"] = 0
-        _opt["not_helpful"] = 0
+        if resp.ok:
+            # POST confirmed by Supabase: bust the stats cache so the next
+            # full fetch reflects the new row, then zero the optimistic
+            # overlay (avoids double-counting once the real data loads).
+            st.cache_data.clear()
+            _opt["total"] = 0
+            _opt["helpful"] = 0
+            _opt["not_helpful"] = 0
+        # If resp is not ok (4xx/5xx), keep the optimistic overlay active
+        # so the dashboard still reflects the click even if the write failed.
     except Exception:
-        pass
+        pass  # Network error: optimistic overlay stays active
 
 
 def _supa(table: str, params: dict, limit: int = 10) -> list[dict]:
