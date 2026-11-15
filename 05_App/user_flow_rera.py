@@ -78,6 +78,40 @@ def _log_rera_query(question: str, answer_snippet: str, session_id: str) -> None
         pass  # Fire-and-forget; never block the chat
 
 
+def _save_rera_feedback(question: str, answer_snippet: str, feedback_type: str,
+                        session_id: str = "", user_role: str = "user") -> bool:
+    """Insert a thumbs-up or thumbs-down into the feedback table (domain=RERA)."""
+    url = _secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL", "")
+    svc = _secret("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_SERVICE_KEY", "")
+    key = _secret("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY", "")
+    auth_key = svc or key
+    if not url or not auth_key:
+        return False
+    try:
+        import requests as _req
+        r = _req.post(
+            f"{url}/rest/v1/feedback",
+            headers={
+                "apikey": auth_key,
+                "Authorization": f"Bearer {auth_key}",
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal",
+            },
+            json={
+                "domain": "RERA",
+                "question": question[:1000],
+                "answer_snippet": answer_snippet[:500],
+                "feedback_type": feedback_type,
+                "user_role": user_role,
+                "user_id": session_id or None,
+            },
+            timeout=5,
+        )
+        return r.status_code in (200, 201)
+    except Exception:
+        return False
+
+
 def _fetch_rera_user_history(limit: int = 15) -> list:
     """Fetch recent RERA user queries from the queries table (legacy, kept for internal use)."""
     url = _secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL", "")
@@ -1266,15 +1300,57 @@ def _render_chat():
                     answer = f"Sorry, something went wrong. Please try again. ({e})"
 
                 st.markdown(answer)
+                st.caption("Source: Karnataka RERA Knowledge Base")
                 st.session_state.uf_chat_history.append(
                     {"role": "assistant", "content": answer}
                 )
+                # Mark this answer as awaiting feedback
+                st.session_state["uf_pending_fb"] = {
+                    "question": user_input,
+                    "answer_snippet": answer[:500],
+                    "rated": False,
+                }
                 # Log this query to Supabase for user session history
                 _log_rera_query(
                     question=user_input,
                     answer_snippet=answer[:500],
                     session_id=st.session_state.get("uf_session_id", ""),
                 )
+
+    # ── Feedback buttons for latest answer ────────────────────────────────────
+    _pfb = st.session_state.get("uf_pending_fb")
+    _hist_now = st.session_state.get("uf_chat_history", [])
+    if _pfb and not _pfb.get("rated") and _hist_now and _hist_now[-1]["role"] == "assistant":
+        st.markdown(
+            "<div style='font-size:.78rem;color:#9ca3af;margin-bottom:4px'>"
+            "Was this answer helpful?</div>",
+            unsafe_allow_html=True,
+        )
+        _fbc1, _fbc2, _fbc3 = st.columns([1, 1, 4])
+        with _fbc1:
+            if st.button("👍 Helpful", key="uf_fb_up", use_container_width=True):
+                _save_rera_feedback(
+                    question=_pfb["question"],
+                    answer_snippet=_pfb["answer_snippet"],
+                    feedback_type="up",
+                    session_id=st.session_state.get("uf_session_id", ""),
+                )
+                st.session_state["uf_pending_fb"]["rated"] = True
+                st.cache_data.clear()
+                st.rerun()
+        with _fbc2:
+            if st.button("👎 Not helpful", key="uf_fb_down", use_container_width=True):
+                _save_rera_feedback(
+                    question=_pfb["question"],
+                    answer_snippet=_pfb["answer_snippet"],
+                    feedback_type="down",
+                    session_id=st.session_state.get("uf_session_id", ""),
+                )
+                st.session_state["uf_pending_fb"]["rated"] = True
+                st.cache_data.clear()
+                st.rerun()
+    elif _pfb and _pfb.get("rated"):
+        st.success("Thanks for your feedback! It helps us improve.", icon="✅")
 
     # ── New Chat / Clear Chat buttons ─────────────────────────────────────────
     _btn_col1, _btn_col2 = st.columns([1, 1])
@@ -2637,68 +2713,60 @@ def main():
             )
             _render_feedback_stats_bar()
             st.markdown("<hr style='margin:4px 0 8px;opacity:.15'>", unsafe_allow_html=True)
-            st.markdown(
-                "<div style='margin-bottom:6px;font-size:11px;color:#9ca3af;"
-                "text-transform:uppercase;letter-spacing:.06em;font-weight:600'>"
-                "Past Sessions</div>",
-                unsafe_allow_html=True,
-            )
             _sessions = _fetch_rera_sessions(limit=5)
-            # Exclude the current active session from the list
             _active_sid = st.session_state.get("uf_session_id", "")
             _sessions = [s for s in _sessions if s["session_id"] != _active_sid]
-
-            if _sessions:
-                for _s in _sessions:
-                    _sid = _s["session_id"]
-                    _preview = _s["preview"]
-                    _short = _preview[:45] + "…" if len(_preview) > 45 else _preview
-                    _cnt = _s.get("count", 1)
-                    _raw_dt = _s.get("created_at", "")
-                    try:
-                        from datetime import datetime as _dt
-                        _date_str = _dt.fromisoformat(
-                            _raw_dt.replace("Z", "+00:00")
-                        ).strftime("%d %b")
-                    except Exception:
-                        _date_str = ""
-                    _msg_label = f"{_cnt} msg{'s' if _cnt != 1 else ''}"
-                    _btn_label = f"{_short}"
-                    _btn_help = (
-                        f"{_preview}\n\n{_msg_label}  ·  {_date_str}"
-                        if _date_str else f"{_preview}\n\n{_msg_label}"
-                    )
-                    # Sub-label row: date + message count
+            _sess_label = f"🔍 Past Sessions ({len(_sessions)})" if _sessions else "🔍 Past Sessions"
+            with st.expander(_sess_label, expanded=False):
+                if _sessions:
+                    for _s in _sessions:
+                        _sid = _s["session_id"]
+                        _preview = _s["preview"]
+                        _short = _preview[:45] + "…" if len(_preview) > 45 else _preview
+                        _cnt = _s.get("count", 1)
+                        _raw_dt = _s.get("created_at", "")
+                        try:
+                            from datetime import datetime as _dt
+                            _date_str = _dt.fromisoformat(
+                                _raw_dt.replace("Z", "+00:00")
+                            ).strftime("%d %b")
+                        except Exception:
+                            _date_str = ""
+                        _msg_label = f"{_cnt} msg{'s' if _cnt != 1 else ''}"
+                        _btn_label = f"{_short}"
+                        _btn_help = (
+                            f"{_preview}\n\n{_msg_label}  ·  {_date_str}"
+                            if _date_str else f"{_preview}\n\n{_msg_label}"
+                        )
+                        st.markdown(
+                            f"<div style='font-size:.68rem;color:#6b7280;margin-bottom:1px'>"
+                            f"{_date_str} &nbsp;·&nbsp; {_msg_label}</div>",
+                            unsafe_allow_html=True,
+                        )
+                        if st.button(
+                            _btn_label,
+                            key=f"sess_btn_{_sid[:8]}",
+                            use_container_width=True,
+                            help=_btn_help,
+                        ):
+                            _msgs = _fetch_session_messages(_sid)
+                            _restored = []
+                            for _m in _msgs:
+                                _q_text = (_m.get("question") or "").strip()
+                                _a_text = (_m.get("answer_snippet") or "").strip()
+                                if _q_text:
+                                    _restored.append({"role": "user", "content": _q_text})
+                                if _a_text:
+                                    _restored.append({"role": "assistant", "content": _a_text})
+                            st.session_state["uf_chat_history"] = _restored
+                            st.session_state["uf_session_id"] = _sid
+                            st.rerun()
+                else:
                     st.markdown(
-                        f"<div style='font-size:.68rem;color:#6b7280;margin-bottom:1px'>"
-                        f"{_date_str} &nbsp;·&nbsp; {_msg_label}</div>",
+                        "<p style='font-size:.78rem;color:#9ca3af;margin:2px 0 8px'>"
+                        "No past sessions yet.</p>",
                         unsafe_allow_html=True,
                     )
-                    if st.button(
-                        _btn_label,
-                        key=f"sess_btn_{_sid[:8]}",
-                        use_container_width=True,
-                        help=_btn_help,
-                    ):
-                        # Restore session: load all Q&A pairs as chat history
-                        _msgs = _fetch_session_messages(_sid)
-                        _restored = []
-                        for _m in _msgs:
-                            _q_text = (_m.get("question") or "").strip()
-                            _a_text = (_m.get("answer_snippet") or "").strip()
-                            if _q_text:
-                                _restored.append({"role": "user", "content": _q_text})
-                            if _a_text:
-                                _restored.append({"role": "assistant", "content": _a_text})
-                        st.session_state["uf_chat_history"] = _restored
-                        st.session_state["uf_session_id"] = _sid
-                        st.rerun()
-            else:
-                st.markdown(
-                    "<p style='font-size:.78rem;color:#9ca3af;margin:2px 0 8px'>"
-                    "No past sessions yet.</p>",
-                    unsafe_allow_html=True,
-                )
 
         st.markdown(
             "<h2 style='margin-bottom:2px'>Karnataka RERA Property Advisor</h2>"
