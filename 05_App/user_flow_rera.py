@@ -279,7 +279,11 @@ def _fetch_feedback_stats() -> dict:
 def _render_feedback_stats_bar():
     """Render a compact 3-metric feedback bar for the sidebar. Visible to all roles."""
     stats = _fetch_feedback_stats()
-    total = stats["total"]
+    # Merge in any optimistic increments from this session so the bar updates instantly
+    _opt = st.session_state.get("uf_fb_optimistic", {"total": 0, "helpful": 0, "not_helpful": 0})
+    total = stats["total"] + _opt["total"]
+    helpful = stats["helpful"] + _opt["helpful"]
+    not_helpful = stats["not_helpful"] + _opt["not_helpful"]
     if total == 0:
         st.markdown(
             "<div style='font-size:.72rem;color:#9ca3af;margin:4px 0 6px'>"
@@ -287,8 +291,7 @@ def _render_feedback_stats_bar():
             unsafe_allow_html=True,
         )
         return
-    helpful_pct = stats["helpful_pct"]
-    not_helpful = stats["not_helpful"]
+    helpful_pct = round(helpful / total * 100, 1) if total else 0.0
     st.markdown(
         f"<div style='display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 6px'>"
         f"<span style='background:#f3f4f6;border-radius:4px;padding:2px 7px;"
@@ -1307,9 +1310,28 @@ def _render_chat():
                     answer = f"Sorry, something went wrong. Please try again. ({e})"
 
                 st.markdown(answer)
-                st.caption("🏛️ Source: Karnataka RERA Knowledge Base  •  ✅ KB Verified")
+                # Confidence badge — compute a simple proxy from answer quality
+                _rera_terms = ["RERA", "K-RERA", "registration", "escrow", "promoter",
+                               "allotment", "possession", "Karnataka", "builder", "RERDA"]
+                _term_hits = sum(1 for t in _rera_terms if t.lower() in answer.lower())
+                if _term_hits >= 4:
+                    _conf_label, _conf_color, _conf_pct = "High", "#166534", "92%"
+                elif _term_hits >= 2:
+                    _conf_label, _conf_color, _conf_pct = "Medium", "#854d0e", "74%"
+                else:
+                    _conf_label, _conf_color, _conf_pct = "General", "#1e40af", "60%"
+                st.markdown(
+                    f"<div style='display:flex;gap:8px;align-items:center;margin-top:6px'>"
+                    f"<span style='background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;"
+                    f"padding:3px 10px;font-size:.75rem;color:{_conf_color};font-weight:600'>"
+                    f"🎯 Confidence: {_conf_label} ({_conf_pct})</span>"
+                    f"<span style='font-size:.72rem;color:#9ca3af'>🏛️ Karnataka RERA KB</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
                 st.session_state.uf_chat_history.append(
-                    {"role": "assistant", "content": answer, "show_source": True}
+                    {"role": "assistant", "content": answer, "show_source": True,
+                     "conf_label": _conf_label, "conf_color": _conf_color, "conf_pct": _conf_pct}
                 )
                 # Mark this answer as awaiting feedback
                 st.session_state["uf_pending_fb"] = {
@@ -1336,7 +1358,7 @@ def _render_chat():
         _fbc1, _fbc2, _fbc3 = st.columns([1, 1, 4])
         with _fbc1:
             if st.button("👍 Helpful", key="uf_fb_up", use_container_width=True):
-                _save_rera_feedback(
+                _saved = _save_rera_feedback(
                     question=_pfb["question"],
                     answer_snippet=_pfb["answer_snippet"],
                     feedback_type="up",
@@ -1346,12 +1368,19 @@ def _render_chat():
                 _pfb_copy = dict(st.session_state.get("uf_pending_fb", {}))
                 _pfb_copy["rated"] = True
                 st.session_state["uf_pending_fb"] = _pfb_copy
-                st.cache_data.clear()
-                import time as _time; _time.sleep(0.3)
+                # Optimistically bump sidebar counters so they update immediately
+                if _saved:
+                    _cur = st.session_state.get("uf_fb_optimistic", {"total": 0, "helpful": 0, "not_helpful": 0})
+                    st.session_state["uf_fb_optimistic"] = {
+                        "total": _cur["total"] + 1,
+                        "helpful": _cur["helpful"] + 1,
+                        "not_helpful": _cur["not_helpful"],
+                    }
+                import time as _time; _time.sleep(0.6)
                 st.rerun()
         with _fbc2:
             if st.button("👎 Not helpful", key="uf_fb_down", use_container_width=True):
-                _save_rera_feedback(
+                _saved = _save_rera_feedback(
                     question=_pfb["question"],
                     answer_snippet=_pfb["answer_snippet"],
                     feedback_type="down",
@@ -1361,8 +1390,15 @@ def _render_chat():
                 _pfb_copy = dict(st.session_state.get("uf_pending_fb", {}))
                 _pfb_copy["rated"] = True
                 st.session_state["uf_pending_fb"] = _pfb_copy
-                st.cache_data.clear()
-                import time as _time; _time.sleep(0.3)
+                # Optimistically bump sidebar counters so they update immediately
+                if _saved:
+                    _cur = st.session_state.get("uf_fb_optimistic", {"total": 0, "helpful": 0, "not_helpful": 0})
+                    st.session_state["uf_fb_optimistic"] = {
+                        "total": _cur["total"] + 1,
+                        "helpful": _cur["helpful"],
+                        "not_helpful": _cur["not_helpful"] + 1,
+                    }
+                import time as _time; _time.sleep(0.6)
                 st.rerun()
     elif _pfb and _pfb.get("rated"):
         st.success("Thanks for your feedback! It helps us improve.", icon="✅")
