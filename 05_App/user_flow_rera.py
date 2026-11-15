@@ -1401,6 +1401,7 @@ def _render_chat():
                 # Clear ALL caches so admin tab picks up new row immediately
                 st.cache_data.clear()
                 import time as _time; _time.sleep(0.6)
+                st.session_state.pop("uf_fb_optimistic", None)
                 st.rerun()
         with _fbc2:
             if st.button("👎 Not helpful", key="uf_fb_down", use_container_width=True):
@@ -1425,6 +1426,7 @@ def _render_chat():
                 # Clear ALL caches so admin tab picks up new row immediately
                 st.cache_data.clear()
                 import time as _time; _time.sleep(0.6)
+                st.session_state.pop("uf_fb_optimistic", None)
                 st.rerun()
     elif _pfb and _pfb.get("rated"):
         st.success("Thanks for your feedback! It helps us improve.", icon="✅")
