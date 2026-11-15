@@ -308,6 +308,10 @@ role_color = "#3b82f6" if st.session_state.is_admin else "#64748b"
 
 with st.sidebar:
     st.markdown(
+        "<style>[data-testid='stSidebar'] [data-testid='stRadio'] > div {"
+        "flex-direction:row!important;flex-wrap:nowrap!important;gap:4px!important}"
+        "[data-testid='stSidebar'] [data-testid='stRadio'] label {"
+        "font-size:.75rem!important;white-space:nowrap!important}</style>"
         "<div style='margin-bottom:2px;font-size:11px;color:#9ca3af;"
         "text-transform:uppercase;letter-spacing:.06em;font-weight:600'>View</div>",
         unsafe_allow_html=True,

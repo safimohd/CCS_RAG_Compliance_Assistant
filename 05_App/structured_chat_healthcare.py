@@ -81,6 +81,15 @@ def _log_hc_feedback(question: str, answer: str, conf_label: str,
             },
             timeout=5,
         )
+        # Optimistic counter so the sidebar bar updates immediately
+        _opt = st.session_state.setdefault(
+            "_hc_fb_optimistic", {"total": 0, "helpful": 0, "not_helpful": 0}
+        )
+        _opt["total"] += 1
+        if feedback_type == "up":
+            _opt["helpful"] += 1
+        else:
+            _opt["not_helpful"] += 1
     except Exception:
         pass
 

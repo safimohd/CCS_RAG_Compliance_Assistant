@@ -1338,9 +1338,13 @@ def fetch_feedback_stats() -> dict:
             return {}
         rows = resp.json() or []
         total = len(rows)
-        ups = sum(1 for r in rows if r.get("feedback_type") == "up")
-        pct = int(ups / total * 100) if total else 0
-        return {"total": total, "ups": ups, "downs": total - ups, "pct": pct}
+        helpful = sum(1 for r in rows if r.get("feedback_type") == "up")
+        not_helpful = total - helpful
+        helpful_pct = round(helpful / total * 100, 1) if total else 0.0
+        return {"total": total, "helpful": helpful, "not_helpful": not_helpful,
+                "helpful_pct": helpful_pct,
+                # legacy keys kept for any existing callers
+                "ups": helpful, "downs": not_helpful, "pct": int(helpful_pct)}
     except Exception:
         return {}
 
@@ -1835,6 +1839,10 @@ with st.sidebar:
         _clear_hc_role_state()
 
     st.markdown(
+        "<style>[data-testid='stSidebar'] [data-testid='stRadio'] > div {"
+        "flex-direction:row!important;flex-wrap:nowrap!important;gap:4px!important}"
+        "[data-testid='stSidebar'] [data-testid='stRadio'] label {"
+        "font-size:.75rem!important;white-space:nowrap!important}</style>"
         "<div style='margin-bottom:2px;font-size:11px;color:#9ca3af;"
         "text-transform:uppercase;letter-spacing:.06em;font-weight:600'>View</div>",
         unsafe_allow_html=True,
@@ -1945,12 +1953,21 @@ with st.sidebar:
 
     # ── Community feedback stats (sidebar) ───────────────────────────────────
     _sb_fb = fetch_feedback_stats()
-    if _sb_fb.get("total", 0) > 0:
+    # Merge optimistic increments so the bar updates the moment a user clicks
+    _opt = st.session_state.get("_hc_fb_optimistic", {"total": 0, "helpful": 0, "not_helpful": 0})
+    _fb_total = _sb_fb.get("total", 0) + _opt["total"]
+    _fb_helpful = _sb_fb.get("helpful", 0) + _opt["helpful"]
+    _fb_not_helpful = _sb_fb.get("not_helpful", 0) + _opt["not_helpful"]
+    if _fb_total > 0:
+        _fb_pct = round(_fb_helpful / _fb_total * 100, 1)
         st.markdown(
-            f"<div style='font-size:.72rem;color:#6B7C93;margin:.4rem 0 .2rem;'>"
-            f"📊 Community: <b style='color:#1a7f4b'>{_sb_fb['ups']} 👍</b> "
-            f"/ {_sb_fb['total']} ratings "
-            f"<span style='color:#1a7f4b;'>({_sb_fb['pct']}% helpful)</span>"
+            f"<div style='display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 6px'>"
+            f"<span style='background:#f3f4f6;border-radius:4px;padding:2px 7px;"
+            f"font-size:.7rem;color:#374151'>⭐ {_fb_total} rated</span>"
+            f"<span style='background:#dcfce7;border-radius:4px;padding:2px 7px;"
+            f"font-size:.7rem;color:#166534'>✅ {_fb_pct}% helpful</span>"
+            f"<span style='background:#fee2e2;border-radius:4px;padding:2px 7px;"
+            f"font-size:.7rem;color:#991b1b'>❌ {_fb_not_helpful} not helpful</span>"
             f"</div>",
             unsafe_allow_html=True,
         )
