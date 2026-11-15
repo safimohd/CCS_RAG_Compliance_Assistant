@@ -519,19 +519,6 @@ def render_user_chat(store=None):
 
     history: list[dict] = st.session_state[hk]
 
-    # Feedback stats bar — always visible above chat
-    _fb = _fetch_hc_feedback_stats()
-    if _fb.get("total", 0) > 0:
-        st.markdown(
-            f"<div style='font-size:.72rem;color:#6B7C93;margin-bottom:.4rem;'>"
-            f"📊 Community feedback: "
-            f"<b style='color:#1a7f4b'>{_fb['ups']} 👍</b> "
-            f"out of <b>{_fb['total']}</b> ratings "
-            f"<span style='color:#1a7f4b;font-weight:600'>({_fb['pct']}% helpful)</span>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-
     if not history:
         prompt_options = [
             "I have a health question",
@@ -672,35 +659,34 @@ def render_user_chat(store=None):
         "conf_score": round(_best_sim, 4),
     })
 
-    # Show confidence badge for new answer
-    with st.chat_message("assistant"):
-        _badge_colors = {"High": ("#d1fae5", "#065f46"), "Medium": ("#fef9c3", "#713f12"), "Low": ("#fee2e2", "#991b1b")}
-        _bg, _fg = _badge_colors.get(_conf_label, ("#f3f4f6", "#374151"))
-        st.markdown(
-            f"<span style='background:{_bg};color:{_fg};font-size:.7rem;"
-            f"font-weight:600;padding:2px 8px;border-radius:999px;'>"
-            f"{_conf_label} confidence ({_best_sim:.2f})</span>",
-            unsafe_allow_html=True,
-        )
-        if source_refs:
-            with st.expander("Sources used"):
-                for source in source_refs:
-                    title = source.get("title", "Official source")
-                    url = source.get("url")
-                    st.markdown(f"- [{title}]({url})" if url else f"- {title}")
+    # Confidence badge + sources below the answer (no extra chat bubble)
+    _badge_colors = {"High": ("#d1fae5", "#065f46"), "Medium": ("#fef9c3", "#713f12"), "Low": ("#fee2e2", "#991b1b")}
+    _bg, _fg = _badge_colors.get(_conf_label, ("#f3f4f6", "#374151"))
+    st.markdown(
+        f"<span style='background:{_bg};color:{_fg};font-size:.7rem;"
+        f"font-weight:600;padding:2px 8px;border-radius:999px;margin-left:52px;'>"
+        f"{_conf_label} confidence ({_best_sim:.2f})</span>",
+        unsafe_allow_html=True,
+    )
+    if source_refs:
+        with st.expander("Sources used"):
+            for source in source_refs:
+                title = source.get("title", "Official source")
+                url = source.get("url")
+                st.markdown(f"- [{title}]({url})" if url else f"- {title}")
 
-        # Feedback buttons for new answer
-        _new_fb_key = f"new_{len(history)}"
-        if not st.session_state["sc_hc_feedback"].get(_new_fb_key):
-            _c1, _c2, _ = st.columns([1, 1, 8])
-            if _c1.button("👍", key=f"up_new_{len(history)}"):
-                _log_hc_feedback(prompt, answer, _conf_label, _best_sim, "up")
-                st.session_state["sc_hc_feedback"][_new_fb_key] = "up"
-                st.rerun()
-            if _c2.button("👎", key=f"dn_new_{len(history)}"):
-                _log_hc_feedback(prompt, answer, _conf_label, _best_sim, "down")
-                st.session_state["sc_hc_feedback"][_new_fb_key] = "down"
-                st.rerun()
+    # Feedback thumbs for new answer
+    _new_fb_key = f"new_{len(history)}"
+    if not st.session_state["sc_hc_feedback"].get(_new_fb_key):
+        _c1, _c2, _ = st.columns([1, 1, 8])
+        if _c1.button("👍", key=f"up_new_{len(history)}"):
+            _log_hc_feedback(prompt, answer, _conf_label, _best_sim, "up")
+            st.session_state["sc_hc_feedback"][_new_fb_key] = "up"
+            st.rerun()
+        if _c2.button("👎", key=f"dn_new_{len(history)}"):
+            _log_hc_feedback(prompt, answer, _conf_label, _best_sim, "down")
+            st.session_state["sc_hc_feedback"][_new_fb_key] = "down"
+            st.rerun()
 
     if history:
         st.button(

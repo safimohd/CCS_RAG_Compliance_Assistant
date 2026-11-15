@@ -306,7 +306,31 @@ hdr_bdr  = "#1e2d45" if is_dark else "#1a3460"
 role_label = "ADMIN" if st.session_state.is_admin else "VIEWER"
 role_color = "#3b82f6" if st.session_state.is_admin else "#64748b"
 
-hdr_col, btn_col = st.columns([6, 1])
+with st.sidebar:
+    st.markdown(
+        "<div style='margin-bottom:2px;font-size:11px;color:#9ca3af;"
+        "text-transform:uppercase;letter-spacing:.06em;font-weight:600'>View</div>",
+        unsafe_allow_html=True,
+    )
+    _admin_view = st.radio(
+        "View",
+        ["👤 User", "🎖 Compliance Officer", "🔑 Admin"],
+        index=2,
+        key="hc_role_toggle",
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+    if _admin_view != "🔑 Admin":
+        st.session_state["_pending_hc_view"] = _admin_view
+        st.session_state.pop("_hc_admin_mode", None)
+        st.rerun()
+    st.markdown("<hr style='margin:6px 0 10px;opacity:.15'>", unsafe_allow_html=True)
+    dm_label = "☀️ Light" if is_dark else "🌙 Dark"
+    if st.button(dm_label, key="dark_mode_toggle_admin", use_container_width=True):
+        st.session_state.dark_mode = not st.session_state.dark_mode
+        st.rerun()
+
+hdr_col = st.container()
 with hdr_col:
     st.markdown(f"""
     <div style='background:{hdr_bg};padding:24px 32px;border-radius:14px;margin-bottom:12px;
@@ -336,17 +360,6 @@ with hdr_col:
     </div>
     """, unsafe_allow_html=True)
 
-with btn_col:
-    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
-    if st.button("Healthcare App", key="back_to_healthcare_dashboard",
-                 use_container_width=True):
-        st.query_params.clear()
-        st.session_state.pop("_hc_admin_mode", None)
-        st.rerun()
-    dm_label = "☀️ Light" if is_dark else "🌙 Dark"
-    if st.button(dm_label, key="dark_mode_toggle", use_container_width=True):
-        st.session_state.dark_mode = not st.session_state.dark_mode
-        st.rerun()
 st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
 # ─── Tabs ───────────────────────────────────────────────────────────────────

@@ -1943,6 +1943,18 @@ with st.sidebar:
         st.session_state.pop("_user_sessions", None)
         st.rerun()
 
+    # ── Community feedback stats (sidebar) ───────────────────────────────────
+    _sb_fb = fetch_feedback_stats()
+    if _sb_fb.get("total", 0) > 0:
+        st.markdown(
+            f"<div style='font-size:.72rem;color:#6B7C93;margin:.4rem 0 .2rem;'>"
+            f"📊 Community: <b style='color:#1a7f4b'>{_sb_fb['ups']} 👍</b> "
+            f"/ {_sb_fb['total']} ratings "
+            f"<span style='color:#1a7f4b;'>({_sb_fb['pct']}% helpful)</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
     # ── Sessions (Claude-style conversation history) ──────────────────────────
     _cu_sess = _current_user()
     # Fetch on first load or after a role switch clears the cache
