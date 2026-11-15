@@ -79,7 +79,17 @@ if st.session_state.get("_hc_admin_mode") or st.query_params.get("admin") == "1"
     st.session_state["_hc_admin_mode"] = True
     os.environ["APP_DOMAIN"] = "Healthcare"
     _admin_path = Path(__file__).resolve().parent / "admin_healthcare.py"
-    exec(compile(_admin_path.read_text(encoding="utf-8"), str(_admin_path), "exec"))
+    # Cache the compiled code object in session state so we only read + parse
+    # admin_healthcare.py once per session rather than on every rerun.
+    _cache_key = "_hc_admin_compiled"
+    if _cache_key not in st.session_state:
+        # First visit: compile the admin file and show a loading indicator
+        # so the stale user-view frame isn't shown while we initialise.
+        with st.spinner("Loading admin dashboard…"):
+            st.session_state[_cache_key] = compile(
+                _admin_path.read_text(encoding="utf-8"), str(_admin_path), "exec"
+            )
+    exec(st.session_state[_cache_key])
     st.stop()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))

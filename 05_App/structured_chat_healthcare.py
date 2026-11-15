@@ -60,6 +60,18 @@ def _log_hc_feedback(question: str, answer: str, conf_label: str,
     key = _secret("SUPABASE_KEY")
     if not url or not key:
         return
+
+    # Bump the optimistic counter BEFORE the network call so the sidebar
+    # pill updates on the very next rerun without waiting for Supabase.
+    _opt = st.session_state.setdefault(
+        "_hc_fb_optimistic", {"total": 0, "helpful": 0, "not_helpful": 0}
+    )
+    _opt["total"] += 1
+    if feedback_type == "up":
+        _opt["helpful"] += 1
+    else:
+        _opt["not_helpful"] += 1
+
     try:
         _req.post(
             f"{url}/rest/v1/feedback",
@@ -81,15 +93,13 @@ def _log_hc_feedback(question: str, answer: str, conf_label: str,
             },
             timeout=5,
         )
-        # Optimistic counter so the sidebar bar updates immediately
-        _opt = st.session_state.setdefault(
-            "_hc_fb_optimistic", {"total": 0, "helpful": 0, "not_helpful": 0}
-        )
-        _opt["total"] += 1
-        if feedback_type == "up":
-            _opt["helpful"] += 1
-        else:
-            _opt["not_helpful"] += 1
+        # POST succeeded: bust the stats cache so the next full fetch reflects
+        # the new row, then zero out the optimistic overlay so counts stay
+        # accurate after the cache refreshes (avoids the +1 double-count).
+        st.cache_data.clear()
+        _opt["total"] = 0
+        _opt["helpful"] = 0
+        _opt["not_helpful"] = 0
     except Exception:
         pass
 
