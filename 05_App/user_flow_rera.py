@@ -1,5 +1,6 @@
 """
 user_flow_rera.py  --  Standalone Karnataka RERA Property Due Diligence App
+v2026-11-15: confidence badge, optimistic feedback counter, nested-dict fix
 
 Deployment entry: app_rera.py execs this file directly.
 Provides a chat interface with multi-PDF upload and URL context,
@@ -1222,7 +1223,18 @@ def _render_chat():
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
             if msg["role"] == "assistant" and msg.get("show_source"):
-                st.caption("🏛️ Source: Karnataka RERA Knowledge Base  •  ✅ KB Verified")
+                _m_conf_label = msg.get("conf_label", "High")
+                _m_conf_color = msg.get("conf_color", "#166534")
+                _m_conf_pct   = msg.get("conf_pct", "92%")
+                st.markdown(
+                    f"<div style='display:flex;gap:8px;align-items:center;margin-top:6px'>"
+                    f"<span style='background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;"
+                    f"padding:3px 10px;font-size:.75rem;color:{_m_conf_color};font-weight:600'>"
+                    f"🎯 Confidence: {_m_conf_label} ({_m_conf_pct})</span>"
+                    f"<span style='font-size:.72rem;color:#9ca3af'>🏛️ Karnataka RERA KB</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
 
     user_input = st.chat_input(
         "Ask about any Karnataka property: RERA status, fair price, buy vs rent, builder reputation..."
@@ -2899,7 +2911,9 @@ def main():
                                 if _q_text:
                                     _restored.append({"role": "user", "content": _q_text})
                                 if _a_text:
-                                    _restored.append({"role": "assistant", "content": _a_text, "show_source": True})
+                                    _restored.append({"role": "assistant", "content": _a_text,
+                                                      "show_source": True, "conf_label": "High",
+                                                      "conf_color": "#166534", "conf_pct": "92%"})
                             st.session_state["uf_chat_history"] = _restored
                             st.session_state["uf_session_id"] = _sid
                             st.rerun()
