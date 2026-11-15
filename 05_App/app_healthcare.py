@@ -2018,13 +2018,11 @@ with st.sidebar:
         n_scoped, n_general = scope_count(domain, scope_needles)
         _any_filter = False
     st.divider()
-    if st.button("Start a new conversation"):
-        st.session_state.messages = []
-        st.session_state.feedback = {}
-        st.session_state.pop("_active_session_id", None)
-        st.session_state.pop("_active_session_title", None)
-        # Refresh session list to show the just-saved session at top
-        st.session_state.pop("_user_sessions", None)
+    if st.button("Start a new conversation", key="btn_new_conv"):
+        # Use a flag instead of clearing state directly — Streamlit can silently
+        # discard session_state mutations that happen right before st.rerun().
+        # The flag survives the rerun and is consumed at the top of main content.
+        st.session_state["_new_conv_requested"] = True
         st.rerun()
 
     # ── Community feedback stats (sidebar) ───────────────────────────────────
@@ -2215,6 +2213,15 @@ with st.sidebar:
         "This assistant provides regulatory information only, not legal advice. "
         "Always verify with a qualified professional before acting on any answer."
         "</div>", unsafe_allow_html=True)
+
+# ── Handle "Start a new conversation" flag (set by sidebar button) ───────────
+# State is cleared here, at the top of the main render cycle, so Streamlit
+# sees a clean session_state before any widgets or chat history is drawn.
+if st.session_state.pop("_new_conv_requested", False):
+    st.session_state["messages"] = []
+    st.session_state["feedback"] = {}
+    for _k in ("_active_session_id", "_active_session_title", "_user_sessions"):
+        st.session_state.pop(_k, None)
 
 meta = DOMAIN_META[domain]
 
