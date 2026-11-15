@@ -695,16 +695,24 @@ def render_user_chat(store=None):
                 st.markdown(f"- [{title}]({url})" if url else f"- {title}")
 
     # Feedback thumbs for new answer
+    # _new_fb_key uses len(history) which already includes both appended messages.
+    # _hist_fb_key is the key the history loop will look for on the next rerun
+    # (assistant sits at index len(history)-1). Both keys must be set together
+    # so the button cannot be clicked twice.
     _new_fb_key = f"new_{len(history)}"
-    if not st.session_state["sc_hc_feedback"].get(_new_fb_key):
+    _hist_fb_key = f"hist_fb_{len(history) - 1}"
+    if not st.session_state["sc_hc_feedback"].get(_new_fb_key) and \
+       not st.session_state["sc_hc_feedback"].get(_hist_fb_key):
         _c1, _c2, _ = st.columns([1, 1, 8])
         if _c1.button("👍", key=f"up_new_{len(history)}"):
             _log_hc_feedback(prompt, answer, _conf_label, _best_sim, "up")
             st.session_state["sc_hc_feedback"][_new_fb_key] = "up"
+            st.session_state["sc_hc_feedback"][_hist_fb_key] = "up"
             st.rerun()
         if _c2.button("👎", key=f"dn_new_{len(history)}"):
             _log_hc_feedback(prompt, answer, _conf_label, _best_sim, "down")
             st.session_state["sc_hc_feedback"][_new_fb_key] = "down"
+            st.session_state["sc_hc_feedback"][_hist_fb_key] = "down"
             st.rerun()
 
     if history:
