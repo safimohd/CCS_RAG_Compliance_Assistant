@@ -1132,6 +1132,10 @@ def _sidebar_document_context():
             if texts:
                 combined = "\n\n---\n\n".join(texts)
                 st.session_state.uf_doc_context = combined
+                _upl_names = [f.name for f in (uploaded_files or [])]
+                if url_input and url_input.startswith("http"):
+                    _upl_names.append(url_input.split("//")[-1][:60])
+                st.session_state.uf_doc_name = ", ".join(_upl_names) if _upl_names else "uploaded file"
 
                 try:
                     extracted = _extract_fields(texts[0])
@@ -1245,6 +1249,10 @@ def _render_chat():
                     f"</div>",
                     unsafe_allow_html=True,
                 )
+                if msg.get("sources"):
+                    with st.expander("📄 Sources used", expanded=False):
+                        for _s in msg["sources"]:
+                            st.markdown(f"- {_s}")
 
     user_input = st.chat_input(
         "Ask about any Karnataka property: RERA status, fair price, buy vs rent, builder reputation..."
@@ -1351,9 +1359,29 @@ def _render_chat():
                     f"</div>",
                     unsafe_allow_html=True,
                 )
+                # Build sources list for the collapsible panel
+                _used_sources = ["📘 Karnataka RERA Regulations (Group 9 corpus)"]
+                _db_rows_safe = locals().get("db_rows") or []
+                if db_context and _db_rows_safe:
+                    for _r in _db_rows_safe[:3]:
+                        _proj = _r.get("project_name") or _r.get("title") or ""
+                        _rera_no = _r.get("rera_number") or _r.get("ack_number") or ""
+                        if _proj or _rera_no:
+                            _used_sources.append(
+                                f"🏗️ K-RERA DB: {_proj}" + (f" ({_rera_no})" if _rera_no else "")
+                            )
+                _doc_name = st.session_state.get("uf_doc_name", "")
+                if doc_context and _doc_name:
+                    _used_sources.append(f"📎 Uploaded document: {_doc_name}")
+                elif doc_context:
+                    _used_sources.append("📎 Uploaded document")
+                with st.expander("📄 Sources used", expanded=False):
+                    for _s in _used_sources:
+                        st.markdown(f"- {_s}")
                 st.session_state.uf_chat_history.append(
                     {"role": "assistant", "content": answer, "show_source": True,
-                     "conf_label": _conf_label, "conf_color": _conf_color, "conf_pct": _conf_pct}
+                     "conf_label": _conf_label, "conf_color": _conf_color, "conf_pct": _conf_pct,
+                     "sources": _used_sources}
                 )
                 # Mark this answer as awaiting feedback
                 st.session_state["uf_pending_fb"] = {
