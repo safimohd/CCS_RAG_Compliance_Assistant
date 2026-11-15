@@ -2497,7 +2497,7 @@ def _render_admin_mode():
                             ])
                             st.dataframe(_df_exclusions, use_container_width=True, hide_index=True)
 
-                    _admin_mode = bool(st.session_state.get("adm_is_admin"))
+                    _admin_mode = True  # admin view selected; no password gate needed
                     _admin_name = st.session_state.get("adm_username") or _secret("ADMIN_USERNAME") or "Admin"
                     _admin_email = _secret("ADMIN_EMAIL")
                     _label_color = _muted
