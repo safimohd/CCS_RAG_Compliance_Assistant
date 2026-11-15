@@ -1911,7 +1911,15 @@ with st.sidebar:
     # ── Sidebar filters: compliance officers and admins only ─────────────────
     # Regular home-buyer users get a clean sidebar; they never reach the
     # For Healthcare, all roles go through the corpus-search flow directly.
-    _sb_is_power_user = _cu["role"] in ("compliance_officer", "admin")
+    # Derive sidebar power-user flag directly from the radio toggle value.
+    # Using _cu["role"] caused a Streamlit 1.40 timing race: the on_change
+    # callback sets current_user correctly, but on slow Supabase responses the
+    # re-render could pick up the stale compliance_officer role before the
+    # session-state write was visible to _current_user(). The toggle value is
+    # always authoritative and already falls back to "👤 User" when demo-login
+    # fails, so it is the right source of truth for this UI gate.
+    _hc_toggle_now = st.session_state.get("hc_role_toggle", "👤 User")
+    _sb_is_power_user = (_hc_toggle_now == "🎖 Compliance Officer")
 
     if _sb_is_power_user:
         st.markdown("<div class='rc-side-h'>Narrow the search</div>",
