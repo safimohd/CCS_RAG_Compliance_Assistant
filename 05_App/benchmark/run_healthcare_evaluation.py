@@ -98,15 +98,20 @@ Guidelines:
   Example: "Under Section 11(2) of the CEA 2010, ..."
   If you are unsure of the exact provision, describe the rule accurately without
   inventing a citation.
-- Include specific statutory figures (timelines, penalty amounts, coverage limits)
-  only if you are certain. Flag uncertainty honestly.
+- CRITICAL: Never guess specific statutory timelines (days, months) or penalty amounts
+  (rupee figures). If you are not certain, say "I am not certain of the exact figure."
+  It is far better to express uncertainty than to state a wrong number confidently.
+- For penalty structures that have MULTIPLE tiers (first offence vs subsequent offence),
+  always state ALL tiers explicitly and label each one. Example:
+  "First offence: up to Rs 10,000. Subsequent offences: up to Rs 50,000 per day."
+  Never collapse multiple tiers into a single figure.
 - If a premise in the question is false or misleading, correct it explicitly
   before answering.
 - Address each sub-part of a multi-part question separately.
 
 Structure every answer:
 1. Direct answer (with provision citation if known with confidence).
-2. Key figures or timelines (only if certain).
+2. Key figures or timelines (only if certain; flag uncertainty if not).
 3. Compliance or practical takeaway for the stakeholder.
 """
 
@@ -132,6 +137,12 @@ MANDATORY REQUIREMENTS:
    flagged clearly with "(inferred from training, not in retrieved sources)".
 5. Never invent section numbers or figures not in the sources or verified training.
 6. Correct any false premise in the question before answering.
+7. PENALTY TIERS: If a question asks about penalties and the retrieved text shows
+   different amounts for different offence tiers, state ALL tiers explicitly with
+   labels. Example: "First offence: up to Rs 10,000; subsequent offences: up to
+   Rs 50,000 per day." Do NOT quote only the highest figure and omit the lower tier.
+8. TIMELINE FIGURES: If the retrieved text explicitly states a number of days or
+   months, quote that exact figure. Do not substitute it with a different number.
 
 Structure every answer:
 1. Direct answer with inline provision citation (only if in retrieved text).
@@ -149,8 +160,12 @@ Telemedicine Guidelines 2020, NMC Ethics, and ABDM.
 Write a single short paragraph (2-4 sentences) exactly as it would appear in an
 official Indian healthcare regulatory document, circular, or guideline, that
 directly answers the question below. Use the same terminology, section references,
-and phrasing found in official sources. Write ONLY the hypothetical passage with
-no preamble, explanation, or quotation marks.
+and phrasing found in official sources.
+
+IMPORTANT: If the question involves a specific timeline (number of days or months),
+a penalty amount (Rs figure), or a coverage limit, include the actual statutory figure
+in your passage. For penalty structures, include ALL tiers (first offence, subsequent
+offences). Write ONLY the hypothetical passage with no preamble or quotation marks.
 """
 
 JUDGE_SYSTEM = """\
@@ -220,8 +235,8 @@ def load_chromadb_healthcare():
 # ── Retrieval ──────────────────────────────────────────────────────────────────
 
 TIER_WEIGHT = {"A": 1.00, "B": 0.95, "C": 0.80, "D": 0.55, "E": 0.35}
-TOP_K       = 6
-CANDIDATE_K = 24
+TOP_K       = 10
+CANDIDATE_K = 30
 
 
 def retrieve_passages(store, query: str) -> list[dict]:
@@ -505,6 +520,15 @@ Classify the claim as one of:
   SUPPORTED       - the retrieved chunks clearly support this claim
   CONTRADICTED    - the retrieved chunks clearly contradict this claim (state the correction)
   NOT_IN_CORPUS   - the claim cannot be verified from the retrieved chunks
+
+CRITICAL RULES FOR PENALTY AND TIMELINE CLAIMS:
+- If the claim states a penalty for a FIRST OFFENCE (e.g., "first offence: Rs 10,000"),
+  it is only SUPPORTED if the corpus explicitly confirms that figure for a FIRST offence.
+  If the corpus mentions that figure only for a SUBSEQUENT offence, the claim is CONTRADICTED.
+- If the claim states a specific timeline (e.g., "within 60 days"), check that the corpus
+  uses the exact same number. A different number is CONTRADICTED, not SUPPORTED.
+- When the corpus provides a DIFFERENT tier of a penalty structure than what the claim
+  states, mark it CONTRADICTED and include the full correct tier structure in the note.
 
 Return ONLY valid JSON:
 {
