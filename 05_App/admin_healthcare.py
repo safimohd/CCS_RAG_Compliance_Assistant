@@ -976,7 +976,7 @@ with tab5:
         fb_resp = requests.get(
             f"{SUPABASE_URL}/rest/v1/feedback",
             headers={"apikey": SVC_KEY, "Authorization": f"Bearer {SVC_KEY}"},
-            params={"select": "*", "order": "created_at.desc", "limit": "500"},
+            params={"select": "*", "order": "created_at.desc", "limit": "500", "domain": "eq.Healthcare"},
             timeout=10,
         )
         fb_resp.raise_for_status()

@@ -72,7 +72,11 @@ import streamlit.components.v1 as _stc
 
 # Normal visits open the Healthcare assistant. Choosing Admin in its role
 # switch sets this route and opens the separate, Healthcare-only dashboard.
-if st.query_params.get("admin") == "1":
+# Session-state flag (_hc_admin_mode) is checked first for instant navigation;
+# URL param (?admin=1) is the fallback for direct links.
+if st.session_state.get("_hc_admin_mode") or st.query_params.get("admin") == "1":
+    # Keep the two in sync so direct-link visits also set the flag for sub-reruns
+    st.session_state["_hc_admin_mode"] = True
     os.environ["APP_DOMAIN"] = "Healthcare"
     _admin_path = Path(__file__).resolve().parent / "admin_healthcare.py"
     exec(compile(_admin_path.read_text(encoding="utf-8"), str(_admin_path), "exec"))
@@ -1327,7 +1331,7 @@ def fetch_feedback_stats() -> dict:
         resp = _req.get(
             f"{url}/rest/v1/feedback",
             headers={"apikey": key, "Authorization": f"Bearer {key}"},
-            params={"select": "feedback_type"},
+            params={"select": "feedback_type", "domain": "eq.Healthcare"},
             timeout=5,
         )
         if not resp.ok:
@@ -1810,7 +1814,7 @@ with st.sidebar:
     def _on_hc_role_toggle() -> None:
         _selection = st.session_state.get("hc_role_toggle", "👤 User")
         if _selection == "🔑 Admin":
-            st.query_params["admin"] = "1"
+            st.session_state["_hc_admin_mode"] = True
             return
         if _selection == "🎖 Compliance Officer":
             _selected_user = _demo_login("compliance_officer")

@@ -28,6 +28,63 @@ def _secret(key: str) -> str:
     return os.environ.get(key) or st.secrets.get(key, "")
 
 
+@st.cache_data(ttl=120)
+def _fetch_hc_feedback_stats() -> dict:
+    """Return aggregate feedback counts for Healthcare domain only. Cached 2 min."""
+    url = _secret("SUPABASE_URL")
+    key = _secret("SUPABASE_KEY")
+    if not url or not key:
+        return {}
+    try:
+        resp = _req.get(
+            f"{url}/rest/v1/feedback",
+            headers={"apikey": key, "Authorization": f"Bearer {key}"},
+            params={"select": "feedback_type", "domain": "eq.Healthcare"},
+            timeout=5,
+        )
+        if not resp.ok:
+            return {}
+        rows = resp.json() or []
+        total = len(rows)
+        ups = sum(1 for r in rows if r.get("feedback_type") == "up")
+        pct = int(ups / total * 100) if total else 0
+        return {"total": total, "ups": ups, "downs": total - ups, "pct": pct}
+    except Exception:
+        return {}
+
+
+def _log_hc_feedback(question: str, answer: str, conf_label: str,
+                     conf_score: float, feedback_type: str) -> None:
+    """Write a feedback row to Supabase for the Healthcare domain."""
+    url = _secret("SUPABASE_URL")
+    key = _secret("SUPABASE_KEY")
+    if not url or not key:
+        return
+    try:
+        _req.post(
+            f"{url}/rest/v1/feedback",
+            headers={
+                "apikey": key,
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal",
+            },
+            json={
+                "domain": "Healthcare",
+                "question": question[:1000],
+                "answer": answer[:2000],
+                "conf_label": conf_label,
+                "conf_score": round(conf_score, 4),
+                "feedback_type": feedback_type,
+                "user_id": None,
+                "user_email": "guest@claritai.in",
+            },
+            timeout=5,
+        )
+    except Exception:
+        pass
+
+
 def _supa(table: str, params: dict, limit: int = 10) -> list[dict]:
     """Generic Supabase REST GET. Returns a list of row dicts or []."""
     url   = _secret("SUPABASE_URL")
@@ -457,8 +514,23 @@ def render_user_chat(store=None):
     hk = "sc_hc_history"
     if hk not in st.session_state:
         st.session_state[hk] = []
+    if "sc_hc_feedback" not in st.session_state:
+        st.session_state["sc_hc_feedback"] = {}
 
     history: list[dict] = st.session_state[hk]
+
+    # Feedback stats bar — always visible above chat
+    _fb = _fetch_hc_feedback_stats()
+    if _fb.get("total", 0) > 0:
+        st.markdown(
+            f"<div style='font-size:.72rem;color:#6B7C93;margin-bottom:.4rem;'>"
+            f"📊 Community feedback: "
+            f"<b style='color:#1a7f4b'>{_fb['ups']} 👍</b> "
+            f"out of <b>{_fb['total']}</b> ratings "
+            f"<span style='color:#1a7f4b;font-weight:600'>({_fb['pct']}% helpful)</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
 
     if not history:
         prompt_options = [
@@ -479,7 +551,7 @@ def render_user_chat(store=None):
                 if st.button(label, key=f"usr_hc_help_{i}", use_container_width=True):
                     st.session_state["sc_input_healthcare"] = prompt_map[label]
 
-    for msg in history:
+    for idx, msg in enumerate(history):
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
             if msg.get("sources"):
@@ -488,6 +560,38 @@ def render_user_chat(store=None):
                         title = source.get("title", "Official source")
                         url = source.get("url")
                         st.markdown(f"- [{title}]({url})" if url else f"- {title}")
+            # Confidence badge + feedback buttons for past assistant messages
+            if msg["role"] == "assistant" and msg.get("conf_label"):
+                _clabel = msg["conf_label"]
+                _cscore = msg.get("conf_score", 0.0)
+                _badge_colors = {"High": ("#d1fae5", "#065f46"), "Medium": ("#fef9c3", "#713f12"), "Low": ("#fee2e2", "#991b1b")}
+                _bg, _fg = _badge_colors.get(_clabel, ("#f3f4f6", "#374151"))
+                st.markdown(
+                    f"<span style='background:{_bg};color:{_fg};font-size:.7rem;"
+                    f"font-weight:600;padding:2px 8px;border-radius:999px;'>"
+                    f"{_clabel} confidence ({_cscore:.2f})</span>",
+                    unsafe_allow_html=True,
+                )
+                _fb_key = f"hist_fb_{idx}"
+                if not st.session_state["sc_hc_feedback"].get(_fb_key):
+                    _c1, _c2, _ = st.columns([1, 1, 8])
+                    if _c1.button("👍", key=f"up_{_fb_key}"):
+                        _log_hc_feedback(
+                            history[idx - 1]["content"] if idx > 0 else "",
+                            msg["content"], _clabel, _cscore, "up",
+                        )
+                        st.session_state["sc_hc_feedback"][_fb_key] = "up"
+                        st.rerun()
+                    if _c2.button("👎", key=f"dn_{_fb_key}"):
+                        _log_hc_feedback(
+                            history[idx - 1]["content"] if idx > 0 else "",
+                            msg["content"], _clabel, _cscore, "down",
+                        )
+                        st.session_state["sc_hc_feedback"][_fb_key] = "down"
+                        st.rerun()
+                else:
+                    _given = st.session_state["sc_hc_feedback"][_fb_key]
+                    st.caption("Thanks for the feedback! 👍" if _given == "up" else "Thanks — we'll work to improve. 👎")
 
     prompt = st.chat_input(
         "Ask anything..." if not history else "Ask a follow-up...",
@@ -544,18 +648,59 @@ def render_user_chat(store=None):
             answer = f"Something went wrong. Please try again. ({e})"
             st.markdown(answer)
 
+    _src_rows = locals().get("source_rows", [])
     source_refs = [
         {"title": row.get("title"), "url": row.get("url")}
-        for row in locals().get("source_rows", [])
+        for row in _src_rows
         if row.get("title")
     ]
-    history.append({"role": "assistant", "content": answer, "sources": source_refs})
-    if source_refs:
-        with st.expander("Sources used"):
-            for source in source_refs:
-                title = source.get("title", "Official source")
-                url = source.get("url")
-                st.markdown(f"- [{title}]({url})" if url else f"- {title}")
+
+    # Compute confidence badge
+    _best_sim = max((_src_rows[i].get("similarity", 0) for i in range(len(_src_rows))), default=0.0)
+    if _best_sim >= 0.70:
+        _conf_label = "High"
+    elif _best_sim >= 0.45:
+        _conf_label = "Medium"
+    else:
+        _conf_label = "Low"
+
+    history.append({
+        "role": "assistant",
+        "content": answer,
+        "sources": source_refs,
+        "conf_label": _conf_label,
+        "conf_score": round(_best_sim, 4),
+    })
+
+    # Show confidence badge for new answer
+    with st.chat_message("assistant"):
+        _badge_colors = {"High": ("#d1fae5", "#065f46"), "Medium": ("#fef9c3", "#713f12"), "Low": ("#fee2e2", "#991b1b")}
+        _bg, _fg = _badge_colors.get(_conf_label, ("#f3f4f6", "#374151"))
+        st.markdown(
+            f"<span style='background:{_bg};color:{_fg};font-size:.7rem;"
+            f"font-weight:600;padding:2px 8px;border-radius:999px;'>"
+            f"{_conf_label} confidence ({_best_sim:.2f})</span>",
+            unsafe_allow_html=True,
+        )
+        if source_refs:
+            with st.expander("Sources used"):
+                for source in source_refs:
+                    title = source.get("title", "Official source")
+                    url = source.get("url")
+                    st.markdown(f"- [{title}]({url})" if url else f"- {title}")
+
+        # Feedback buttons for new answer
+        _new_fb_key = f"new_{len(history)}"
+        if not st.session_state["sc_hc_feedback"].get(_new_fb_key):
+            _c1, _c2, _ = st.columns([1, 1, 8])
+            if _c1.button("👍", key=f"up_new_{len(history)}"):
+                _log_hc_feedback(prompt, answer, _conf_label, _best_sim, "up")
+                st.session_state["sc_hc_feedback"][_new_fb_key] = "up"
+                st.rerun()
+            if _c2.button("👎", key=f"dn_new_{len(history)}"):
+                _log_hc_feedback(prompt, answer, _conf_label, _best_sim, "down")
+                st.session_state["sc_hc_feedback"][_new_fb_key] = "down"
+                st.rerun()
 
     if history:
         st.button(
