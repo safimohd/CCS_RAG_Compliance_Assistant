@@ -792,10 +792,10 @@ def build_evaluation_xlsx(rows: list[dict], scores: list[dict], out_path: Path) 
     ws2["E3"] = "Avg Total"
     ws2["F3"] = "N"
 
-    for ri, sys in enumerate(systems, 4):
-        sys_scores = [s for s in scores if s["system"] == sys and isinstance(s["total"], (int, float))]
+    for ri, sysname in enumerate(systems, 4):
+        sys_scores = [s for s in scores if s["system"] == sysname and isinstance(s["total"], (int, float))]
         n = len(sys_scores)
-        ws2.cell(ri, 1, sys)
+        ws2.cell(ri, 1, sysname)
         ws2.cell(ri, 2, round(sum(s["factual_accuracy"] for s in sys_scores)/n, 2) if n else "")
         ws2.cell(ri, 3, round(sum(s["completeness"] for s in sys_scores)/n, 2) if n else "")
         ws2.cell(ri, 4, round(sum(s["confidence_calibration"] for s in sys_scores)/n, 2) if n else "")
@@ -804,13 +804,13 @@ def build_evaluation_xlsx(rows: list[dict], scores: list[dict], out_path: Path) 
 
     ws2["A10"] = "By Tier"
     ws2["A11"] = "Tier"
-    for ci, sys in enumerate(systems, 2):
-        ws2.cell(11, ci, f"Sys {sys} Avg")
+    for ci, sysname in enumerate(systems, 2):
+        ws2.cell(11, ci, f"Sys {sysname} Avg")
 
     for ti, t in enumerate(tiers, 12):
         ws2.cell(ti, 1, f"T{t}")
-        for ci, sys in enumerate(systems, 2):
-            t_scores = [s for s in scores if s["system"] == sys and s["tier"] == t and isinstance(s["total"], (int, float))]
+        for ci, sysname in enumerate(systems, 2):
+            t_scores = [s for s in scores if s["system"] == sysname and s["tier"] == t and isinstance(s["total"], (int, float))]
             n = len(t_scores)
             ws2.cell(ti, ci, round(sum(s["total"] for s in t_scores)/n, 2) if n else "")
 
@@ -950,10 +950,10 @@ def main():
         except Exception:
             tier_int = 0
 
-        for sys in systems_to_run:
+        for sysname in systems_to_run:
             done += 1
-            sys_ans = str(row.get(sys_col[sys], "") or "").strip()
-            print(f"  [Judge {done}/{total_pairs}] {qid} | System {sys} ...", end=" ", flush=True)
+            sys_ans = str(row.get(sys_col[sysname], "") or "").strip()
+            print(f"  [Judge {done}/{total_pairs}] {qid} | System {sysname} ...", end=" ", flush=True)
             score = judge_answer(judge_client, q, expected, sys_ans)
             print(f"Total: {score['total']}/8")
             scores.append({
@@ -961,7 +961,7 @@ def main():
                 "domain":                row.get("Domain", DOMAIN),
                 "tier":                  tier_int,
                 "question_type":         row.get("Question Type", ""),
-                "system":                sys,
+                "system":                sysname,
                 "factual_accuracy":      score["factual_accuracy"],
                 "completeness":          score["completeness"],
                 "confidence_calibration":score["confidence_calibration"],
@@ -980,15 +980,15 @@ def main():
     print("\n── Score Summary ──────────────────────────────────────────")
     print(f"{'System':<8} {'Avg FA':>8} {'Avg Com':>9} {'Avg Cal':>9} {'Avg Total':>10} {'N':>5}")
     print("-" * 55)
-    for sys in systems_to_run:
-        ss = [s for s in scores if s["system"] == sys]
+    for sysname in systems_to_run:
+        ss = [s for s in scores if s["system"] == sysname]
         n  = len(ss)
         if n:
             fa  = sum(s["factual_accuracy"] for s in ss) / n
             co  = sum(s["completeness"] for s in ss) / n
             ca  = sum(s["confidence_calibration"] for s in ss) / n
             tot = sum(s["total"] for s in ss) / n
-            print(f"  {sys:<6} {fa:>8.2f} {co:>9.2f} {ca:>9.2f} {tot:>10.2f} {n:>5}")
+            print(f"  {sysname:<6} {fa:>8.2f} {co:>9.2f} {ca:>9.2f} {tot:>10.2f} {n:>5}")
     print(f"\n[Done] Evaluation file: {eval_path}")
 
 
