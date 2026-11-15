@@ -16,16 +16,16 @@ import json
 import io
 import re
 
-# â”€â”€ page config (must be first Streamlit call) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── page config (must be first Streamlit call) ─────────────────────────────────
 
 st.set_page_config(
     page_title="Karnataka RERA Property Advisor",
-    page_icon="ðŸ ",
+    page_icon="🏠",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# â”€â”€ lazy imports â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── lazy imports ──────────────────────────────────────────────────────────────
 
 def _ensure(pkg, import_as=None):
     import importlib
@@ -108,13 +108,8 @@ def _save_rera_feedback(question: str, answer_snippet: str, feedback_type: str,
             },
             timeout=5,
         )
-        if r.status_code in (200, 201):
-            return True
-        # Surface the actual error so it can be diagnosed
-        st.toast(f"Feedback save failed: HTTP {r.status_code} -- {r.text[:200]}", icon="X")
-        return False
-    except Exception as _e:
-        st.toast(f"Feedback save error: {_e}", icon="X")
+        return r.status_code in (200, 201)
+    except Exception:
         return False
 
 
@@ -301,11 +296,11 @@ def _render_feedback_stats_bar():
     st.markdown(
         f"<div style='display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 6px'>"
         f"<span style='background:#f3f4f6;border-radius:4px;padding:2px 7px;"
-        f"font-size:.7rem;color:#374151'>â­ {total} rated</span>"
+        f"font-size:.7rem;color:#374151'>⭐ {total} rated</span>"
         f"<span style='background:#dcfce7;border-radius:4px;padding:2px 7px;"
-        f"font-size:.7rem;color:#166534'>âœ… {helpful_pct}% helpful</span>"
+        f"font-size:.7rem;color:#166534'>✅ {helpful_pct}% helpful</span>"
         f"<span style='background:#fee2e2;border-radius:4px;padding:2px 7px;"
-        f"font-size:.7rem;color:#991b1b'>âŒ {not_helpful} not helpful</span>"
+        f"font-size:.7rem;color:#991b1b'>❌ {not_helpful} not helpful</span>"
         f"</div>",
         unsafe_allow_html=True,
     )
@@ -389,7 +384,7 @@ def _fetch_session_messages(session_id: str) -> list:
         return []
 
 
-# â”€â”€ Known Bangalore landmarks for nearby search â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Known Bangalore landmarks for nearby search ──────────────────────────────
 _KNOWN_LOCATIONS: dict = {
     "iim bangalore": (13.0218, 77.5671),
     "iimb":          (13.0218, 77.5671),
@@ -525,7 +520,7 @@ def _search_nearby_projects(lat: float, lon: float, radius_km: float = 7,
 def _format_nearby_rows_for_llm(rows: list, location: str) -> str:
     if not rows:
         return ""
-    lines = [f"[Live K-RERA projects near '{location}' â€” closest first]"]
+    lines = [f"[Live K-RERA projects near '{location}' — closest first]"]
     for r in rows[:10]:
         dist = r.get("_dist_km", "?")
         sold = r.get("sold_units") or ""
@@ -548,7 +543,7 @@ def _format_nearby_rows_for_llm(rows: list, location: str) -> str:
     return "\n".join(lines)
 
 
-# â”€â”€ locality price bands (Bangalore, Q2-Q3 2026) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── locality price bands (Bangalore, Q2-Q3 2026) ─────────────────────────────
 
 LOCALITIES = [
     {"locality": "Whitefield",              "pin": "560066", "avg_psf": 14000, "trend": "+12% YoY", "risk": "Low"},
@@ -573,7 +568,7 @@ LOCALITIES = [
     {"locality": "Rajarajeshwari Nagar",    "pin": "560098", "avg_psf": 11200, "trend": "+14% YoY", "risk": "Medium"},
 ]
 
-# â”€â”€ LLM field extraction â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── LLM field extraction ──────────────────────────────────────────────────────
 
 EXTRACT_PROMPT = """Extract property details from the text below.
 Return ONLY a JSON object with these keys (use null for missing values):
@@ -637,7 +632,7 @@ def _url_to_text(url: str) -> str:
         return f"Error fetching URL: {e}"
 
 
-# â”€â”€ RERA live database lookup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── RERA live database lookup ─────────────────────────────────────────────────
 
 def _rera_lookup(extracted: dict) -> list:
     requests = _ensure("requests")
@@ -784,7 +779,7 @@ def _detect_entity_in_message(msg: str) -> dict:
         for loc in _KNOWN_LOCATIONS:
             if loc in msg_lower:
                 return {"query": loc, "type": "nearby"}
-        # Generic nearby â€” default to Bangalore CBD
+        # Generic nearby — default to Bangalore CBD
         return {"query": "bangalore", "type": "nearby"}
 
     project_signals = [
@@ -826,7 +821,7 @@ def _detect_entity_in_message(msg: str) -> dict:
     return {"query": "", "type": "none"}
 
 
-# â”€â”€ price check and buy-vs-rent â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── price check and buy-vs-rent ───────────────────────────────────────────────
 
 def _price_verdict(extracted: dict) -> dict:
     ppsf = extracted.get("price_per_sqft")
@@ -903,7 +898,7 @@ def _status_color(status: str):
     return "#92400e", "#fffbeb"
 
 
-# â”€â”€ pipeline animation strip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── pipeline animation strip ──────────────────────────────────────────────────
 
 DEMO_HTML = """
 <style>
@@ -934,7 +929,7 @@ DEMO_HTML = """
 """
 
 
-# â”€â”€ LLM system prompt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── LLM system prompt ─────────────────────────────────────────────────────────
 
 def _build_chat_system() -> str:
     loc_lines = "\n".join(
@@ -967,7 +962,7 @@ Guidelines:
 - Do not use em dashes anywhere in your response."""
 
 
-# â”€â”€ report card renderer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── report card renderer ──────────────────────────────────────────────────────
 
 def _render_report(extracted: dict, rera_rows: list, price: dict, bvr: dict):
     st.markdown("### Your property report")
@@ -1080,7 +1075,7 @@ def _render_report(extracted: dict, rera_rows: list, price: dict, bvr: dict):
                 )
 
 
-# â”€â”€ sidebar: document upload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── sidebar: document upload ──────────────────────────────────────────────────
 
 def _sidebar_document_context():
     """Sidebar: upload multiple PDFs or paste a URL as persistent chat context."""
@@ -1167,7 +1162,7 @@ def _sidebar_document_context():
                 st.rerun()
 
 
-# â”€â”€ sidebar: K-RERA project search â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── sidebar: K-RERA project search ───────────────────────────────────────────
 
 def _sidebar_project_search():
     with st.sidebar:
@@ -1212,7 +1207,7 @@ def _sidebar_project_search():
                     )
 
 
-# â”€â”€ main chat interface â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── main chat interface ───────────────────────────────────────────────────────
 
 def _render_chat():
     if "uf_chat_history" not in st.session_state:
@@ -1235,8 +1230,8 @@ def _render_chat():
                     f"<div style='display:flex;gap:8px;align-items:center;margin-top:6px'>"
                     f"<span style='background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;"
                     f"padding:3px 10px;font-size:.75rem;color:{_m_conf_color};font-weight:600'>"
-                    f"ðŸŽ¯ Confidence: {_m_conf_label} ({_m_conf_pct})</span>"
-                    f"<span style='font-size:.72rem;color:#9ca3af'>ðŸ›ï¸ Karnataka RERA KB</span>"
+                    f"🎯 Confidence: {_m_conf_label} ({_m_conf_pct})</span>"
+                    f"<span style='font-size:.72rem;color:#9ca3af'>🏛️ Karnataka RERA KB</span>"
                     f"</div>",
                     unsafe_allow_html=True,
                 )
@@ -1327,7 +1322,7 @@ def _render_chat():
                     answer = f"Sorry, something went wrong. Please try again. ({e})"
 
                 st.markdown(answer)
-                # Confidence badge â€” compute a simple proxy from answer quality
+                # Confidence badge — compute a simple proxy from answer quality
                 _rera_terms = ["RERA", "K-RERA", "registration", "escrow", "promoter",
                                "allotment", "possession", "Karnataka", "builder", "RERDA"]
                 _term_hits = sum(1 for t in _rera_terms if t.lower() in answer.lower())
@@ -1341,8 +1336,8 @@ def _render_chat():
                     f"<div style='display:flex;gap:8px;align-items:center;margin-top:6px'>"
                     f"<span style='background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;"
                     f"padding:3px 10px;font-size:.75rem;color:{_conf_color};font-weight:600'>"
-                    f"ðŸŽ¯ Confidence: {_conf_label} ({_conf_pct})</span>"
-                    f"<span style='font-size:.72rem;color:#9ca3af'>ðŸ›ï¸ Karnataka RERA KB</span>"
+                    f"🎯 Confidence: {_conf_label} ({_conf_pct})</span>"
+                    f"<span style='font-size:.72rem;color:#9ca3af'>🏛️ Karnataka RERA KB</span>"
                     f"</div>",
                     unsafe_allow_html=True,
                 )
@@ -1363,7 +1358,7 @@ def _render_chat():
                     session_id=st.session_state.get("uf_session_id", ""),
                 )
 
-    # â”€â”€ Feedback buttons for latest answer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Feedback buttons for latest answer ────────────────────────────────────
     _pfb = st.session_state.get("uf_pending_fb")
     _hist_now = st.session_state.get("uf_chat_history", [])
     if _pfb and not _pfb.get("rated") and _hist_now and _hist_now[-1]["role"] == "assistant":
@@ -1374,14 +1369,14 @@ def _render_chat():
         )
         _fbc1, _fbc2, _fbc3 = st.columns([1, 1, 4])
         with _fbc1:
-            if st.button("ðŸ‘ Helpful", key="uf_fb_up", use_container_width=True):
+            if st.button("👍 Helpful", key="uf_fb_up", use_container_width=True):
                 _saved = _save_rera_feedback(
                     question=_pfb["question"],
                     answer_snippet=_pfb["answer_snippet"],
                     feedback_type="up",
                     session_id=st.session_state.get("uf_session_id", ""),
                 )
-                # Reassign the whole dict â€” nested mutation doesn't persist across reruns
+                # Reassign the whole dict — nested mutation doesn't persist across reruns
                 _pfb_copy = dict(st.session_state.get("uf_pending_fb", {}))
                 _pfb_copy["rated"] = True
                 st.session_state["uf_pending_fb"] = _pfb_copy
@@ -1398,14 +1393,14 @@ def _render_chat():
                 import time as _time; _time.sleep(0.6)
                 st.rerun()
         with _fbc2:
-            if st.button("ðŸ‘Ž Not helpful", key="uf_fb_down", use_container_width=True):
+            if st.button("👎 Not helpful", key="uf_fb_down", use_container_width=True):
                 _saved = _save_rera_feedback(
                     question=_pfb["question"],
                     answer_snippet=_pfb["answer_snippet"],
                     feedback_type="down",
                     session_id=st.session_state.get("uf_session_id", ""),
                 )
-                # Reassign the whole dict â€” nested mutation doesn't persist across reruns
+                # Reassign the whole dict — nested mutation doesn't persist across reruns
                 _pfb_copy = dict(st.session_state.get("uf_pending_fb", {}))
                 _pfb_copy["rated"] = True
                 st.session_state["uf_pending_fb"] = _pfb_copy
@@ -1422,9 +1417,9 @@ def _render_chat():
                 import time as _time; _time.sleep(0.6)
                 st.rerun()
     elif _pfb and _pfb.get("rated"):
-        st.success("Thanks for your feedback! It helps us improve.", icon="âœ…")
+        st.success("Thanks for your feedback! It helps us improve.", icon="✅")
 
-    # â”€â”€ New Chat / Clear Chat buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── New Chat / Clear Chat buttons ─────────────────────────────────────────
     _btn_col1, _btn_col2 = st.columns([1, 1])
 
     def _start_new_chat():
@@ -1434,7 +1429,7 @@ def _render_chat():
 
     with _btn_col1:
         st.button(
-            "âœ¦ New Chat",
+            "✦ New Chat",
             key="uf_new_chat",
             type="primary",
             use_container_width=True,
@@ -1444,7 +1439,7 @@ def _render_chat():
     with _btn_col2:
         if st.session_state.get("uf_chat_history"):
             st.button(
-                "ðŸ—‘ Clear Chat",
+                "🗑 Clear Chat",
                 key="uf_clear_chat",
                 type="secondary",
                 use_container_width=True,
@@ -1453,7 +1448,7 @@ def _render_chat():
             )
 
 
-# â”€â”€ Compliance Officer: 4-tab view â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Compliance Officer: 4-tab view ────────────────────────────────────────────
 
 def _render_co_tabs():
     """Render the 5-tab Compliance Officer interface."""
@@ -1477,14 +1472,14 @@ def _render_co_tabs():
     )
 
     _t_chat, _t_lookup, _t_invest, _t_docqa, _t_feedback = st.tabs([
-        "ðŸ’¬ Compliance Chat",
-        "ðŸ” K-RERA Project Lookup",
-        "ðŸ“Š Investment Signals",
-        "ðŸ“„ Document Q&A",
-        "ðŸ“ˆ Feedback",
+        "💬 Compliance Chat",
+        "🔍 K-RERA Project Lookup",
+        "📊 Investment Signals",
+        "📄 Document Q&A",
+        "📈 Feedback",
     ])
 
-    # â”€â”€ Tab 1: Compliance Chat â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Tab 1: Compliance Chat ───────────────────────────────────────────────
     with _t_chat:
         components.html(DEMO_HTML, height=62)
         st.markdown(
@@ -1509,14 +1504,14 @@ def _render_co_tabs():
             st.divider()
         _render_chat()
 
-    # â”€â”€ Tab 2: K-RERA Project Lookup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Tab 2: K-RERA Project Lookup ────────────────────────────────────────
     with _t_lookup:
         import requests as _req_lk
         _lk_url_base = _secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL", "")
         _lk_key      = _secret("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY", "")
 
         st.subheader("Search Karnataka RERA Registered Projects")
-        st.caption("10,096 projects as of November 2026 â€” data from rera.karnataka.gov.in")
+        st.caption("10,096 projects as of November 2026 — data from rera.karnataka.gov.in")
 
         if not _lk_url_base or not _lk_key:
             st.warning("SUPABASE_URL and SUPABASE_KEY are not set. Add them in Streamlit Secrets.")
@@ -1632,7 +1627,7 @@ def _render_co_tabs():
                     _nearby_mode = _lk_field == "Near Location"
                     _success_msg = (
                         f"Found {len(_lk_rows)} project(s) with GPS coordinates "
-                        f"within {_lk_radius} km â€” sorted by distance"
+                        f"within {_lk_radius} km — sorted by distance"
                         if _nearby_mode else f"Found {len(_lk_rows)} project(s)"
                     )
                     st.success(_success_msg)
@@ -1641,12 +1636,12 @@ def _render_co_tabs():
                             "Only ~15% of K-RERA projects have GPS coordinates. "
                             "For full coverage also try PIN Code or District search."
                         )
-                    _SC = {"active": "ðŸŸ¢", "approved": "ðŸŸ¢", "expired": "ðŸ”´", "lapsed": "ðŸŸ ", "revoked": "â›”"}
+                    _SC = {"active": "🟢", "approved": "🟢", "expired": "🔴", "lapsed": "🟠", "revoked": "⛔"}
                     for _p in _lk_rows:
                         _sr = (_p.get("status") or "").lower()
-                        _badge = _SC.get(_sr, "â¬œ")
+                        _badge = _SC.get(_sr, "⬜")
                         _dist_tag = (
-                            f"  |  ðŸ“ {_p.get('_dist_km')} km"
+                            f"  |  📍 {_p.get('_dist_km')} km"
                             if _nearby_mode and _p.get("_dist_km") else ""
                         )
                         _ttl = (
@@ -1687,7 +1682,7 @@ def _render_co_tabs():
                             _pid = _p.get("prm_number") or _p.get("ack_number") or ""
                             if _pid:
                                 st.markdown(
-                                    f"[View full details on K-RERA portal â†—]"
+                                    f"[View full details on K-RERA portal ↗]"
                                     f"(https://rera.karnataka.gov.in/projectViewDetails?id={_pid})"
                                 )
                 else:
@@ -1697,14 +1692,14 @@ def _render_co_tabs():
 
             with st.expander("About this data"):
                 st.markdown(
-                    "Sourced from [K-RERA](https://rera.karnataka.gov.in/viewAllProjects) â€” "
+                    "Sourced from [K-RERA](https://rera.karnataka.gov.in/viewAllProjects) — "
                     "all 10,096 RERA-registered Karnataka projects. "
                     "Rich details (status, location, units, dates) are scraped progressively "
                     "from project detail pages and stored in our database. "
                     "Always cross-check critical decisions on the official portal."
                 )
 
-    # â”€â”€ Tab 3: Investment Signals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Tab 3: Investment Signals ────────────────────────────────────────────
     with _t_invest:
         import pandas as _pd_inv
 
@@ -1740,7 +1735,7 @@ def _render_co_tabs():
             {"locality": "Tumkur Road",          "pin": "560073", "avg_psf": 5200,  "cagr_pct": 8.0,  "risk": "High",   "zone": "West",    "anchored": False},
             {"locality": "Hoskote",              "pin": "562114", "avg_psf": 4500,  "cagr_pct": 13.0, "risk": "High",   "zone": "East",    "anchored": False},
         ]
-        _RISK_IC = {"Low": "ðŸŸ¢", "Medium": "ðŸŸ¡", "High": "ðŸ”´"}
+        _RISK_IC = {"Low": "🟢", "Medium": "🟡", "High": "🔴"}
 
         st.subheader("Bengaluru Real Estate Investment Advisor")
         st.warning(
@@ -1750,9 +1745,9 @@ def _render_co_tabs():
         )
 
         _iv_s1, _iv_s2, _iv_s3 = st.tabs([
-            "ðŸ” Fair Price Check",
-            "ðŸ“Š Buy vs Rent vs Invest",
-            "ðŸ—ºï¸ Locality Explorer",
+            "🔍 Fair Price Check",
+            "📊 Buy vs Rent vs Invest",
+            "🗺️ Locality Explorer",
         ])
 
         # Sub-tab 1: Fair Price Check
@@ -1866,11 +1861,11 @@ def _render_co_tabs():
             st.markdown(f"#### Results at **{_bri_horizon}-year** horizon")
             _bm1, _bm2, _bm3, _bm4 = st.columns(4)
             _bbest = max(_bri_buy_w, _bri_mf_net, _bri_gold_w, _bri_fd_w)
-            _bflag = lambda v: "ðŸ† " if abs(v - _bbest) < 0.5 else ""
-            _bm1.metric(f"{_bflag(_bri_buy_w)}ðŸ  Buy (EMI)",   f"Rs{_bri_buy_w:.1f}L")
-            _bm2.metric(f"{_bflag(_bri_mf_net)}ðŸ“ˆ Rent + MF", f"Rs{_bri_mf_net:.1f}L")
-            _bm3.metric(f"{_bflag(_bri_gold_w)}ðŸ¥‡ Rent + Gold",f"Rs{_bri_gold_w:.1f}L")
-            _bm4.metric(f"{_bflag(_bri_fd_w)}ðŸ¦ Rent + FD",   f"Rs{_bri_fd_w:.1f}L")
+            _bflag = lambda v: "🏆 " if abs(v - _bbest) < 0.5 else ""
+            _bm1.metric(f"{_bflag(_bri_buy_w)}🏠 Buy (EMI)",   f"Rs{_bri_buy_w:.1f}L")
+            _bm2.metric(f"{_bflag(_bri_mf_net)}📈 Rent + MF", f"Rs{_bri_mf_net:.1f}L")
+            _bm3.metric(f"{_bflag(_bri_gold_w)}🥇 Rent + Gold",f"Rs{_bri_gold_w:.1f}L")
+            _bm4.metric(f"{_bflag(_bri_fd_w)}🏦 Rent + FD",   f"Rs{_bri_fd_w:.1f}L")
             _bwin = max([("Buy on EMI", _bri_buy_w), ("Rent + MF", _bri_mf_net), ("Rent + Gold", _bri_gold_w), ("Rent + FD", _bri_fd_w)], key=lambda x: x[1])
             st.success(
                 f"**{_bri_horizon}-year winner: {_bwin[0]}** at Rs{_bwin[1]:.1f}L net wealth. "
@@ -1903,7 +1898,7 @@ def _render_co_tabs():
                         _c1.markdown(f"**{_p['locality']}** `{_p['pin']}`{'  (live data)' if _p['anchored'] else ''}")
                         _c2.markdown(f"Rs{_p['avg_psf']:,} / sqft")
                         _c3.markdown(f"+{_p['cagr_pct']}% CAGR")
-                        _c4.markdown(f"{_RISK_IC[_p['risk']]} **{_p['risk']}** Â· {_p['zone']}")
+                        _c4.markdown(f"{_RISK_IC[_p['risk']]} **{_p['risk']}** · {_p['zone']}")
                 if _iv_st:
                     st.markdown("#### Slight stretch (up to 20% over budget)")
                     for _p in _iv_st[:4]:
@@ -1911,7 +1906,7 @@ def _render_co_tabs():
                         _c1.markdown(f"**{_p['locality']}** `{_p['pin']}`")
                         _c2.markdown(f"Rs{_p['avg_psf']:,} / sqft")
                         _c3.markdown(f"+{_p['cagr_pct']}% CAGR")
-                        _c4.markdown(f"{_RISK_IC[_p['risk']]} **{_p['risk']}** Â· {_p['zone']}")
+                        _c4.markdown(f"{_RISK_IC[_p['risk']]} **{_p['risk']}** · {_p['zone']}")
             st.markdown("---")
             st.markdown("#### Full locality table")
             _iv_df = _pd_inv.DataFrame(_CO_LOC)[["locality","pin","avg_psf","cagr_pct","risk","zone","anchored"]]
@@ -1921,13 +1916,13 @@ def _render_co_tabs():
             _iv_df = _iv_df.sort_values("vs. Budget", key=lambda s: s.abs()).reset_index(drop=True)
             st.dataframe(_iv_df, use_container_width=True, hide_index=True)
 
-    # â”€â”€ Tab 4: Document Q&A â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Tab 4: Document Q&A ──────────────────────────────────────────────────
     with _t_docqa:
         import io as _io_dq
         import requests as _req_dq
         import numpy as _np_dq
 
-        st.markdown("### ðŸ“„ Sales Deed / Agreement Analyzer")
+        st.markdown("### 📄 Sales Deed / Agreement Analyzer")
         st.markdown(
             "Upload your **sales deed, builder-buyer agreement, or any real estate document** (PDF). "
             "The tool will answer your questions by reading your document and cross-checking against "
@@ -2102,12 +2097,12 @@ def _render_co_tabs():
             else:
                 st.info("Upload your sales deed or builder-buyer agreement PDF to get started.")
 
-    # â”€â”€ Tab 5: Feedback Analytics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Tab 5: Feedback Analytics ────────────────────────────────────────────
     with _t_feedback:
         st.markdown(
-            "<h3 style='margin-bottom:4px'>ðŸ“ˆ Feedback Analytics</h3>"
+            "<h3 style='margin-bottom:4px'>📈 Feedback Analytics</h3>"
             "<p style='color:#6b7280;font-size:.85rem;margin-top:0'>"
-            "Live ratings from all users on RERA answers â€” updated in real time.</p>",
+            "Live ratings from all users on RERA answers — updated in real time.</p>",
             unsafe_allow_html=True,
         )
         _fb = _fetch_feedback_stats()
@@ -2116,22 +2111,22 @@ def _render_co_tabs():
         if _total == 0:
             st.info("No feedback collected yet. Ratings will appear here once users start rating answers.")
         else:
-            # â”€â”€ KPI row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # ── KPI row ────────────────────────────────────────────────────
             _k1, _k2, _k3, _k4, _k5 = st.columns(5)
             _k1.metric("Total Rated", _total)
             _k2.metric("Satisfaction", f"{_fb['helpful_pct']}%")
             _k3.metric("Helpful", _fb["helpful"])
             _k4.metric("Not Helpful", _fb["not_helpful"])
             _avg = _fb.get("avg_confidence")
-            _k5.metric("Avg Confidence", f"{_avg:.2f}" if _avg is not None else "â€”")
+            _k5.metric("Avg Confidence", f"{_avg:.2f}" if _avg is not None else "—")
 
             st.markdown("<hr style='margin:12px 0;opacity:.15'>", unsafe_allow_html=True)
 
-            # â”€â”€ Daily trend (last 30 days) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # ── Daily trend (last 30 days) ──────────────────────────────
             _trend = _fb.get("daily_trend", [])
             _trend_has_data = any(d["helpful"] + d["not_helpful"] > 0 for d in _trend)
             if _trend_has_data:
-                st.markdown("**Feedback trend â€” last 30 days**")
+                st.markdown("**Feedback trend — last 30 days**")
                 import pandas as _pd
                 _df_trend = _pd.DataFrame(_trend)
                 _df_trend = _df_trend.set_index("date")[["helpful", "not_helpful"]]
@@ -2140,7 +2135,7 @@ def _render_co_tabs():
 
                 st.markdown("<hr style='margin:12px 0;opacity:.15'>", unsafe_allow_html=True)
 
-            # â”€â”€ Bottom two columns â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # ── Bottom two columns ──────────────────────────────────────
             _col_a, _col_b = st.columns(2)
 
             with _col_a:
@@ -2167,7 +2162,7 @@ def _render_co_tabs():
 
             st.markdown("<hr style='margin:12px 0;opacity:.15'>", unsafe_allow_html=True)
 
-            # â”€â”€ Recent thumbs-down questions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # ── Recent thumbs-down questions ───────────────────────────
             _thumbsdown = _fb.get("recent_thumbsdown", [])
             if _thumbsdown:
                 st.markdown("**Recent not-helpful responses (last 10)**")
@@ -2175,7 +2170,7 @@ def _render_co_tabs():
                     _q = _r.get("question") or ""
                     _cl = _r.get("confidence_label") or ""
                     _cs = _r.get("confidence_score")
-                    _cs_str = f" Â· confidence {_cs:.2f}" if _cs is not None else ""
+                    _cs_str = f" · confidence {_cs:.2f}" if _cs is not None else ""
                     _ts = _r.get("created_at", "")
                     try:
                         from datetime import datetime as _dt2
@@ -2187,13 +2182,13 @@ def _render_co_tabs():
                         f"margin-bottom:6px;border-radius:0 4px 4px 0;background:#fff5f5'>"
                         f"<div style='font-size:.82rem;color:#1f2937'>{_i}. {_q}</div>"
                         f"<div style='font-size:.7rem;color:#9ca3af;margin-top:2px'>"
-                        f"{_cl}{_cs_str} &nbsp;Â·&nbsp; {_ts_fmt}</div>"
+                        f"{_cl}{_cs_str} &nbsp;·&nbsp; {_ts_fmt}</div>"
                         f"</div>",
                         unsafe_allow_html=True,
                     )
 
 
-# â”€â”€ Admin: 5-tab dashboard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Admin: 5-tab dashboard ────────────────────────────────────────────────────
 
 def _render_admin_mode():
     """Render the admin dashboard (no password gate)."""
@@ -2240,7 +2235,7 @@ def _render_admin_mode():
                     display:flex;align-items:center;justify-content:space-between;'>
           <div style='display:flex;align-items:center;gap:15px;'>
             <div style='width:48px;height:48px;background:rgba(59,130,246,.2);border-radius:12px;
-                        display:flex;align-items:center;justify-content:center;font-size:25px;'>ðŸ </div>
+                        display:flex;align-items:center;justify-content:center;font-size:25px;'>🏠</div>
             <div>
               <div style='display:flex;align-items:center;gap:10px;flex-wrap:wrap;'>
                 <h1 style='color:#f0f6ff;margin:0;font-size:25px;font-weight:800;letter-spacing:-.03em;'>Karnataka RERA Admin Dashboard</h1>
@@ -2257,15 +2252,15 @@ def _render_admin_mode():
         """, unsafe_allow_html=True)
     with _adm_btn:
         st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-        _theme_label = "â˜€ï¸ Light" if _is_dark else "ðŸŒ™ Dark"
+        _theme_label = "☀️ Light" if _is_dark else "🌙 Dark"
         if st.button(_theme_label, key="rera_admin_theme_toggle", use_container_width=True):
             st.session_state["rera_admin_dark_mode"] = not _is_dark
             st.rerun()
     _at1, _at2, _at3, _at4, _at5 = st.tabs([
-        "  Activity  ", "  Documents  ", "  Bots  ", "  KB Coverage  ", "  ðŸ“ˆ Feedback  ",
+        "  Activity  ", "  Documents  ", "  Bots  ", "  KB Coverage  ", "  📈 Feedback  ",
     ])
 
-    # â”€â”€ Admin Tab 1: Activity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Admin Tab 1: Activity ────────────────────────────────────────────────
     with _at1:
         import datetime as _dt_adm
         import requests as _req_adm
@@ -2344,7 +2339,7 @@ def _render_admin_mode():
                         "Date": (r.get("created_at") or "")[:10],
                         "Question": (r.get("question") or "")[:120],
                         "Score": round(r.get("confidence"), 3)
-                        if r.get("confidence") is not None else "â€”",
+                        if r.get("confidence") is not None else "—",
                     }
                     for r in _lc
                 ])
@@ -2354,7 +2349,7 @@ def _render_admin_mode():
         else:
             st.info("No RERA queries found for the selected date range.")
 
-    # â”€â”€ Admin Tab 2: Documents â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Admin Tab 2: Documents ───────────────────────────────────────────────
     with _at2:
         import requests as _req_docs
         import pandas as _pd_docs
@@ -2457,11 +2452,11 @@ def _render_admin_mode():
                 _doc_m1.metric("RERA Documents", len(_docs))
                 _doc_m2.metric("Current", _current_docs)
                 _doc_m3.metric("Pending / Archived", f"{_pending_docs} / {_archived_docs}")
-                st.caption(f"RAG access: {_excluded_count} excluded Â· {_expired_count} marked expired")
+                st.caption(f"RAG access: {_excluded_count} excluded · {_expired_count} marked expired")
                 st.info(f"Showing {len(_filtered)} of {len(_docs)} RERA documents")
                 if _filtered:
                     if st.session_state.get("adm_is_admin") and _exclusions:
-                        with st.expander(f"ðŸ“‹ RERA exclusion log ({len(_exclusions)} entries)", expanded=False):
+                        with st.expander(f"📋 RERA exclusion log ({len(_exclusions)} entries)", expanded=False):
                             from datetime import datetime as _dt_parse, timezone as _tz_parse, timedelta as _td_parse
                             _ist = _tz_parse(_td_parse(hours=5, minutes=30))
 
@@ -2479,7 +2474,7 @@ def _render_admin_mode():
                             _df_exclusions = _pd_docs.DataFrame([
                                 {
                                     "Document ID": e.get("doc_id", ""),
-                                    "Type": "â³ Expired" if e.get("status") == "expired" else "ðŸš« Excluded",
+                                    "Type": "⏳ Expired" if e.get("status") == "expired" else "🚫 Excluded",
                                     "By": e.get("excluded_by", "unknown"),
                                     "Email": e.get("excluded_by_email") or "",
                                     "At (IST)": _rera_ist(e.get("excluded_at") or ""),
@@ -2518,7 +2513,7 @@ def _render_admin_mode():
 
                         _row_cols[0].write(_doc.get("doc_id", ""))
                         _row_cols[1].markdown(
-                            f"<span title='{_doc_title.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')}'>{_doc_title[:70]}{'â€¦' if len(_doc_title) > 70 else ''}</span>",
+                            f"<span title='{_doc_title.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')}'>{_doc_title[:70]}{'…' if len(_doc_title) > 70 else ''}</span>",
                             unsafe_allow_html=True,
                         )
                         _row_cols[2].write(_doc.get("status") or "")
@@ -2528,7 +2523,7 @@ def _render_admin_mode():
                             with _row_cols[5]:
                                 if _ex_record:
                                     _is_expired = _ex_record.get("status") == "expired"
-                                    st.write("â³ Expired" if _is_expired else "ðŸš« Excluded")
+                                    st.write("⏳ Expired" if _is_expired else "🚫 Excluded")
                                     st.caption(f"by {_ex_record.get('excluded_by', 'unknown')}")
                                     if _ex_record.get("expires_at"):
                                         st.caption(f"Expires {(str(_ex_record['expires_at']))[:10]}")
@@ -2546,9 +2541,9 @@ def _render_admin_mode():
                                             st.error(f"Could not reinstate document ({_rr.status_code}).")
                                 else:
                                     _exclude_col, _expire_col = st.columns(2)
-                                    if _exclude_col.button("ðŸš«", key=f"rera_exclude_{_index}", help="Exclude from RAG", use_container_width=True):
+                                    if _exclude_col.button("🚫", key=f"rera_exclude_{_index}", help="Exclude from RAG", use_container_width=True):
                                         st.session_state[f"rera_exclusion_action_{_index}"] = "excluded"
-                                    if _expire_col.button("â³", key=f"rera_expire_{_index}", help="Mark as expired", use_container_width=True):
+                                    if _expire_col.button("⏳", key=f"rera_expire_{_index}", help="Mark as expired", use_container_width=True):
                                         st.session_state[f"rera_exclusion_action_{_index}"] = "expired"
 
                                     _action = st.session_state.get(f"rera_exclusion_action_{_index}")
@@ -2597,7 +2592,7 @@ def _render_admin_mode():
         else:
             st.warning("SUPABASE_URL / SUPABASE_SERVICE_KEY not configured.")
 
-    # â”€â”€ Admin Tab 3: Bots â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Admin Tab 3: Bots ────────────────────────────────────────────────────
     with _at3:
         st.markdown("### Deployed RERA assistant")
         st.markdown("""
@@ -2606,9 +2601,9 @@ def _render_admin_mode():
                     position:relative;overflow:hidden;max-width:900px;'>
           <div style='position:absolute;top:-24px;right:-18px;width:125px;height:125px;
                       background:rgba(59,130,246,.08);border-radius:50%;'></div>
-          <div style='font-size:36px;margin-bottom:12px;'>ðŸ </div>
+          <div style='font-size:36px;margin-bottom:12px;'>🏠</div>
           <div style='color:#93c5fd;font-size:10px;font-weight:700;text-transform:uppercase;
-                      letter-spacing:.1em;margin-bottom:6px;'>Karnataka Â· Real estate regulation</div>
+                      letter-spacing:.1em;margin-bottom:6px;'>Karnataka · Real estate regulation</div>
           <h2 style='color:#f0f6ff;margin:0 0 8px;font-size:22px;font-weight:800;'>Karnataka RERA Property Advisor</h2>
           <p style='color:#a9bed8;font-size:13px;margin:0 0 22px;line-height:1.6;max-width:650px;'>
             RERA Act 2016, Karnataka RERA rules, project registration, agent licensing,
@@ -2617,11 +2612,11 @@ def _render_admin_mode():
           <a href='https://ccsragcomplianceassistant-rera.streamlit.app/' target='_blank' rel='noopener noreferrer'
              style='background:#2563eb;color:#fff;padding:11px 22px;border-radius:8px;
                     text-decoration:none;font-size:13px;font-weight:700;display:inline-block;'>
-            Open RERA assistant â†’
+            Open RERA assistant →
           </a>
         </div>""", unsafe_allow_html=True)
 
-    # â”€â”€ Admin Tab 4: KB Coverage â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Admin Tab 4: KB Coverage ─────────────────────────────────────────────
     with _at4:
         import pandas as _pd_kb
 
@@ -2682,7 +2677,7 @@ def _render_admin_mode():
             _cov_pct = round(_dom["have"] / _dom["total"] * 100) if _dom["total"] else 0
             _status_color = "#16a34a" if _cov_pct >= 80 else ("#d97706" if _cov_pct >= 40 else "#dc2626")
             _have_pills = "".join(
-                f"<span style='display:inline-block;background:#dbeafe;color:#1d4ed8;border-radius:6px;padding:5px 8px;margin:3px;font-size:11px;'>âœ“ {_html_escape(_label)}</span>"
+                f"<span style='display:inline-block;background:#dbeafe;color:#1d4ed8;border-radius:6px;padding:5px 8px;margin:3px;font-size:11px;'>✓ {_html_escape(_label)}</span>"
                 for _label in _dom["have_labels"]
             )
             _missing_pills = "".join(
@@ -2707,7 +2702,7 @@ def _render_admin_mode():
 
         st.caption("Coverage is based on the RERA documents currently mapped to the planned knowledge base domains.")
 
-    # â”€â”€ Admin Tab 5: Feedback Analytics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Admin Tab 5: Feedback Analytics ──────────────────────────────────────
     with _at5:
         import requests as _req_fb
         import datetime as _dt_fb
@@ -2809,7 +2804,7 @@ def _render_admin_mode():
                 _rated_rows.append({
                     "Time": _ts_disp,
                     "Question": (_x.get("question") or "")[:100],
-                    "Rating": "ðŸ‘ Helpful" if _x.get("feedback_type") == "up" else "ðŸ‘Ž Not Helpful",
+                    "Rating": "👍 Helpful" if _x.get("feedback_type") == "up" else "👎 Not Helpful",
                     "Role": _x.get("user_role") or "Unknown",
                 })
             st.dataframe(_pd_fb.DataFrame(_rated_rows), use_container_width=True, hide_index=True)
@@ -2819,7 +2814,7 @@ def _render_admin_mode():
             # Thumbs-down deep dive
             _thumbsdown_adm = [x for x in _rows if x.get("feedback_type") == "down"]
             if _thumbsdown_adm:
-                st.markdown(f"<div style='color:{_text};font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px;'>Not-Helpful Questions â€” Full List ({len(_thumbsdown_adm)})</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='color:{_text};font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px;'>Not-Helpful Questions — Full List ({len(_thumbsdown_adm)})</div>", unsafe_allow_html=True)
                 for _idx, _item in enumerate(_thumbsdown_adm, 1):
                     _q_adm = _item.get("question") or "(no question)"
                     _ts_adm = _item.get("created_at", "")
@@ -2833,16 +2828,16 @@ def _render_admin_mode():
                         f"border-radius:0 8px 8px 0;padding:10px 16px;margin-bottom:8px;'>"
                         f"<div style='color:{_text};font-size:13px;font-weight:500;'>{_idx}. {_q_adm}</div>"
                         f"<div style='color:{_muted};font-size:11px;margin-top:4px;'>"
-                        f"{_item.get('user_role') or 'Unknown'} &nbsp;Â·&nbsp; {_ts_adm_fmt}</div>"
+                        f"{_item.get('user_role') or 'Unknown'} &nbsp;·&nbsp; {_ts_adm_fmt}</div>"
                         f"</div>",
                         unsafe_allow_html=True,
                     )
 
 
-# â”€â”€ main app layout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── main app layout ───────────────────────────────────────────────────────────
 
 def main():
-    # â”€â”€ Role toggle â€” lives in the sidebar, compact â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Role toggle — lives in the sidebar, compact ────────────────────────
     with st.sidebar:
         st.markdown(
             "<div style='margin-bottom:2px;font-size:11px;color:#9ca3af;"
@@ -2852,19 +2847,19 @@ def main():
         )
         _role = st.radio(
             "View",
-            ["ðŸ‘¤ User", "ðŸŽ– Compliance", "ðŸ”‘ Admin"],
+            ["👤 User", "🎖 Compliance", "🔑 Admin"],
             horizontal=True,
             key="app_role",
             label_visibility="collapsed",
         )
         st.markdown("<hr style='margin:6px 0 10px;opacity:.15'>", unsafe_allow_html=True)
 
-    # â”€â”€ User mode â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── User mode ──────────────────────────────────────────────────────────
     if "User" in _role:
         _sidebar_project_search()
         _sidebar_document_context()
 
-        # â”€â”€ Feedback stats bar + Past sessions panel â€” bottom of sidebar â”€â”€â”€â”€â”€
+        # ── Feedback stats bar + Past sessions panel — bottom of sidebar ─────
         with st.sidebar:
             st.markdown("<hr style='margin:4px 0 8px;opacity:.15'>", unsafe_allow_html=True)
             st.markdown(
@@ -2878,13 +2873,13 @@ def main():
             _sessions = _fetch_rera_sessions(limit=5)
             _active_sid = st.session_state.get("uf_session_id", "")
             _sessions = [s for s in _sessions if s["session_id"] != _active_sid]
-            _sess_label = f"ðŸ” Past Sessions ({len(_sessions)})" if _sessions else "ðŸ” Past Sessions"
+            _sess_label = f"🔍 Past Sessions ({len(_sessions)})" if _sessions else "🔍 Past Sessions"
             with st.expander(_sess_label, expanded=False):
                 if _sessions:
                     for _s in _sessions:
                         _sid = _s["session_id"]
                         _preview = _s["preview"]
-                        _short = _preview[:45] + "â€¦" if len(_preview) > 45 else _preview
+                        _short = _preview[:45] + "…" if len(_preview) > 45 else _preview
                         _cnt = _s.get("count", 1)
                         _raw_dt = _s.get("created_at", "")
                         try:
@@ -2897,12 +2892,12 @@ def main():
                         _msg_label = f"{_cnt} msg{'s' if _cnt != 1 else ''}"
                         _btn_label = f"{_short}"
                         _btn_help = (
-                            f"{_preview}\n\n{_msg_label}  Â·  {_date_str}"
+                            f"{_preview}\n\n{_msg_label}  ·  {_date_str}"
                             if _date_str else f"{_preview}\n\n{_msg_label}"
                         )
                         st.markdown(
                             f"<div style='font-size:.68rem;color:#6b7280;margin-bottom:1px'>"
-                            f"{_date_str} &nbsp;Â·&nbsp; {_msg_label}</div>",
+                            f"{_date_str} &nbsp;·&nbsp; {_msg_label}</div>",
                             unsafe_allow_html=True,
                         )
                         if st.button(
@@ -2961,11 +2956,11 @@ def main():
             st.divider()
         _render_chat()
 
-    # â”€â”€ Compliance Officer mode â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Compliance Officer mode ────────────────────────────────────────────
     elif "Compliance" in _role:
         _render_co_tabs()
 
-    # â”€â”€ Admin mode â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── Admin mode ────────────────────────────────────────────────────────
     elif "Admin" in _role:
         _render_admin_mode()
 
