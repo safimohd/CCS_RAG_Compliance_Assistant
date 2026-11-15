@@ -2121,49 +2121,10 @@ def _render_co_tabs():
                     )
 
 
-# ── Admin: password-gated 4-tab dashboard ─────────────────────────────────────
+# ── Admin: 5-tab dashboard ────────────────────────────────────────────────────
 
 def _render_admin_mode():
-    """Render the admin dashboard with password gate."""
-    # Password gate
-    if "adm_auth" not in st.session_state:
-        st.session_state["adm_auth"] = False
-
-    if not st.session_state["adm_auth"]:
-        _, _ac, _ = st.columns([1, 2, 1])
-        with _ac:
-            st.markdown(
-                "<div style='text-align:center;margin:40px 0 24px'>"
-                "<div style='font-size:40px'>🛡️</div>"
-                "<h3 style='margin:8px 0 4px'>Admin Access</h3>"
-                "<p style='color:#6b7280;font-size:.85rem'>CCS RAG Compliance Dashboard</p>"
-                "</div>",
-                unsafe_allow_html=True,
-            )
-            _adm_user = st.text_input("Username", key="adm_user_input",
-                                      label_visibility="collapsed",
-                                      placeholder="Enter admin username")
-            _adm_pwd = st.text_input("Password", type="password", key="adm_pwd_input",
-                                     label_visibility="collapsed",
-                                     placeholder="Enter admin password")
-            if st.button("Sign in", key="adm_login_btn", use_container_width=True):
-                _correct_user = _secret("ADMIN_USERNAME")
-                _correct = _secret("ADMIN_SECRET") or _secret("ADMIN_PASSWORD") or ""
-                if (
-                    _correct_user
-                    and _correct
-                    and _adm_user.strip() == _correct_user
-                    and _adm_pwd == _correct
-                ):
-                    st.session_state["adm_auth"] = True
-                    st.session_state["adm_is_admin"] = True
-                    st.session_state["adm_username"] = _adm_user.strip()
-                    st.rerun()
-                elif not _correct_user:
-                    st.error("Admin username is not configured.")
-                else:
-                    st.error("Incorrect username or password.")
-        st.stop()
+    """Render the admin dashboard (no password gate)."""
 
     # RERA Admin-only presentation. The User / Compliance / Admin selector and
     # credential gate remain part of the existing RERA app flow.
@@ -2228,11 +2189,9 @@ def _render_admin_mode():
         if st.button(_theme_label, key="rera_admin_theme_toggle", use_container_width=True):
             st.session_state["rera_admin_dark_mode"] = not _is_dark
             st.rerun()
-        if st.button("Sign out", key="adm_logout", use_container_width=True):
-            st.session_state["adm_auth"] = False
-            st.rerun()
-
-    _at1, _at2, _at3, _at4 = st.tabs(["  Activity  ", "  Documents  ", "  Bots  ", "  KB Coverage  "])
+    _at1, _at2, _at3, _at4, _at5 = st.tabs([
+        "  Activity  ", "  Documents  ", "  Bots  ", "  KB Coverage  ", "  📈 Feedback  ",
+    ])
 
     # ── Admin Tab 1: Activity ────────────────────────────────────────────────
     with _at1:
