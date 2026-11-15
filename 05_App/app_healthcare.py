@@ -2222,6 +2222,10 @@ if st.session_state.pop("_new_conv_requested", False):
     st.session_state["feedback"] = {}
     for _k in ("_active_session_id", "_active_session_title", "_user_sessions"):
         st.session_state.pop(_k, None)
+    # Second rerun so the sidebar also re-renders with the cleared state.
+    # (The sidebar runs before this handler, so without a second pass it
+    # would still show stale sessions on the first rerun.)
+    st.rerun()
 
 meta = DOMAIN_META[domain]
 
@@ -2785,10 +2789,17 @@ else:
                         if _new_sid:
                             st.session_state["_active_session_id"] = _new_sid
                             st.session_state["_active_session_title"] = _sess_title
-                        # Always refresh the sidebar session list — whether save
-                        # succeeded or failed — so the user sees the current state
-                        # and any error surfaces on the next rerun.
+                            st.toast("Session saved", icon="💾")
+                        elif st.session_state.get("_save_err"):
+                            st.toast(f"Save issue: {st.session_state['_save_err'][:80]}", icon="⚠️")
+                        # Refresh the sidebar session list in state so the next
+                        # render (triggered by the rerun below) picks it up.
                         st.session_state["_user_sessions"] = fetch_user_sessions(20, _cu=_sess_cu)
+                        # Rerun so the sidebar re-renders and immediately shows
+                        # the new/updated session. Without this the sidebar was
+                        # already rendered before the save code ran, so the new
+                        # session would only appear after the next user action.
+                        st.rerun()
     
                     # Action row: copy + share + feedback + bookmark buttons
                     if not low_confidence and client is not None and daily_usage() < DAILY_LIMIT:
