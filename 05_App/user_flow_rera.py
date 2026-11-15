@@ -2711,7 +2711,6 @@ def _render_admin_mode():
             st.cache_data.clear()
             st.rerun()
 
-        @st.cache_data(ttl=15)
         def _adm_fetch_feedback():
             _url = _secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL", "")
             _svc = _secret("SUPABASE_SERVICE_KEY") or _secret("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY", "")
