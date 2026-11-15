@@ -1840,7 +1840,6 @@ with st.sidebar:
 
     st.markdown(
         "<style>"
-        /* hide the sidebar collapse-button icon text artifact */
         "[data-testid='stSidebar'] [data-testid='stSidebarCollapseButton'] span {"
         "display:none!important}"
         "[data-testid='stSidebar'] [data-testid='stRadio'] label {"
