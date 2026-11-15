@@ -1388,6 +1388,8 @@ def _render_chat():
                         "helpful": _cur["helpful"] + 1,
                         "not_helpful": _cur["not_helpful"],
                     }
+                # Clear ALL caches so admin tab picks up new row immediately
+                st.cache_data.clear()
                 import time as _time; _time.sleep(0.6)
                 st.rerun()
         with _fbc2:
@@ -1410,6 +1412,8 @@ def _render_chat():
                         "helpful": _cur["helpful"],
                         "not_helpful": _cur["not_helpful"] + 1,
                     }
+                # Clear ALL caches so admin tab picks up new row immediately
+                st.cache_data.clear()
                 import time as _time; _time.sleep(0.6)
                 st.rerun()
     elif _pfb and _pfb.get("rated"):
@@ -2707,7 +2711,7 @@ def _render_admin_mode():
             st.cache_data.clear()
             st.rerun()
 
-        @st.cache_data(ttl=60)
+        @st.cache_data(ttl=15)
         def _adm_fetch_feedback():
             _url = _secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL", "")
             _svc = _secret("SUPABASE_SERVICE_KEY") or _secret("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY", "")
