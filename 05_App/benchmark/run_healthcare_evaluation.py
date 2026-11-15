@@ -225,8 +225,8 @@ def load_chromadb_healthcare():
 # ── Retrieval ──────────────────────────────────────────────────────────────────
 
 TIER_WEIGHT = {"A": 1.00, "B": 0.95, "C": 0.80, "D": 0.55, "E": 0.35}
-TOP_K       = 10
-CANDIDATE_K = 30
+TOP_K       = 6
+CANDIDATE_K = 24
 
 
 def retrieve_passages(store, query: str) -> list[dict]:
