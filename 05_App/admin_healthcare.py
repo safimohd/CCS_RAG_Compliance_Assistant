@@ -308,11 +308,13 @@ role_color = "#3b82f6" if st.session_state.is_admin else "#64748b"
 
 with st.sidebar:
     st.markdown(
-        "<style>[data-testid='stSidebar'] [data-testid='stRadio'] > div {"
-        "flex-direction:row!important;flex-wrap:nowrap!important;gap:4px!important}"
+        "<style>"
+        "[data-testid='stSidebar'] [data-testid='stSidebarCollapseButton'] span {"
+        "display:none!important}"
         "[data-testid='stSidebar'] [data-testid='stRadio'] label {"
-        "font-size:.75rem!important;white-space:nowrap!important}</style>"
-        "<div style='margin-bottom:2px;font-size:11px;color:#9ca3af;"
+        "font-size:.8rem!important}"
+        "</style>"
+        "<div style='margin-bottom:4px;font-size:11px;color:#9ca3af;"
         "text-transform:uppercase;letter-spacing:.06em;font-weight:600'>View</div>",
         unsafe_allow_html=True,
     )
@@ -321,7 +323,7 @@ with st.sidebar:
         ["👤 User", "🎖 Compliance Officer", "🔑 Admin"],
         index=2,
         key="hc_role_toggle",
-        horizontal=True,
+        horizontal=False,
         label_visibility="collapsed",
     )
     if _admin_view != "🔑 Admin":
@@ -985,10 +987,14 @@ with tab5:
     label_c = "#6b7f9a" if is_dark else "#6b7a99"
     text_c  = "#e4ecf7" if is_dark else "#141c2e"
 
-    st.markdown(
+    _fb_hdr, _fb_btn = st.columns([6, 1])
+    _fb_hdr.markdown(
         f"<h3 style='margin:0 0 18px;font-size:1.1rem;color:{text_c}'>User Feedback</h3>",
         unsafe_allow_html=True,
     )
+    if _fb_btn.button("🔄 Refresh", key="feedback_refresh"):
+        st.cache_data.clear()
+        st.rerun()
 
     try:
         fb_resp = requests.get(
@@ -1076,9 +1082,15 @@ with tab5:
                     unsafe_allow_html=True,
                 )
 
-        # Full table toggle
-        with st.expander("View all feedback rows"):
-            cols_show = [c for c in ["created_at", "domain", "feedback_type",
-                                     "feedback_reason", "question", "confidence_label",
-                                     "confidence_score"] if c in df_fb.columns]
-            st.dataframe(df_fb[cols_show], use_container_width=True)
+        # Full table toggle — column names come from Supabase as conf_label / conf_score
+        with st.expander("📋 All feedback rows"):
+            _col_map = {
+                "created_at": "Time", "domain": "Domain",
+                "feedback_type": "👍/👎", "question": "Question",
+                "conf_label": "Confidence", "conf_score": "Score",
+            }
+            cols_show = [c for c in _col_map if c in df_fb.columns]
+            st.dataframe(
+                df_fb[cols_show].rename(columns=_col_map),
+                use_container_width=True,
+            )

@@ -1839,11 +1839,14 @@ with st.sidebar:
         _clear_hc_role_state()
 
     st.markdown(
-        "<style>[data-testid='stSidebar'] [data-testid='stRadio'] > div {"
-        "flex-direction:row!important;flex-wrap:nowrap!important;gap:4px!important}"
+        "<style>"
+        /* hide the sidebar collapse-button icon text artifact */
+        "[data-testid='stSidebar'] [data-testid='stSidebarCollapseButton'] span {"
+        "display:none!important}"
         "[data-testid='stSidebar'] [data-testid='stRadio'] label {"
-        "font-size:.75rem!important;white-space:nowrap!important}</style>"
-        "<div style='margin-bottom:2px;font-size:11px;color:#9ca3af;"
+        "font-size:.8rem!important}"
+        "</style>"
+        "<div style='margin-bottom:4px;font-size:11px;color:#9ca3af;"
         "text-transform:uppercase;letter-spacing:.06em;font-weight:600'>View</div>",
         unsafe_allow_html=True,
     )
@@ -1851,7 +1854,7 @@ with st.sidebar:
         "View",
         ["👤 User", "🎖 Compliance Officer", "🔑 Admin"],
         key="hc_role_toggle",
-        horizontal=True,
+        horizontal=False,
         label_visibility="collapsed",
         on_change=_on_hc_role_toggle,
     )
