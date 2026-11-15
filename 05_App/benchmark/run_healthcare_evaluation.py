@@ -868,11 +868,25 @@ def main():
 
     # ── Phase 1: collect answers ───────────────────────────────────────────────
     if not args.only_judge:
+        total_q   = len(rows)
+        phase1_t0 = time.time()
         for idx, row in enumerate(rows, 1):
             qid  = row["Question Id"]
             q    = row["Question Text"]
             tier = int(row.get("Tier", 3) or 3)
-            print(f"\n[{idx}/{len(rows)}] {qid} | {row.get('Question Type','')} | T{tier}")
+
+            elapsed   = time.time() - phase1_t0
+            avg_per_q = elapsed / idx if idx > 1 else 0
+            remaining = total_q - idx
+            eta_secs  = avg_per_q * remaining
+            eta_str   = (
+                f"{int(eta_secs//60)}m {int(eta_secs%60)}s remaining"
+                if avg_per_q > 0 else "calculating..."
+            )
+            pct = int(idx / total_q * 100)
+            bar = "#" * (pct // 5) + "-" * (20 - pct // 5)
+            print(f"\n[{idx}/{total_q}] [{bar}] {pct}%  ETA: {eta_str}")
+            print(f"  {qid} | {row.get('Question Type','')} | T{tier}")
             print(f"  Q: {q[:90]}...")
 
             updates: dict[str, str] = {}
@@ -909,7 +923,9 @@ def main():
                 write_answer_to_xlsx(xlsx_path, idx, updates)
                 print(f"  [saved] row {idx} written back to xlsx")
 
-        print(f"\n[Phase 1 complete] All answers written to {xlsx_path}")
+        phase1_elapsed = time.time() - phase1_t0
+        print(f"\n[Phase 1 complete] {total_q} questions answered in {int(phase1_elapsed//60)}m {int(phase1_elapsed%60)}s")
+        print(f"  Answers written to {xlsx_path}")
 
     # ── Phase 2: judge scoring ─────────────────────────────────────────────────
     if args.no_judge:
@@ -940,6 +956,7 @@ def main():
 
     total_pairs = len(rows) * len(systems_to_run)
     done = 0
+    phase2_t0 = time.time()
     for row in rows:
         qid      = row["Question Id"]
         q        = row["Question Text"]
@@ -952,8 +969,17 @@ def main():
 
         for sysname in systems_to_run:
             done += 1
+            elapsed   = time.time() - phase2_t0
+            avg_per_j = elapsed / done if done > 1 else 0
+            remaining = total_pairs - done
+            eta_secs  = avg_per_j * remaining
+            eta_str   = (
+                f"{int(eta_secs//60)}m {int(eta_secs%60)}s remaining"
+                if avg_per_j > 0 else "calculating..."
+            )
+            pct = int(done / total_pairs * 100)
             sys_ans = str(row.get(sys_col[sysname], "") or "").strip()
-            print(f"  [Judge {done}/{total_pairs}] {qid} | System {sysname} ...", end=" ", flush=True)
+            print(f"  [Judge {done}/{total_pairs}] [{pct:3d}%  ETA: {eta_str}] {qid} | Sys {sysname} ...", end=" ", flush=True)
             score = judge_answer(judge_client, q, expected, sys_ans)
             print(f"Total: {score['total']}/8")
             scores.append({
@@ -989,7 +1015,9 @@ def main():
             ca  = sum(s["confidence_calibration"] for s in ss) / n
             tot = sum(s["total"] for s in ss) / n
             print(f"  {sysname:<6} {fa:>8.2f} {co:>9.2f} {ca:>9.2f} {tot:>10.2f} {n:>5}")
-    print(f"\n[Done] Evaluation file: {eval_path}")
+    phase2_elapsed = time.time() - phase2_t0
+    print(f"\n[Done] Scoring complete in {int(phase2_elapsed//60)}m {int(phase2_elapsed%60)}s")
+    print(f"  Evaluation file: {eval_path}")
 
 
 if __name__ == "__main__":
